@@ -5,7 +5,7 @@
 [![Install Script](https://img.shields.io/badge/Install%20Script-brightgreen?style=for-the-badge)](https://github.com/chr1sx/Discogs-Edit-Helper/raw/refs/heads/main/Discogs%20Edit%20Helper.user.js)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 
-Automatically extracts info from track titles and assigns them to the appropriate fields,  
+Automatically extracts info from track titles and assigns to the appropriate fields,  
 intended to work with [**Audio To Discogs CSV Exporter**](https://github.com/chr1sx/Audio-To-Discogs-CSV-Exporter).
 </div>
 
