@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      1.1
+// @version      1.2
 // @description  Extracts durations, artists, featuring artists and remixers from track titles and assigns them to the appropriate fields
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
@@ -1396,7 +1396,7 @@
                 <button id="extract-artists" class="dh-btn" title="Splitter Keywords: ${CONFIG.ARTIST_SPLITTER_PATTERNS.join(', ')}">👤 Extract Artists</button>
                 <button id="extract-featuring" class="dh-btn" title="Keywords: ${CONFIG.FEATURING_PATTERNS.join(', ')}">👥 Extract Feat. Artists</button>
                 <div style="display:flex; gap:8px; align-items:center;">
-                    <button id="extract-remixers" class="dh-btn" style="flex:1;">🪩 Extract Remixers</button>
+                    <button id="extract-remixers" class="dh-btn" style="flex:1;">🎶 Extract Remixers</button>
                 </div>
                 <button id="revert-last" class="dh-btn" style="margin-top: 8px;">↩️ Revert Actions</button>
                 <div id="track-info" style="background: #f8f9fa; padding: 8px; border-radius: 4px; margin-top: 8px; font-size: 12px; display: block; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Ready</div>
