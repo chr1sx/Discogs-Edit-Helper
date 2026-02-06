@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      1.2
-// @description  Extracts durations, artists, featuring artists and remixers from track titles and assigns them to the appropriate fields
+// @version      1.3
+// @description  Automatically extracts info from track titles and assigns to the appropriate fields.
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
 // @grant        none
@@ -18,28 +18,51 @@
 
     const CONFIG = {
         INACTIVITY_TIMEOUT_MS: 45 * 1000,
-        INFO_TEXT_COLOR: '#28a745',
-        THEME_KEY: 'discogs_helper_theme_v2',
-        FEAT_REMOVE_KEY: 'discogs_helper_removeFeat',
-        REMIX_OPTIONAL_KEY: 'discogs_helper_remix_optional',
         MAX_LOG_MESSAGES: 200,
+        MAX_HISTORY_STATES: 50,
         RETRY_ATTEMPTS: 4,
         RETRY_DELAY_MS: 140,
+        PROCESSING_DELAY_MS: 300,
+        INFO_TEXT_COLOR: '#28a745',
         FEATURING_PATTERNS: ['featuring', 'feat', 'ft', 'f/', 'w/'],
         REMIX_PATTERNS: ['remix', 'rmx'],
         REMIX_PATTERNS_OPTIONAL: ['edit', 'mix', 'rework', 'version'],
         REMIX_BY_PATTERNS: ['remixed by', 'remix by', 'rmx by', 'reworked by', 'rework by', 'edited by', 'edit by', 'mixed by', 'mix by', 'version by'],
-        ARTIST_SPLITTER_PATTERNS: ['vs', '&', '+', '/']
+        ARTIST_SPLITTER_PATTERNS: ['vs', '&', '+', '/', ',']
+    };
+
+    const STORAGE_KEYS = {
+        THEME_KEY: 'discogs_helper_theme_v2',
+        FEAT_REMOVE_KEY: 'discogs_helper_removeFeat',
+        MAIN_REMOVE_KEY: 'discogs_helper_removeMain',
+        REMIX_OPTIONAL_KEY: 'discogs_helper_remix_optional'
     };
 
     const state = {
         logMessages: [],
         hideTimeout: null,
+        processingTimeout: null,
+        processingStartTime: null,
         actionHistory: [],
         isCollapsed: false,
+        removeMainFromTitle: true,
         removeFeatFromTitle: false,
         remixOptionalEnabled: false
     };
+
+    function getRemixByRegex() {
+        const patterns = CONFIG.REMIX_BY_PATTERNS.map(p => escapeRegExp(p)).join('|');
+        return new RegExp(`^(?:${patterns})\\s+`, 'i');
+    }
+
+    function getAllRemixTokensRegex() {
+        const all = [
+            ...CONFIG.REMIX_PATTERNS,
+            ...CONFIG.REMIX_PATTERNS_OPTIONAL,
+            ...CONFIG.REMIX_BY_PATTERNS
+        ].map(p => escapeRegExp(p)).join('|');
+        return all;
+    }
 
     function log(message, type = 'info') {
         const timestamp = new Date().toLocaleTimeString();
@@ -100,27 +123,75 @@
         infoDiv.textContent = text;
     }
 
+    function setInfoProcessing() {
+        if (state.processingTimeout) {
+            clearTimeout(state.processingTimeout);
+            state.processingTimeout = null;
+        }
+
+        setInfoSingleLine('Processing...');
+        state.processingStartTime = Date.now();
+    }
+
+    async function clearInfoProcessing() {
+        if (state.processingStartTime) {
+            const elapsed = Date.now() - state.processingStartTime;
+            if (elapsed < CONFIG.PROCESSING_DELAY_MS) {
+                await new Promise(resolve => setTimeout(resolve, CONFIG.PROCESSING_DELAY_MS - elapsed));
+            }
+            state.processingStartTime = null;
+        }
+    }
+
     function initializeState() {
         try {
-            const storedFeat = localStorage.getItem(CONFIG.FEAT_REMOVE_KEY);
+            const storedFeat = localStorage.getItem(STORAGE_KEYS.FEAT_REMOVE_KEY);
             if (storedFeat === '0' || storedFeat === '1') {
                 state.removeFeatFromTitle = (storedFeat === '1');
             }
-        } catch (e) { }
+        } catch (e) {}
         try {
-            const storedRemixOpt = localStorage.getItem(CONFIG.REMIX_OPTIONAL_KEY);
+            const storedMain = localStorage.getItem(STORAGE_KEYS.MAIN_REMOVE_KEY);
+            if (storedMain === '0' || storedMain === '1') {
+                state.removeMainFromTitle = (storedMain === '1');
+            }
+        } catch (e) {}
+        try {
+            const storedRemixOpt = localStorage.getItem(STORAGE_KEYS.REMIX_OPTIONAL_KEY);
             if (storedRemixOpt === '0' || storedRemixOpt === '1') {
                 state.remixOptionalEnabled = (storedRemixOpt === '1');
             }
-        } catch (e) { }
+        } catch (e) {}
     }
 
-    function cleanupArtistName(str) {
+    function cleanupArtistName(str, preserveWrapping = false) {
         if (!str) return '';
         let s = String(str).trim();
-        s = s.replace(/^[\s\(\[\-:\.]+/, '');
-        s = s.replace(/[\s\-\:;,]+$/g, '');
-        if ((s.startsWith('(') && s.endsWith(')')) || (s.startsWith('[') && s.endsWith(']'))) {
+
+        s = s.replace(getRemixByRegex(), '');
+        s = s.replace(/^by\s+/i, '');
+
+        if (preserveWrapping) {
+            if (s.startsWith('[') && s.endsWith(']')) {
+                return s;
+            }
+            if (s.startsWith('(') && s.endsWith(')')) {
+                const inner = s.slice(1, -1).trim();
+                return '(' + inner + ')';
+            }
+            s = s.replace(/^[\s\(\-:\.]+/, '');
+            s = s.replace(/[\s\-\:;,\.]+$/g, '');
+            return s;
+        }
+        if (s.startsWith('[') && s.endsWith(']')) {
+            return s;
+        }
+        if (s.startsWith('(') && s.endsWith(')')) {
+            s = s.slice(1, -1).trim();
+        }
+        s = s.replace(/^[\s\(\-:\.]+/, '');
+        s = s.replace(/[\s\-\:;,\.]+$/g, '');
+        if (s.startsWith('(') && s.endsWith(')')) {
             s = s.slice(1, -1).trim();
         }
         return s;
@@ -144,28 +215,36 @@
     }
 
     function buildSplitterCaptureRegex(includeFeaturing = false) {
-        const parts = [];
-        if (includeFeaturing) parts.push(buildFeaturingPattern());
-        for (const s of CONFIG.ARTIST_SPLITTER_PATTERNS) {
-            if (isAlphaToken(s)) {
-                parts.push(`(?<!\\w)(?:${escapeRegExp(s)}\\.?)(?!\\w)`);
-            } else {
-                parts.push(`(?:${escapeRegExp(s)})`);
-            }
+    const parts = [];
+    if (includeFeaturing) parts.push(buildFeaturingPattern());
+    for (const s of CONFIG.ARTIST_SPLITTER_PATTERNS) {
+        if (isAlphaToken(s)) {
+            parts.push(`(?<!\\w)(?:${escapeRegExp(s)}\\.?)(?!\\w)`);
+        } else {
+            parts.push(`(?:${escapeRegExp(s)})`);
         }
-        const pattern = parts.join('|');
-        return new RegExp(`\\s*(${pattern})\\s*`, 'i');
+    }
+    const pattern = parts.join('|');
+    return new RegExp(`\\s*(${pattern})\\s*`, 'gi');
     }
 
     function buildSplitterRegex() {
-        const parts = CONFIG.ARTIST_SPLITTER_PATTERNS.map(s => {
-            if (isAlphaToken(s)) {
-                return `(?<!\\w)(?:${escapeRegExp(s)}\\.?)(?!\\w)`;
-            }
-            return `(?:${escapeRegExp(s)})`;
-        });
-        const pattern = parts.join('|');
-        return new RegExp(`\\s*(?:${pattern})\\s*`, 'i');
+    const parts = CONFIG.ARTIST_SPLITTER_PATTERNS.map(s => {
+        if (isAlphaToken(s)) {
+            return `(?<!\\w)(?:${escapeRegExp(s)}\\.?)(?!\\w)`;
+        }
+        return `(?:${escapeRegExp(s)})`;
+    });
+    const pattern = parts.join('|');
+    return new RegExp(`\\s*(?:${pattern})\\s*`, 'gi');
+    }
+
+    function splitArtistsByConfiguredPatterns(raw) {
+    if (!raw) return [];
+    const tokens = CONFIG.ARTIST_SPLITTER_PATTERNS.map(t => escapeRegExp(t)).join('|');
+    const splitter = new RegExp(`\\s*(?:${tokens})\\s*`, 'gi');  // Changed 'g' flag to 'gi'
+    const parts = raw.split(splitter).map(p => cleanupArtistName(p, true)).filter(Boolean);
+    return parts;
     }
 
     function findRemoveButtonIn(container) {
@@ -226,7 +305,7 @@
         if (!addButton || count <= 0) return [];
         const before = Array.from(artistTd.querySelectorAll('input[data-type="artist-name"], input.credit-artist-name-input'));
         const beforeCount = before.length;
-        for (let i = 0; i < count; i++) try { addButton.click(); } catch (e) { }
+        for (let i = 0; i < count; i++) try { addButton.click(); } catch (e) {}
         const timeout = 1200;
         const pollInterval = 40;
         const start = Date.now();
@@ -303,7 +382,7 @@
                         }
                     }
                     const newCreditItem = (roleInput && roleInput.closest('li.editable_item')) || (artistInput && artistInput.closest('li.editable_item')) || (roleInput && roleInput.closest('li')) || (artistInput && artistInput.closest('li')) || null;
-                    const removeButton = newCreditItem ? (newCreditItem.querySelector('button.editable_input_remove') || findRemoveNear(newCreditItem)) : (titleTd.querySelector('button.editable_input_remove') || findRemoveNear(row));
+                    const removeButton = newCreditItem ? (newCreditItem.querySelector('button.editable_input_remove') || findRemoveButtonIn(newCreditItem) || findRemoveNear(newCreditItem)) : (titleTd.querySelector('button.editable_input_remove') || findRemoveNear(row));
                     clearInterval(interval);
                     setTimeout(() => resolve({ roleInput, artistInput, newCreditItem, removeButton }), 20);
                     return;
@@ -331,7 +410,7 @@
                     const artistInput = allArtists[allArtists.length - 1];
                     const newCreditItem = (roleInput && roleInput.closest('li.editable_item')) || (artistInput && artistInput.closest('li.editable_item')) || null;
                     clearInterval(interval);
-                    const removeButton = newCreditItem ? (newCreditItem.querySelector('button.editable_input_remove') || findRemoveNear(newCreditItem)) : findRemoveNear(row);
+                    const removeButton = newCreditItem ? (newCreditItem.querySelector('button.editable_input_remove') || findRemoveButtonIn(newCreditItem) || findRemoveNear(newCreditItem)) : findRemoveNear(row);
                     setTimeout(() => resolve({ roleInput, artistInput, newCreditItem, removeButton }), 20);
                     return;
                 }
@@ -348,63 +427,119 @@
         const titleTd = row.querySelector('td.subform_track_title');
         if (!titleTd || count <= 0) return [];
         let addButton = titleTd.querySelector('button.add-credit-button') || row.querySelector('button.add-credit-button');
-        if (!addButton) {
-            const editableLists = Array.from(titleTd.querySelectorAll('.editable_list'));
-            for (const list of editableLists) {
-                const btn = list.querySelector('button.add-credit-button');
-                if (btn) { addButton = btn; break; }
-            }
-        }
         if (!addButton) return [];
-        const beforeRoles = Array.from(row.querySelectorAll('input.add-credit-role-input'));
-        const beforeArtists = Array.from(row.querySelectorAll('input.credit-artist-name-input'));
-        const beforeCount = Math.max(beforeRoles.length, beforeArtists.length);
-        for (let i = 0; i < count; i++) try { addButton.click(); } catch (e) { }
-        const timeout = 1200;
+        const artistInputsInRow = Array.from(row.querySelectorAll('input.credit-artist-name-input'));
+        let beforeMax = -1;
+        artistInputsInRow.forEach(input => {
+            const id = input.id || '';
+            const match = id.match(/artist-name-credits-input-(\d+)/);
+            if (match) beforeMax = Math.max(beforeMax, parseInt(match[1], 10));
+        });
+        for (let i = 0; i < count; i++) { try { addButton.click(); } catch (e) {} }
+        const timeout = 1600;
         const pollInterval = 40;
         const start = Date.now();
-        let nowRoles = Array.from(row.querySelectorAll('input.add-credit-role-input'));
-        let nowArtists = Array.from(row.querySelectorAll('input.credit-artist-name-input'));
-        while ((Math.max(nowRoles.length, nowArtists.length) < beforeCount + count) && (Date.now() - start) < timeout) {
+        let nowInputs = Array.from(row.querySelectorAll('input.credit-artist-name-input'));
+        let nowMax = beforeMax;
+        nowInputs.forEach(input => {
+            const id = input.id || '';
+            const match = id.match(/artist-name-credits-input-(\d+)/);
+            if (match) nowMax = Math.max(nowMax, parseInt(match[1], 10));
+        });
+        while (nowMax < beforeMax + count && (Date.now() - start) < timeout) {
             await new Promise(r => setTimeout(r, pollInterval));
-            nowRoles = Array.from(row.querySelectorAll('input.add-credit-role-input'));
-            nowArtists = Array.from(row.querySelectorAll('input.credit-artist-name-input'));
+            nowInputs = Array.from(row.querySelectorAll('input.credit-artist-name-input'));
+            nowInputs.forEach(input => {
+                const id = input.id || '';
+                const match = id.match(/artist-name-credits-input-(\d+)/);
+                if (match) nowMax = Math.max(nowMax, parseInt(match[1], 10));
+            });
         }
-        const result = [];
-        for (let i = 0; i < count; i++) {
-            const role = nowRoles[beforeCount + i] || null;
-            const artist = nowArtists[beforeCount + i] || null;
-            let container = null;
-            if (artist) container = artist.closest('li.editable_item') || artist.closest('li') || artist.closest('fieldset');
-            if (!container && role) container = role.closest('li.editable_item') || role.closest('li') || role.closest('fieldset');
-            const removeButton = container ? (findRemoveButtonIn(container) || findRemoveNear(container)) : null;
-            result.push({ roleInput: role, artistInput: artist, newCreditItem: container, removeButton });
+        const results = [];
+        for (let i = 1; i <= count; i++) {
+            const roleSel = `#add-role-input-${beforeMax + i}`;
+            const artistSel = `#artist-name-credits-input-${beforeMax + i}`;
+            let roleInput = row.querySelector(roleSel);
+            let artistInput = row.querySelector(artistSel);
+            let newCreditItem = null;
+            let removeButton = null;
+            if (artistInput) {
+                newCreditItem = artistInput.closest('li.editable_item') || artistInput.closest('li') || artistInput.closest('fieldset') || artistInput.parentElement;
+                if (!roleInput && newCreditItem) roleInput = newCreditItem.querySelector('input.add-credit-role-input');
+                removeButton = newCreditItem ? (newCreditItem.querySelector('button.editable_input_remove') || findRemoveButtonIn(newCreditItem) || findRemoveNear(newCreditItem)) : findRemoveNear(row);
+            }
+            results.push({ roleInput, artistInput, newCreditItem, removeButton });
         }
-        return result;
+        return results;
+    }
+
+    function getJoinInputForArtistRow(row, artistInput, artistContainer, idx) {
+        if (!artistContainer) return null;
+        let joinInput = artistContainer.querySelector('input[placeholder="Join"], input[aria-label="Join"]');
+        if (joinInput) return joinInput;
+        let nextSib = artistContainer.nextElementSibling;
+        let attempts = 0;
+        while (nextSib && attempts < 10) {
+            attempts++;
+            const jInput = nextSib.querySelector('input[placeholder="Join"], input[aria-label="Join"]');
+            if (jInput) return jInput;
+            nextSib = nextSib.nextElementSibling;
+        }
+        const allJoins = Array.from(row.querySelectorAll('input[placeholder="Join"], input[aria-label="Join"]'));
+        if (idx >= 0 && idx < allJoins.length) return allJoins[idx];
+        return null;
+    }
+
+    function addActionToHistory(action) {
+        state.actionHistory.push(action);
+        if (state.actionHistory.length > CONFIG.MAX_HISTORY_STATES) {
+            state.actionHistory.shift();
+        }
+        updateRevertButton();
     }
 
     async function scanAndExtract() {
-        setInfoSingleLine('Processing...');
-        await new Promise(r => setTimeout(r, 0));
+        setInfoProcessing();
+        await new Promise(resolve => setTimeout(resolve, 0));
         log('Starting duration scan...', 'info');
+
         let trackRows = document.querySelectorAll('tr.track_row');
         if (trackRows.length === 0) trackRows = document.querySelectorAll('tr[class*="track"]');
         if (trackRows.length === 0) {
+            await clearInfoProcessing();
             log('No track rows found', 'error');
             setInfoSingleLine('No tracks found', false);
             return;
         }
+
+        const trailingPattern = /(\d{1,2}:\d{2})\s*$/;
+        const bracketPattern = /[\(\[\|]\s*(\d{1,2}:\d{2})\s*[\)\]\|]/;
+
         let processed = 0;
         const changes = [];
+
         trackRows.forEach((row, index) => {
             const titleInput = row.querySelector('input[data-type="track-title"], input[id*="track-title"]');
             const durationInput = row.querySelector('td.subform_track_duration input, input[aria-label*="duration" i]');
             if (!titleInput || !durationInput) return;
             const title = titleInput.value.trim();
-            const match = title.match(/(\d+:\d+)\s*$/);
+
+            let match = title.match(trailingPattern);
+            let duration = null;
+            let newTitle = title;
+
             if (match) {
-                const duration = match[1];
-                const newTitle = title.replace(/\s*\d+:\d+\s*$/, '').trim();
+                duration = match[1];
+                newTitle = title.replace(/\s*\d{1,2}:\d{2}\s*$/, '').trim();
+            } else {
+                match = title.match(bracketPattern);
+                if (match) {
+                    duration = match[1];
+                    newTitle = title.replace(match[0], '').trim();
+                }
+            }
+
+            if (duration) {
                 changes.push({
                     titleInput,
                     oldTitle: title,
@@ -419,22 +554,24 @@
                 log(`Track ${index + 1}: Extracted duration "${duration}" and updated title to "${newTitle}"`, 'success');
             }
         });
+
         if (changes.length > 0) {
-            state.actionHistory.push({ type: 'durations', changes });
-            updateRevertButton();
+            addActionToHistory({ type: 'durations', changes });
         }
         if (processed > 0) {
+            await clearInfoProcessing();
             const plural = processed > 1 ? 's' : '';
             setInfoSingleLine(`Done! Extracted ${processed} duration${plural}`, true);
             log(`Done! Extracted ${processed} duration${plural}`, 'success');
         } else {
+            await clearInfoProcessing();
             setInfoSingleLine('No durations found', false);
         }
     }
 
     async function extractArtists() {
-        setInfoSingleLine('Processing...');
-        await new Promise(r => setTimeout(r, 0));
+        setInfoProcessing();
+        await new Promise(resolve => setTimeout(resolve, 0));
         log('Starting artist extraction...', 'info');
         let trackRows = document.querySelectorAll('tr.track_row');
         if (trackRows.length === 0) trackRows = document.querySelectorAll('tr[class*="track"]');
@@ -459,11 +596,11 @@
             let artistParts = [];
             let separators = [];
             if (rawTokens.length === 1) {
-                artistParts = artistText.split(buildSplitterRegex()).map(p => cleanupArtistName(p)).filter(Boolean);
+                artistParts = artistText.split(buildSplitterRegex()).map(p => cleanupArtistName(p, true)).filter(Boolean);
                 separators = [];
             } else {
                 for (let t = 0; t < rawTokens.length; t++) {
-                    if (t % 2 === 0) artistParts.push(cleanupArtistName(rawTokens[t]));
+                    if (t % 2 === 0) artistParts.push(cleanupArtistName(rawTokens[t], true));
                     else separators.push(rawTokens[t]);
                 }
             }
@@ -504,243 +641,262 @@
                 processed++;
                 log(`Track ${i + 1}: Extracted main artist "${part}"`, 'success');
             }
-            setReactValue(titleInput, newTitle);
+            if (state.removeMainFromTitle) {
+                setReactValue(titleInput, newTitle);
+            }
         }
         if (changes.length > 0) {
-            state.actionHistory.push({ type: 'artists', changes });
-            updateRevertButton();
+            addActionToHistory({ type: 'artists', changes });
         }
         if (processed > 0) {
+            await clearInfoProcessing();
             const plural = processed > 1 ? 's' : '';
             setInfoSingleLine(`Done! Extracted ${processed} artist${plural}`, true);
             log(`Done! Extracted ${processed} artist${plural}`, 'success');
         } else {
+            await clearInfoProcessing();
             setInfoSingleLine('No artists found', false);
         }
     }
 
-    async function extractFeaturing() {
-        setInfoSingleLine('Processing...');
-        await new Promise(r => setTimeout(r, 0));
-        log('Starting featuring artist extraction...', 'info');
+    async function removeMainArtistsFromTitle() {
+        setInfoProcessing();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        log('Starting main-artist removal (title-only)...', 'info');
+
         let trackRows = document.querySelectorAll('tr.track_row');
         if (trackRows.length === 0) trackRows = document.querySelectorAll('tr[class*="track"]');
-        let processed = 0;
-        const changes = [];
-        const featPattern = buildFeaturingPattern();
-        const splitterRegex = buildSplitterRegex();
-        const containerRegex = /([\(\[\uFF08\uFF3B]\s*(.*?)\s*[\)\]\uFF09\uFF3D])/g;
+        if (trackRows.length === 0) {
+            await clearInfoProcessing();
+            log('No track rows found', 'error');
+            setInfoSingleLine('No tracks found', false);
+            return;
+        }
 
-        const remixByPatternWords = CONFIG.REMIX_BY_PATTERNS.map(p => escapeRegExp(p)).join('|');
-        const remixByRegex = new RegExp(`\\b(?:${remixByPatternWords})\\b`, 'i');
+        const changes = [];
+        let processed = 0;
 
         for (let i = 0; i < trackRows.length; i++) {
             const row = trackRows[i];
             const titleInput = row.querySelector('input[data-type="track-title"], input[id*="track-title"]');
             if (!titleInput) continue;
-            let originalTitle = titleInput.value.trim();
-            let title = originalTitle;
-            let found = false;
-            let matchedFeatTextForRemoval = '';
-            let match;
+            const title = (titleInput.value || '').trim();
 
-            while ((match = containerRegex.exec(title)) !== null) {
-                const fullBracketedText = match[1];
-                const innerText = match[2];
+            let match = title.match(/^(.+?)\s+[-–—]\s+(.+)$/);
+            if (!match) match = title.match(/^(.+?)\s*[-—]\s*(.+)$/);
 
-                const featTokenRegex = new RegExp(`(?:${featPattern})\\b`, 'i');
-                const featTokenMatch = featTokenRegex.exec(innerText);
-                if (!featTokenMatch) continue;
+            if (!match) continue;
 
-                const featTokenIndex = featTokenMatch.index;
-                const rawStart = featTokenIndex + featTokenMatch[0].length;
-                let raw = innerText.substring(rawStart).trim();
-                if (!raw) continue;
+            const oldTitle = title;
+            const newTitle = match[2].trim();
 
-                found = true;
-                let adjustedFullBracketReplacement = null;
+            if (newTitle === oldTitle) continue;
 
-                const remByBeforeIndex = innerText.search(remixByRegex);
-                if (remByBeforeIndex !== -1 && remByBeforeIndex < featTokenIndex) {
-                    const remCaptureRegex = new RegExp(`(?:${remixByPatternWords})\\s+(.+?)(?=(?:${featPattern})\\b|$)`, 'i');
-                    const remCapture = remCaptureRegex.exec(innerText);
-                    if (remCapture && remCapture[0]) {
-                        const remPhrase = remCapture[0].trim();
-                        adjustedFullBracketReplacement = fullBracketedText.replace(innerText, remPhrase);
-                    }
+            setReactValue(titleInput, newTitle);
+            changes.push({ titleInput, oldTitle, newTitle });
+            processed++;
+            log(`Track ${i + 1}: Removed main artist part, title -> "${newTitle}"`, 'success');
+        }
+
+        if (changes.length > 0) {
+            addActionToHistory({ type: 'artists', changes });
+        }
+
+        if (processed > 0) {
+            await clearInfoProcessing();
+            const plural = processed > 1 ? 's' : '';
+            setInfoSingleLine(`Done! Cleaned ${processed} artist title${plural}`, true);
+            log(`Done! Removed artists from ${processed} title${plural}`, 'success');
+        } else {
+            await clearInfoProcessing();
+            setInfoSingleLine('No artists found', false);
+            log('No artists found', 'info');
+        }
+    }
+
+    function surgicalRemoval(title, featPattern, remixOrPattern) {
+        let newTitle = title;
+        const containerRegex = /([\(\[\uFF08\uFF3B]\s*(.*?)\s*[\)\]\uFF09\uFF3D])/g;
+        const replacements = [];
+        containerRegex.lastIndex = 0;
+
+        let match;
+        while ((match = containerRegex.exec(title)) !== null) {
+            const fullBracket = match[1];
+            const inner = match[2] || '';
+            const featKeywordRegex = new RegExp(`${featPattern}`, 'i');
+            const remixKeywordRegex = new RegExp(`\\b(?:${remixOrPattern})\\b`, 'i');
+
+            if (!featKeywordRegex.test(inner)) continue;
+
+            let newInner = inner;
+            if (remixKeywordRegex.test(inner)) {
+                const fMatch = inner.match(featKeywordRegex);
+                const rMatch = inner.match(remixKeywordRegex);
+
+                if (fMatch.index < rMatch.index) {
+                    const textAfterFeatMatch = inner.substring(fMatch.index + fMatch[0].length).trim();
+                    const firstWord = textAfterFeatMatch.split(/\s+/)[0];
+                    const textToKeep = textAfterFeatMatch.substring(firstWord.length).trim();
+                    newInner = inner.substring(0, fMatch.index) + textToKeep;
                 } else {
-                    const remIndexInRaw = raw.search(remixByRegex);
-                    if (remIndexInRaw !== -1) {
-                        const truncated = raw.substring(0, remIndexInRaw).trim();
-                        if (truncated) {
-                            raw = truncated;
-                            const featRemoveRegex = new RegExp(`(?:${featPattern})\\s*${escapeRegExp(truncated)}`, 'i');
-                            let newInner = innerText.replace(featRemoveRegex, '').trim();
-                            newInner = newInner.replace(/^[,;:\-\s]+/, '').replace(/[,;:\-\s]+$/, '').replace(/\s{2,}/g, ' ').trim();
-                            adjustedFullBracketReplacement = fullBracketedText.replace(innerText, newInner);
-                        }
-                    }
+                    newInner = inner.substring(0, fMatch.index);
                 }
-
-                if (!raw) {
-                    if (adjustedFullBracketReplacement !== null) {
-                        const idx = title.indexOf(fullBracketedText);
-                        if (idx !== -1) {
-                            const newTitleCandidate = title.slice(0, idx) + adjustedFullBracketReplacement + title.slice(idx + fullBracketedText.length);
-                            title = newTitleCandidate.replace(/\s{2,}/g, ' ').trim();
-                        }
-                    }
-                    break;
-                }
-
-                const parts = raw.split(splitterRegex).map(p => cleanupArtistName(p)).filter(Boolean);
-                if (parts.length === 0) {
-                    if (adjustedFullBracketReplacement !== null) {
-                        const idx = title.indexOf(fullBracketedText);
-                        if (idx !== -1) {
-                            const newTitleCandidate = title.slice(0, idx) + adjustedFullBracketReplacement + title.slice(idx + fullBracketedText.length);
-                            title = newTitleCandidate.replace(/\s{2,}/g, ' ').trim();
-                        }
-                    }
-                    break;
-                }
-
-                const createdCredits = await createCreditItems(row, parts.length);
-                if (createdCredits.length < parts.length) {
-                    for (let k = createdCredits.length; k < parts.length; k++) {
-                        const res = await clickAddCreditButton(row);
-                        if (res) createdCredits.push({ roleInput: res.roleInput, artistInput: res.artistInput, newCreditItem: res.newCreditItem, removeButton: res.removeButton });
-                    }
-                }
-                for (let k = 0; k < parts.length; k++) {
-                    const part = parts[k];
-                    const credit = createdCredits[k] || (await clickAddCreditButton(row)) || {};
-                    const roleInput = credit.roleInput || null;
-                    const artistInput = credit.artistInput || null;
-                    const newCreditItem = credit.newCreditItem || null;
-                    const removeButton = credit.removeButton || null;
-                    const oldArtistValue = artistInput ? (artistInput.value || '').trim() : '';
-                    if (roleInput) setReactValue(roleInput, 'Featuring');
-                    if (artistInput) setReactValue(artistInput, part);
-                    changes.push({
-                        titleInput,
-                        oldTitle: originalTitle,
-                        newTitle: state.removeFeatFromTitle ? title : originalTitle,
-                        roleInput,
-                        artistInput,
-                        role: 'Featuring',
-                        artist: part,
-                        oldArtist: oldArtistValue,
-                        creditItem: newCreditItem,
-                        removeButton
-                    });
-                    processed++;
-                    log(`Track ${i + 1}: Extracted featuring artist "${part}"`, 'success');
-                }
-
-                if (adjustedFullBracketReplacement !== null) {
-                    const idx = title.indexOf(fullBracketedText);
-                    if (idx !== -1) {
-                        const newTitleCandidate = title.slice(0, idx) + adjustedFullBracketReplacement + title.slice(idx + fullBracketedText.length);
-                        title = newTitleCandidate.replace(/\s{2,}/g, ' ').trim();
-                    }
-                } else {
-                    matchedFeatTextForRemoval = fullBracketedText;
-                }
-                break;
+            } else {
+                newInner = '';
             }
 
-            if (!found) {
-                const outsideRegex = new RegExp(`(?:${featPattern})\\s+([^\\(\\)\\[\\]\\-–—,;]+)`, 'i');
-                const outsideFeat = title.match(outsideRegex);
-                if (outsideFeat) {
-                    found = true;
-                    let raw = outsideFeat[1].trim();
-                    let truncated = raw;
-                    const remIndex = raw.search(remixByRegex);
-                    if (remIndex !== -1) {
-                        truncated = raw.substring(0, remIndex).trim();
-                    }
-                    if (!truncated) {
-                        continue;
-                    }
-                    const parts = truncated.split(splitterRegex).map(p => cleanupArtistName(p)).filter(Boolean);
-                    const createdCredits = await createCreditItems(row, parts.length);
-                    if (createdCredits.length < parts.length) {
-                        for (let k = createdCredits.length; k < parts.length; k++) {
-                            const res = await clickAddCreditButton(row);
-                            if (res) createdCredits.push({ roleInput: res.roleInput, artistInput: res.artistInput, newCreditItem: res.newCreditItem, removeButton: res.removeButton });
-                        }
-                    }
-                    for (let k = 0; k < parts.length; k++) {
-                        const part = parts[k];
-                        const credit = createdCredits[k] || (await clickAddCreditButton(row)) || {};
-                        const roleInput = credit.roleInput || null;
-                        const artistInput = credit.artistInput || null;
-                        const newCreditItem = credit.newCreditItem || null;
-                        const removeButton = credit.removeButton || null;
-                        const oldArtistValue = artistInput ? (artistInput.value || '').trim() : '';
-                        if (roleInput) setReactValue(roleInput, 'Featuring');
-                        if (artistInput) setReactValue(artistInput, part);
-                        changes.push({
-                            titleInput,
-                            oldTitle: originalTitle,
-                            newTitle: state.removeFeatFromTitle ? title : originalTitle,
-                            roleInput,
-                            artistInput,
-                            role: 'Featuring',
-                            artist: part,
-                            oldArtist: oldArtistValue,
-                            creditItem: newCreditItem,
-                            removeButton
-                        });
-                        processed++;
-                        log(`Track ${i + 1}: Extracted featuring artist "${part}"`, 'success');
-                    }
+            newInner = newInner.trim().replace(/^[,;:\-\s/]+/, '').replace(/[,;:\-\s/]+$/, '');
+            replacements.push({
+                original: fullBracket,
+                replacement: newInner === '' ? '' : fullBracket.charAt(0) + newInner + fullBracket.charAt(fullBracket.length - 1)
+            });
+        }
 
-                    const fullMatch = outsideFeat[0];
-                    if (truncated && fullMatch) {
-                        const idx = fullMatch.toLowerCase().indexOf(truncated.toLowerCase());
-                        if (idx !== -1) {
-                            matchedFeatTextForRemoval = fullMatch.substring(0, idx + truncated.length);
-                        } else {
-                            matchedFeatTextForRemoval = fullMatch;
-                        }
-                    } else {
-                        matchedFeatTextForRemoval = fullMatch;
-                    }
-                }
-            }
+        replacements.forEach(rep => {
+            newTitle = newTitle.replace(rep.original, rep.replacement);
+        });
 
-            if (found && state.removeFeatFromTitle) {
-                if (matchedFeatTextForRemoval) {
-                    const removalRegex = new RegExp(`\\s*${escapeRegExp(matchedFeatTextForRemoval)}\\s*$|\\s*${escapeRegExp(matchedFeatTextForRemoval)}`, 'i');
-                    let newTitleCandidate = title.replace(removalRegex, (m, suffixMatch) => suffixMatch ? '' : ' ');
-                    newTitleCandidate = newTitleCandidate
-                        .replace(/\s{2,}/g, ' ')
-                        .replace(/\s*([,;:])\s*/g, '$1 ')
-                        .replace(/\s*([—\-])\s*/g, ' $1 ')
-                        .replace(/\s*([\)\]])\s*/g, '$1')
-                        .replace(/([\(\[])\s*/g, '$1')
-                        .replace(/[\(\[]\s*[\)\]]/g, '')
-                        .trim();
-                    newTitleCandidate = newTitleCandidate.replace(/\s+([.,!?;:—\-])/g, '$1');
-                    setReactValue(titleInput, newTitleCandidate);
-                }
+        const featOutsideRegex = new RegExp(`\\s*\\b(?:${featPattern})\\b[^(\\[]*`, 'i');
+        newTitle = newTitle.replace(featOutsideRegex, ' ').trim();
+
+        return newTitle
+            .replace(/\s{2,}/g, ' ')
+            .replace(/\s+([\(\[])/g, ' $1')
+            .replace(/[\(\[]\s*[\)\]]/g, '')
+            .trim();
+    }
+
+    async function removeFeaturingFromTitle() {
+        setInfoProcessing();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        log('Starting surgical feat text removal...', 'info');
+
+        let trackRows = document.querySelectorAll('tr.track_row');
+        if (trackRows.length === 0) trackRows = document.querySelectorAll('tr[class*="track"]');
+        if (trackRows.length === 0) {
+            await clearInfoProcessing();
+            log('No track rows found', 'error');
+            setInfoSingleLine('No tracks found', false);
+            return;
+        }
+
+        const featPattern = buildFeaturingPattern();
+        const remixOrPattern = getAllRemixTokensRegex();
+
+        const changes = [];
+        let processed = 0;
+
+        for (let i = 0; i < trackRows.length; i++) {
+            const row = trackRows[i];
+            const titleInput = row.querySelector('input[data-type="track-title"], input[id*="track-title"]');
+            if (!titleInput) continue;
+
+            const originalTitle = (titleInput.value || '').trim();
+            const newTitle = surgicalRemoval(originalTitle, featPattern, remixOrPattern);
+
+            if (newTitle !== originalTitle) {
+                setReactValue(titleInput, newTitle);
+                changes.push({ titleInput, oldTitle: originalTitle, newTitle });
+                processed++;
+                log(`Track ${i + 1}: Surgical feat removal -> "${newTitle}"`, 'success');
             }
         }
 
         if (changes.length > 0) {
-            state.actionHistory.push({ type: 'featuring', changes });
-            updateRevertButton();
+            addActionToHistory({ type: 'featuring', changes });
         }
+
         if (processed > 0) {
-            const plural = processed > 1 ? 's' : '';
-            setInfoSingleLine(`Done! Extracted ${processed} feat. artist${plural}`, true);
-            log(`Done! Extracted ${processed} feat. artist${plural}`, 'success');
+            await clearInfoProcessing();
+            setInfoSingleLine(`Done! Cleaned ${processed} feat title${processed > 1 ? 's' : ''}`, true);
         } else {
-            setInfoSingleLine('No featuring artists found', false);
+            await clearInfoProcessing();
+            setInfoSingleLine('No feat artists found', false);
         }
+    }
+
+    async function extractFeaturing() {
+        setInfoProcessing();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        log('Starting featuring artist extraction...', 'info');
+        let trackRows = document.querySelectorAll('tr.track_row');
+        if (trackRows.length === 0) trackRows = document.querySelectorAll('tr[class*="track"]');
+        let processed = 0;
+        const historyChanges = [];
+        const featPattern = buildFeaturingPattern();
+        const remixTerminatorPattern = getAllRemixTokensRegex();
+
+        function normalizeForCompare(name) {
+            if (!name) return '';
+            return String(name).replace(/^[\(\[]+|[\)\]]+$/g, '').trim().toLowerCase();
+        }
+
+        for (let i = 0; i < trackRows.length; i++) {
+            const row = trackRows[i];
+            const titleInput = row.querySelector('input[data-type="track-title"], input[id*="track-title"]');
+            if (!titleInput) continue;
+            const originalTitle = titleInput.value.trim();
+
+            const featSearchRegex = new RegExp(`(${featPattern})\\s*(.*?)(?=\\b(?:${remixTerminatorPattern})\\b|[\\(\\)\\[\\]]|$)`, 'gi');
+
+            let match;
+            let foundInThisTrack = false;
+
+            while ((match = featSearchRegex.exec(originalTitle)) !== null) {
+                let featArtistsText = match[2].trim();
+                if (!featArtistsText) continue;
+
+                const remainingInBracket = originalTitle.substring(match.index + match[0].length);
+                const featRegexGlobal = new RegExp(`(?:${featPattern})`, 'gi');
+                const hasRemixLater = new RegExp(`^.*?\\b(?:${remixTerminatorPattern})\\b\\s*[\\)\\]]`, 'i').test(remainingInBracket);
+
+                if (hasRemixLater) {
+                    featArtistsText = featArtistsText.split(/\s+/)[0];
+                }
+
+                const parts = splitArtistsByConfiguredPatterns(featArtistsText);
+                if (parts.length === 0) continue;
+
+                const existingVals = Array.from(row.querySelectorAll('input.credit-artist-name-input, input[data-type="artist-name"]'))
+                    .map(inp => normalizeForCompare(inp.value || ''));
+
+                const partsToAdd = parts.filter(p => !existingVals.includes(normalizeForCompare(p)));
+
+                const inputs = await createCreditItems(row, partsToAdd.length);
+                for (let k = 0; k < partsToAdd.length && k < inputs.length; k++) {
+                    const { artistInput, roleInput, newCreditItem, removeButton } = inputs[k];
+                    setReactValue(roleInput, 'Featuring');
+                    setReactValue(artistInput, partsToAdd[k]);
+
+                    historyChanges.push({
+                        titleInput,
+                        oldTitle: originalTitle,
+                        newTitle: originalTitle,
+                        roleInput,
+                        artistInput,
+                        artist: partsToAdd[k],
+                        creditItem: newCreditItem,
+                        removeButton: removeButton
+                    });
+                    processed++;
+                    foundInThisTrack = true;
+                }
+            }
+
+            if (foundInThisTrack && state.removeFeatFromTitle) {
+                const cleanedTitle = surgicalRemoval(originalTitle, featPattern, remixTerminatorPattern);
+                setReactValue(titleInput, cleanedTitle);
+                historyChanges.forEach(ch => { if (ch.titleInput === titleInput) ch.newTitle = cleanedTitle; });
+            }
+        }
+
+        if (historyChanges.length > 0) {
+            addActionToHistory({ type: 'featuring', changes: historyChanges });
+        }
+        await clearInfoProcessing();
+        const plural = processed > 1 ? 's' : '';
+        setInfoSingleLine(processed > 0 ? `Done! Extracted ${processed} feat artist${plural}` : 'No feat artists found', processed > 0);
     }
 
     function getActiveRemixTokens() {
@@ -754,18 +910,40 @@
         const toggle = document.getElementById('toggle-remix-optional');
         if (!toggle) return;
         toggle.textContent = state.remixOptionalEnabled ? '✓' : '';
-        toggle.title = `Optional Keywords: ${CONFIG.REMIX_PATTERNS_OPTIONAL.join(', ')}`;
+        toggle.title = `Automatically extract optional patterns: ${CONFIG.REMIX_PATTERNS_OPTIONAL.join(', ')}`;
         updateRemixButtonTitle();
     }
 
     function updateRemixButtonTitle() {
         const remixBtn = document.getElementById('extract-remixers');
         if (!remixBtn) return;
-        let remixKeywords = `Keywords: ${CONFIG.REMIX_PATTERNS.join(', ')}\nKeywords: ${CONFIG.REMIX_BY_PATTERNS.join(', ')}`;
-        if (state.remixOptionalEnabled) {
-            remixKeywords += `\nOptional Keywords: ${CONFIG.REMIX_PATTERNS_OPTIONAL.join(', ')}`;
+
+        const wrap = (arr, firstLineCount = 4, perLine = 6) => {
+            if (!arr || arr.length === 0) {
+                return '';
+            }
+
+            return arr.reduce((acc, currentVal, index) => {
+                if (index === 0) {
+                    return currentVal;
+                }
+                const isLineBreakPoint = (index === firstLineCount || (index > firstLineCount && (index - firstLineCount) % perLine === 0));
+                const separator = isLineBreakPoint ? '\n' : ', ';
+                return acc + separator + currentVal;
+            }, '');
+        };
+
+        let remixPatterns =
+`Remix Patterns: ${wrap(CONFIG.REMIX_PATTERNS, 6, 8)}
+Remix By Patterns: ${wrap(CONFIG.REMIX_BY_PATTERNS, 4, 6)}`;
+
+        const optionalPatternsWrapped = wrap(CONFIG.REMIX_PATTERNS_OPTIONAL, 5, 8);
+        if (state.remixOptionalEnabled && optionalPatternsWrapped) {
+            remixPatterns += `
+Optional Remix Patterns: ${optionalPatternsWrapped}`;
         }
-        remixBtn.title = remixKeywords;
+
+        remixBtn.title = remixPatterns;
     }
 
     function hasSplitterToken(str) {
@@ -781,17 +959,147 @@
         if (!str) return '';
         const words = str.trim().split(/\s+/);
         if (words.length === 0) return '';
-        if (words.length === 1) return words[0];
-        return words.slice(-2).join(' ');
+        return words.pop();
     }
 
-    async function extractRemixers() {
-        setInfoSingleLine('Processing...');
-        await new Promise(r => setTimeout(r, 0));
-        log('Starting remixer extraction...', 'info');
+    function isAllUpper(word) {
+        const letters = word.replace(/[^\p{L}]/gu, '');
+        if (!letters) return false;
+        return letters === letters.toUpperCase();
+    }
 
-        const remixPatternWords = getActiveRemixTokens().map(p => escapeRegExp(p)).join('|');
-        const remixByPatternWords = CONFIG.REMIX_BY_PATTERNS.map(p => escapeRegExp(p)).join('|');
+    function capitalizeSegmentSegmentwise(token) {
+        if (!token) return token;
+        if (token.indexOf('.') !== -1) {
+            const parts = token.split('.').filter(Boolean);
+            if (parts.length > 1 && parts.every(p => /^[\p{L}]+$/u.test(p) && p.length <= 3)) {
+                const suffix = token.endsWith('.') ? '.' : '';
+                return parts.map(p => p.toUpperCase()).join('.') + suffix;
+            }
+        }
+
+        if (!/['’`ʻ]/.test(token)) {
+            if (/[A-Za-z]\.[A-Za-z]/.test(token) || /[A-Z][a-z]*[A-Z]/.test(token)) {
+                return token;
+            }
+        }
+
+        return token.replace(/([\p{L}\p{N}'’`ʻ]+)/gu, (core) => {
+            if (isAllUpper(core) && core.length <= 3) {
+                return core;
+            }
+            return core.charAt(0).toUpperCase() + core.slice(1).toLowerCase();
+        });
+    }
+
+    function capitalizeTitleString(title) {
+        if (typeof title !== 'string') return title;
+        title = title.trim();
+        if (!title) return title;
+
+        const bracketRegex = /(\[.*?\]|\(.*?\))/gu;
+        const parts = [];
+        let lastIndex = 0;
+        let m;
+        while ((m = bracketRegex.exec(title)) !== null) {
+            if (m.index > lastIndex) parts.push({ text: title.slice(lastIndex, m.index), bracketed: false });
+            parts.push({ text: m[0], bracketed: true });
+            lastIndex = m.index + m[0].length;
+        }
+        if (lastIndex < title.length) parts.push({ text: title.slice(lastIndex), bracketed: false });
+
+        const processedParts = parts.map((part) => {
+            const txt = part.text;
+            if (part.bracketed) {
+                const inner = txt.slice(1, -1);
+                const capInner = capitalizeTitleString(inner);
+                return txt.charAt(0) + capInner + txt.charAt(txt.length - 1);
+            } else {
+                const tokens = txt.split(/(\s+)/u).filter(Boolean);
+                if (tokens.length === 0) return txt;
+                const outTokens = tokens.map((tok) => {
+                    if (!/\p{L}/u.test(tok)) return tok;
+                    const internalChars = "'’`ʻ";
+                    const leadMatch = tok.match(new RegExp(`^([^\\p{L}\\p{N}${internalChars}]*)(.*)$`, 'u'));
+                    const lead = (leadMatch ? leadMatch[1] : '') || '';
+                    const rest = (leadMatch ? leadMatch[2] : tok) || tok;
+                    const trailMatch = rest.match(new RegExp(`^(.*)([^\\p{L}\\p{N}${internalChars}]*)$`, 'u'));
+                    const core = (trailMatch ? trailMatch[1] : rest) || rest;
+                    const trail = (trailMatch ? trailMatch[2] : '') || '';
+                    const transformed = capitalizeSegmentSegmentwise(core);
+                    return lead + transformed + trail;
+                });
+                return outTokens.join('');
+            }
+        });
+
+        let candidate = processedParts.join('').replace(/\s{2,}/g, ' ').trim();
+        candidate = candidate.replace(/:\s+(\p{Ll})/gu, (m, p1) => ': ' + p1.toUpperCase());
+        return candidate;
+    }
+
+    async function capitalizeTitles() {
+        setInfoProcessing();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        log('Starting title capitalization...', 'info');
+
+        let trackRows = document.querySelectorAll('tr.track_row');
+        if (trackRows.length === 0) trackRows = document.querySelectorAll('tr[class*="track"]');
+        if (trackRows.length === 0) {
+            await clearInfoProcessing();
+            log('No track rows found', 'error');
+            setInfoSingleLine('No tracks found', false);
+            return;
+        }
+
+        const changes = [];
+        let processed = 0;
+
+        for (let i = 0; i < trackRows.length; i++) {
+            const row = trackRows[i];
+            const titleInput = row.querySelector('input[data-type="track-title"], input[id*="track-title"]');
+            if (!titleInput) continue;
+            const original = (titleInput.value || '').trim();
+            if (!original) continue;
+
+            const candidate = capitalizeTitleString(original);
+            if (candidate && candidate !== original) {
+                setReactValue(titleInput, candidate);
+                changes.push({ titleInput, oldTitle: original, newTitle: candidate });
+                processed++;
+                log(`Track ${i + 1}: "${original}" → "${candidate}"`, 'success');
+            }
+        }
+
+        if (changes.length > 0) {
+            addActionToHistory({ type: 'capitalization', changes });
+        }
+
+        if (processed > 0) {
+            await clearInfoProcessing();
+            const plural = processed > 1 ? 's' : '';
+            setInfoSingleLine(`Done! Capitalized ${processed} title${plural}`, true);
+            log(`Done! Capitalized ${processed} title${plural}`, 'success');
+        } else {
+            await clearInfoProcessing();
+            setInfoSingleLine('No titles found to capitalize', false);
+        }
+    }
+
+    async function extractRemixers(optionalOnly = false) {
+        if (typeof optionalOnly !== 'boolean') optionalOnly = false;
+
+        setInfoProcessing();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        log(`Starting remixer extraction${optionalOnly ? ' (Strict Optional Only)' : ''}...`, 'info');
+
+        const activeTokens = optionalOnly ? CONFIG.REMIX_PATTERNS_OPTIONAL.slice() : getActiveRemixTokens();
+        const remixPatternWords = activeTokens.map(p => escapeRegExp(p)).join('|');
+
+        const remixByPatternWordsForRegex = CONFIG.REMIX_BY_PATTERNS.map(p => escapeRegExp(p)).join('|');
+        const remixByRegexFull = new RegExp(`\\b(?:${remixByPatternWordsForRegex})\\b`, 'i');
+
+        const remixByPatternWords = optionalOnly ? '' : remixByPatternWordsForRegex;
         const splitterRegex = buildSplitterRegex();
         const remixAnyPattern = [remixPatternWords, remixByPatternWords].filter(Boolean).join('|');
         const remixAnyRegex = remixAnyPattern ? new RegExp(`\\b(?:${remixAnyPattern})\\b`, 'i') : null;
@@ -801,6 +1109,35 @@
 
         let processed = 0;
         const changes = [];
+        const TRACK_TIMEOUT_MS = 8000;
+
+        function normalizeForCompare(name) {
+            if (!name) return '';
+            return String(name).replace(/^[\(\[]+|[\)\]]+$/g, '').trim().toLowerCase();
+        }
+
+        function cleanPartsPreserveWrapping(rawParts) {
+            const out = [];
+            for (let raw of rawParts) {
+                const orig = String(raw || '').trim();
+                if (!orig) continue;
+
+                let cleaned = orig.replace(getRemixByRegex(), '');
+                cleaned = cleaned.replace(/^by\s+/i, '');
+                cleaned = cleanupArtistName(cleaned, true);
+
+                cleaned = cleaned.replace(/[\(\[]+$/g, '').replace(/^[\)\]]+/g, '').trim();
+
+                if (orig.startsWith('[') && !cleaned.endsWith(']')) {
+                    cleaned = '[' + cleaned.replace(/^\[+/, '') + ']';
+                }
+                if (orig.startsWith('(') && !cleaned.endsWith(')')) {
+                    cleaned = '(' + cleaned.replace(/^\(+/, '') + ')';
+                }
+                out.push(cleaned);
+            }
+            return out;
+        }
 
         for (let i = 0; i < trackRows.length; i++) {
             const row = trackRows[i];
@@ -808,299 +1145,247 @@
             if (!titleInput) continue;
             const title = titleInput.value.trim();
 
-            const containerRegex = /[\(\[]([^\])]+)[\)\]]/g;
-            let matchInContainer;
-            let handled = false;
+            const containerRegex = /([\(\[\uFF08\uFF3B]\s*(.*?)\s*[\)\]\uFF09\uFF3D])/g;
 
-            while ((matchInContainer = containerRegex.exec(title)) !== null) {
-                const inner = matchInContainer[1].trim();
+            const trackPromise = (async () => {
+                try {
+                    let matchInContainer;
+                    while ((matchInContainer = containerRegex.exec(title)) !== null) {
+                        const inner = (matchInContainer[2] || '').trim();
 
-                if (remixByPatternWords) {
-                    const remByRegex = new RegExp(`(?:${remixByPatternWords})\\s+(.+)$`, 'i');
-                    const remByMatch = inner.match(remByRegex);
-                    if (remByMatch && remByMatch[1]) {
-                        let raw = remByMatch[1].trim();
+                        if (optionalOnly && remixByRegexFull.test(inner)) {
+                            continue;
+                        }
 
-                        const featTokens = CONFIG.FEATURING_PATTERNS.map(escapeRegExp).join('|');
-                        const featRegex = new RegExp(`(?:${featTokens})`, 'i');
-                        const featMatch = featRegex.exec(raw);
+                        if (remixByPatternWords) {
+                            const remByRegex = new RegExp(`(?:${remixByPatternWords})\\s+(.+)$`, 'i');
+                            const remByMatch = inner.match(remByRegex);
+                            if (remByMatch && remByMatch[1]) {
+                                let raw = remByMatch[1].trim();
+                                const featTokens = CONFIG.FEATURING_PATTERNS.map(escapeRegExp).join('|');
+                                const featRegex = new RegExp(`(?:${featTokens})`, 'i');
+                                const featMatch = featRegex.exec(raw);
+                                let remixes = [];
+                                if (featMatch) {
+                                    const featIndex = featMatch.index;
+                                    const beforeFeat = raw.substring(0, featIndex).trim();
+                                    if (hasSplitterToken(beforeFeat)) {
+                                        const origParts = beforeFeat.split(splitterRegex).map(s => s.trim()).filter(Boolean);
+                                        remixes = cleanPartsPreserveWrapping(origParts);
+                                    } else {
+                                        const cleaned = cleanPartsPreserveWrapping([beforeFeat]);
+                                        if (cleaned.length) remixes = [cleaned[0]];
+                                    }
+                                } else {
+                                    const origParts = raw.split(splitterRegex).map(s => s.trim()).filter(Boolean);
+                                    remixes = cleanPartsPreserveWrapping(origParts);
+                                }
+                                if (remixes.length === 0) continue;
 
-                        let remixes = [];
-                        if (featMatch) {
-                            const featIndex = featMatch.index;
-                            const beforeFeat = raw.substring(0, featIndex).trim();
-                            if (hasSplitterToken(beforeFeat)) {
-                                remixes = beforeFeat.split(splitterRegex).map(p => cleanupArtistName(p)).filter(Boolean);
-                            } else {
-                                const first = cleanupArtistName(beforeFeat);
-                                if (first) remixes = [first];
+                                const existingVals = Array.from(row.querySelectorAll('input.credit-artist-name-input, input[data-type="artist-name"], input.add-credit-artist-input'))
+                                    .map(inp => normalizeForCompare(inp.value || ''));
+                                const partsToAdd = remixes.filter(p => !existingVals.includes(normalizeForCompare(p)));
+
+                                const allArtistInputs = Array.from(row.querySelectorAll('input.credit-artist-name-input, input.add-credit-artist-input, input[data-type="artist-name"], input[name*="artist"]'));
+                                const emptyInputs = allArtistInputs.filter(inp => !(inp.value || '').trim());
+                                const inputsToUse = [];
+                                for (let j = 0; j < Math.min(emptyInputs.length, partsToAdd.length); j++) inputsToUse.push(emptyInputs[j]);
+                                const needCreate = partsToAdd.length - inputsToUse.length;
+                                if (needCreate > 0) {
+                                    const created = await createCreditItems(row, needCreate);
+                                    created.forEach(c => { if (c && c.artistInput) inputsToUse.push(c.artistInput); });
+                                    while (inputsToUse.length < partsToAdd.length) {
+                                        const res = await clickAddCreditButton(row);
+                                        if (res && res.artistInput) inputsToUse.push(res.artistInput);
+                                        else break;
+                                    }
+                                }
+
+                                for (let k = 0; k < partsToAdd.length && k < inputsToUse.length; k++) {
+                                    const part = partsToAdd[k];
+                                    const artistInput = inputsToUse[k];
+                                    const li = artistInput ? (artistInput.closest('li.editable_item') || artistInput.closest('li') || artistInput.closest('fieldset')) : null;
+                                    const roleInput = li ? (li.querySelector('input.add-credit-role-input') || li.querySelector('input[aria-label="Add Artist Role"]')) : null;
+                                    if (roleInput) setReactValue(roleInput, 'Remix');
+                                    if (artistInput) {
+                                        const oldArtistValue = (artistInput.value || '').trim();
+                                        setReactValue(artistInput, part);
+                                        changes.push({
+                                            titleInput,
+                                            oldTitle: title,
+                                            newTitle: title,
+                                            roleInput,
+                                            artistInput,
+                                            role: 'Remix',
+                                            artist: part,
+                                            oldArtist: oldArtistValue,
+                                            creditItem: li,
+                                            removeButton: findRemoveButtonIn(li)
+                                        });
+                                        processed++;
+                                        log(`Track ${i + 1}: Extracted remixer "${part}" (Remix)`, 'success');
+                                    }
+                                }
+                                continue;
                             }
-                        } else {
-                            remixes = raw.split(splitterRegex).map(p => cleanupArtistName(p)).filter(Boolean);
                         }
 
-                        if (remixes.length === 0) break;
+                        if (remixAnyRegex) {
+                            const remMatch = inner.match(remixAnyRegex);
+                            if (remMatch) {
+                                const remIndex = remMatch.index;
+                                const remKeyword = remMatch[0];
+                                const beforeRemix = inner.substring(0, remIndex).trim();
+                                const afterRemixStart = remIndex + remKeyword.length;
+                                const afterRemix = inner.substring(afterRemixStart).trim();
+                                let remixes = [];
 
-                        const createdCredits = await createCreditItems(row, remixes.length);
-                        if (createdCredits.length < remixes.length) {
-                            for (let k = createdCredits.length; k < remixes.length; k++) {
-                                const res = await clickAddCreditButton(row);
-                                if (res) createdCredits.push({ roleInput: res.roleInput, artistInput: res.artistInput, newCreditItem: res.newCreditItem, removeButton: res.removeButton });
+                                if (!beforeRemix && afterRemix) {
+                                    const featTokens = CONFIG.FEATURING_PATTERNS.map(escapeRegExp).join('|');
+                                    const featRegex = new RegExp(`(?:${featTokens})`, 'i');
+                                    const featMatch = featRegex.exec(afterRemix);
+                                    const artistCand = featMatch ? afterRemix.substring(0, featMatch.index).trim() : afterRemix;
+                                    const origParts = artistCand.split(splitterRegex).map(s => s.trim()).filter(Boolean);
+                                    remixes = cleanPartsPreserveWrapping(origParts);
+                                } else if (beforeRemix) {
+                                    const featTokens = CONFIG.FEATURING_PATTERNS.map(escapeRegExp).join('|');
+                                    const featRegexGlobal = new RegExp(`(?:${featTokens})`, 'ig');
+                                    let lastFeatMatch = null;
+                                    let fm;
+                                    while ((fm = featRegexGlobal.exec(beforeRemix)) !== null) { lastFeatMatch = fm; }
+
+                                    if (lastFeatMatch) {
+                                        const lastFeatIndex = lastFeatMatch.index;
+                                        const featToken = lastFeatMatch[0];
+                                        const afterFeat = beforeRemix.substring(lastFeatIndex + featToken.length).trim();
+                                        if (afterFeat) {
+                                            if (hasSplitterToken(afterFeat)) {
+                                                const origParts = afterFeat.split(splitterRegex).map(s => s.trim()).filter(Boolean);
+                                                const parts = cleanPartsPreserveWrapping(origParts);
+                                                if (parts.length) remixes = [parts[parts.length - 1]];
+                                            } else {
+                                                const cand = lastWordsCandidate(afterFeat);
+                                                if (cand) remixes = cleanPartsPreserveWrapping([cand]);
+                                            }
+                                        } else {
+                                            const beforeFeatOnly = beforeRemix.substring(0, lastFeatIndex).trim();
+                                            if (hasSplitterToken(beforeFeatOnly)) {
+                                                const origParts = beforeFeatOnly.split(splitterRegex).map(s => s.trim()).filter(Boolean);
+                                                const parts = cleanPartsPreserveWrapping(origParts);
+                                                if (parts.length) remixes = [parts[0]];
+                                            } else {
+                                                const lastCand = lastWordsCandidate(beforeFeatOnly);
+                                                if (lastCand) remixes = cleanPartsPreserveWrapping([lastCand]);
+                                            }
+                                        }
+                                    } else {
+                                        if (hasSplitterToken(beforeRemix)) {
+                                            const origParts = beforeRemix.split(splitterRegex).map(s => s.trim()).filter(Boolean);
+                                            remixes = cleanPartsPreserveWrapping(origParts);
+                                        } else {
+                                            const parts = cleanPartsPreserveWrapping([beforeRemix]);
+                                            if (parts.length) remixes = [parts[0]];
+                                        }
+                                    }
+                                }
+
+                                if (remixes.length === 0 && afterRemix) {
+                                    const byPattern = CONFIG.REMIX_BY_PATTERNS.map(p => escapeRegExp(p)).join('|');
+                                    const startsWithBy = new RegExp(`^(?:${byPattern})\\b`, 'i');
+
+                                    if (!startsWithBy.test(afterRemix)) {
+                                        const featTokens = CONFIG.FEATURING_PATTERNS.map(escapeRegExp).join('|');
+                                        const featRegex = new RegExp(`(?:${featTokens})`, 'i');
+                                        const featMatch = featRegex.exec(afterRemix);
+
+                                        if (featMatch) {
+                                            const beforeFeat = afterRemix.substring(0, featMatch.index).trim();
+                                            if (beforeFeat) {
+                                                const origParts = splitArtistsByConfiguredPatterns(beforeFeat);
+                                                remixes = cleanPartsPreserveWrapping(origParts);
+                                            }
+                                        } else {
+                                            const origParts = splitArtistsByConfiguredPatterns(afterRemix);
+                                            remixes = cleanPartsPreserveWrapping(origParts);
+                                        }
+                                    }
+                                }
+
+                                if (remixes.length > 0) {
+                                    const existingVals = Array.from(row.querySelectorAll('input.credit-artist-name-input, input[data-type="artist-name"], input.add-credit-artist-input'))
+                                        .map(inp => normalizeForCompare(inp.value || ''));
+                                    const partsToAdd = remixes.filter(p => !existingVals.includes(normalizeForCompare(p)));
+
+                                    const allArtistInputs = Array.from(row.querySelectorAll('input.credit-artist-name-input, input.add-credit-artist-input, input[data-type="artist-name"], input[name*="artist"]'));
+                                    const emptyInputs = allArtistInputs.filter(inp => !(inp.value || '').trim());
+                                    const inputsToUse = [];
+                                    for (let j = 0; j < Math.min(emptyInputs.length, partsToAdd.length); j++) inputsToUse.push(emptyInputs[j]);
+                                    const needCreate = partsToAdd.length - inputsToUse.length;
+                                    if (needCreate > 0) {
+                                        const created = await createCreditItems(row, needCreate);
+                                        created.forEach(c => { if (c && c.artistInput) inputsToUse.push(c.artistInput); });
+                                        while (inputsToUse.length < partsToAdd.length) {
+                                            const res = await clickAddCreditButton(row);
+                                            if (res && res.artistInput) inputsToUse.push(res.artistInput);
+                                            else break;
+                                        }
+                                    }
+
+                                    for (let k = 0; k < partsToAdd.length && k < inputsToUse.length; k++) {
+                                        const part = partsToAdd[k];
+                                        const artistInput = inputsToUse[k];
+                                        const li = artistInput ? (artistInput.closest('li.editable_item') || artistInput.closest('li') || artistInput.closest('fieldset')) : null;
+                                        const roleInput = li ? (li.querySelector('input.add-credit-role-input') || li.querySelector('input[aria-label="Add Artist Role"]')) : null;
+                                        if (roleInput) setReactValue(roleInput, 'Remix');
+                                        if (artistInput) {
+                                            const oldArtistValue = (artistInput.value || '').trim();
+                                            setReactValue(artistInput, part);
+                                            changes.push({
+                                                titleInput,
+                                                oldTitle: title,
+                                                newTitle: title,
+                                                roleInput,
+                                                artistInput,
+                                                role: 'Remix',
+                                                artist: part,
+                                                oldArtist: oldArtistValue,
+                                                creditItem: li,
+                                                removeButton: findRemoveButtonIn(li)
+                                            });
+                                            processed++;
+                                            log(`Track ${i + 1}: Extracted remixer "${part}" (Remix)`, 'success');
+                                        }
+                                    }
+                                    continue;
+                                }
                             }
                         }
-
-                        for (let k = 0; k < remixes.length; k++) {
-                            const part = remixes[k];
-                            const credit = createdCredits[k] || (await clickAddCreditButton(row)) || {};
-                            const roleInput = credit.roleInput || null;
-                            const artistInput = credit.artistInput || null;
-                            const newCreditItem = credit.newCreditItem || null;
-                            const removeButton = credit.removeButton || null;
-                            const oldArtistValue = artistInput ? (artistInput.value || '').trim() : '';
-                            if (roleInput) setReactValue(roleInput, 'Remix');
-                            if (artistInput) setReactValue(artistInput, part);
-                            changes.push({
-                                titleInput,
-                                oldTitle: title,
-                                newTitle: title,
-                                roleInput,
-                                artistInput,
-                                role: 'Remix',
-                                artist: part,
-                                oldArtist: oldArtistValue,
-                                creditItem: newCreditItem,
-                                removeButton
-                            });
-                            processed++;
-                            log(`Track ${i + 1}: Extracted remixer "${part}" (Remix)`, 'success');
-                        }
-
-                        handled = true;
-                        break;
                     }
+                } catch (err) {
+                    log(`Track ${i + 1}: error during remixer extraction: ${err && err.message ? err.message : err}`, 'error');
                 }
+            })();
 
-                if (remixAnyRegex && remixAnyRegex.test(inner)) {
-                    const remMatch = inner.match(remixAnyRegex);
-                    if (!remMatch) continue;
-                    const remIndex = remMatch.index;
-                    const beforeRemix = inner.substring(0, remIndex).trim();
-                    if (!beforeRemix) continue;
-
-                    const featTokens = CONFIG.FEATURING_PATTERNS.map(escapeRegExp).join('|');
-                    const featRegexGlobal = new RegExp(`(?:${featTokens})`, 'ig');
-                    let lastFeatMatch = null;
-                    let fm;
-                    while ((fm = featRegexGlobal.exec(beforeRemix)) !== null) { lastFeatMatch = fm; }
-
-                    let remixes = [];
-
-                    if (lastFeatMatch) {
-                        const lastFeatIndex = lastFeatMatch.index;
-                        const featToken = lastFeatMatch[0];
-                        const afterFeat = beforeRemix.substring(lastFeatIndex + featToken.length).trim();
-                        if (afterFeat) {
-                            if (hasSplitterToken(afterFeat)) {
-                                const parts = afterFeat.split(splitterRegex).map(p => cleanupArtistName(p)).filter(Boolean);
-                                if (parts.length) remixes = [parts[parts.length - 1]];
-                            } else {
-                                const cand = lastWordsCandidate(afterFeat);
-                                if (cand) remixes = [cleanupArtistName(cand)];
-                            }
-                        } else {
-                            const beforeFeatOnly = beforeRemix.substring(0, lastFeatIndex).trim();
-                            if (hasSplitterToken(beforeFeatOnly)) {
-                                const parts = beforeFeatOnly.split(splitterRegex).map(p => cleanupArtistName(p)).filter(Boolean);
-                                if (parts.length) remixes = [parts[0]];
-                            } else {
-                                const lastCand = lastWordsCandidate(beforeFeatOnly);
-                                if (lastCand) remixes = [cleanupArtistName(lastCand)];
-                            }
-                        }
-                    } else {
-                        if (hasSplitterToken(beforeRemix)) {
-                            remixes = beforeRemix.split(splitterRegex).map(p => cleanupArtistName(p)).filter(Boolean);
-                        } else {
-                            remixes = [cleanupArtistName(beforeRemix)];
-                        }
-                    }
-
-                    if (remixes.length === 0) continue;
-
-                    const createdCredits = await createCreditItems(row, remixes.length);
-                    if (createdCredits.length < remixes.length) {
-                        for (let k = createdCredits.length; k < remixes.length; k++) {
-                            const res = await clickAddCreditButton(row);
-                            if (res) createdCredits.push({ roleInput: res.roleInput, artistInput: res.artistInput, newCreditItem: res.newCreditItem, removeButton: res.removeButton });
-                        }
-                    }
-
-                    for (let k = 0; k < remixes.length; k++) {
-                        const part = remixes[k];
-                        const credit = createdCredits[k] || (await clickAddCreditButton(row)) || {};
-                        const roleInput = credit.roleInput || null;
-                        const artistInput = credit.artistInput || null;
-                        const newCreditItem = credit.newCreditItem || null;
-                        const removeButton = credit.removeButton || null;
-                        const oldArtistValue = artistInput ? (artistInput.value || '').trim() : '';
-                        if (roleInput) setReactValue(roleInput, 'Remix');
-                        if (artistInput) setReactValue(artistInput, part);
-                        changes.push({
-                            titleInput,
-                            oldTitle: title,
-                            newTitle: title,
-                            roleInput,
-                            artistInput,
-                            role: 'Remix',
-                            artist: part,
-                            oldArtist: oldArtistValue,
-                            creditItem: newCreditItem,
-                            removeButton
-                        });
-                        processed++;
-                        log(`Track ${i + 1}: Extracted remixer "${part}" (Remix)`, 'success');
-                    }
-
-                    handled = true;
-                    break;
-                }
-            }
-
-            if (handled) continue;
-
-            if (remixByPatternWords) {
-                const remByOutRegex = new RegExp(`(?:${remixByPatternWords})\\s+([^\\(\\)\\[\\]\\-–—,;]+)`, 'i');
-                const remByOutMatch = title.match(remByOutRegex);
-                if (remByOutMatch && remByOutMatch[1]) {
-                    let raw = remByOutMatch[1].trim();
-                    const featTokens = CONFIG.FEATURING_PATTERNS.map(escapeRegExp).join('|');
-                    const featRegex = new RegExp(`(?:${featTokens})`, 'i');
-                    const featMatch = featRegex.exec(raw);
-
-                    let remixes = [];
-                    if (featMatch) {
-                        const featIndex = featMatch.index;
-                        const beforeFeat = raw.substring(0, featIndex).trim();
-                        if (hasSplitterToken(beforeFeat)) remixes = beforeFeat.split(splitterRegex).map(p => cleanupArtistName(p)).filter(Boolean);
-                        else {
-                            const first = cleanupArtistName(beforeFeat);
-                            if (first) remixes = [first];
-                        }
-                    } else {
-                        remixes = raw.split(splitterRegex).map(p => cleanupArtistName(p)).filter(Boolean);
-                    }
-
-                    if (remixes.length === 0) continue;
-                    const createdCredits = await createCreditItems(row, remixes.length);
-                    if (createdCredits.length < remixes.length) {
-                        for (let k = createdCredits.length; k < remixes.length; k++) {
-                            const res = await clickAddCreditButton(row);
-                            if (res) createdCredits.push({ roleInput: res.roleInput, artistInput: res.artistInput, newCreditItem: res.newCreditItem, removeButton: res.removeButton });
-                        }
-                    }
-                    for (let k = 0; k < remixes.length; k++) {
-                        const part = remixes[k];
-                        const credit = createdCredits[k] || (await clickAddCreditButton(row)) || {};
-                        const roleInput = credit.roleInput || null;
-                        const artistInput = credit.artistInput || null;
-                        const newCreditItem = credit.newCreditItem || null;
-                        const removeButton = credit.removeButton || null;
-                        const oldArtistValue = artistInput ? (artistInput.value || '').trim() : '';
-                        if (roleInput) setReactValue(roleInput, 'Remix');
-                        if (artistInput) setReactValue(artistInput, part);
-                        changes.push({
-                            titleInput,
-                            oldTitle: title,
-                            newTitle: title,
-                            roleInput,
-                            artistInput,
-                            role: 'Remix',
-                            artist: part,
-                            oldArtist: oldArtistValue,
-                            creditItem: newCreditItem,
-                            removeButton
-                        });
-                        processed++;
-                        log(`Track ${i + 1}: Extracted remixer "${part}" (Remix)`, 'success');
-                    }
-                    continue;
-                }
-            }
-
-            if (remixAnyRegex) {
-                const remEndRegex = new RegExp(`([^\\(\\)\\[\\]\\-–—,;]+?)\\s+(?:${remixPatternWords})\\b\\s*$`, 'i');
-                const remEndMatch = title.match(remEndRegex);
-                if (remEndMatch && remEndMatch[1]) {
-                    let raw = remEndMatch[1].trim();
-                    const featTokens = CONFIG.FEATURING_PATTERNS.map(escapeRegExp).join('|');
-                    const featRegex = new RegExp(`(?:${featTokens})`, 'i');
-                    const featMatch = featRegex.exec(raw);
-
-                    let remixes = [];
-                    if (featMatch) {
-                        const featIndex = featMatch.index;
-                        const afterFeat = raw.substring(featIndex + featMatch[0].length).trim();
-                        if (afterFeat) {
-                            if (hasSplitterToken(afterFeat)) {
-                                const parts = afterFeat.split(splitterRegex).map(p => cleanupArtistName(p)).filter(Boolean);
-                                const last = parts.length ? parts[parts.length - 1] : cleanupArtistName(afterFeat);
-                                if (last) remixes = [last];
-                            } else {
-                                const cand = lastWordsCandidate(afterFeat);
-                                if (cand) remixes = [cleanupArtistName(cand)];
-                            }
-                        }
-                    } else {
-                        remixes = raw.split(splitterRegex).map(p => cleanupArtistName(p)).filter(Boolean);
-                    }
-
-                    if (remixes.length === 0) continue;
-                    const createdCredits = await createCreditItems(row, remixes.length);
-                    if (createdCredits.length < remixes.length) {
-                        for (let k = createdCredits.length; k < remixes.length; k++) {
-                            const res = await clickAddCreditButton(row);
-                            if (res) createdCredits.push({ roleInput: res.roleInput, artistInput: res.artistInput, newCreditItem: res.newCreditItem, removeButton: res.removeButton });
-                        }
-                    }
-                    for (let k = 0; k < remixes.length; k++) {
-                        const part = remixes[k];
-                        const credit = createdCredits[k] || (await clickAddCreditButton(row)) || {};
-                        const roleInput = credit.roleInput || null;
-                        const artistInput = credit.artistInput || null;
-                        const newCreditItem = credit.newCreditItem || null;
-                        const removeButton = credit.removeButton || null;
-                        const oldArtistValue = artistInput ? (artistInput.value || '').trim() : '';
-                        if (roleInput) setReactValue(roleInput, 'Remix');
-                        if (artistInput) setReactValue(artistInput, part);
-                        changes.push({
-                            titleInput,
-                            oldTitle: title,
-                            newTitle: title,
-                            roleInput,
-                            artistInput,
-                            role: 'Remix',
-                            artist: part,
-                            oldArtist: oldArtistValue,
-                            creditItem: newCreditItem,
-                            removeButton
-                        });
-                        processed++;
-                        log(`Track ${i + 1}: Extracted remixer "${part}" (Remix)`, 'success');
-                    }
-                    continue;
-                }
+            try {
+                await Promise.race([
+                    trackPromise,
+                    new Promise((_, rej) => setTimeout(() => rej(new Error('track-timeout')), TRACK_TIMEOUT_MS))
+                ]);
+            } catch (err) {
+                log(`Track ${i + 1}: extraction failed or timed out`, 'warning');
             }
         }
 
         if (changes.length > 0) {
-            state.actionHistory.push({ type: 'remixers', changes });
-            updateRevertButton();
+            addActionToHistory({ type: 'remixers', changes });
         }
         if (processed > 0) {
+            await clearInfoProcessing();
             const plural = processed > 1 ? 's' : '';
             setInfoSingleLine(`Done! Extracted ${processed} remixer${plural}`, true);
             log(`Done! Extracted ${processed} remixer${plural}`, 'success');
         } else {
+            await clearInfoProcessing();
             setInfoSingleLine('No remixers found', false);
         }
     }
@@ -1183,8 +1468,8 @@
             setInfoSingleLine('No changes to revert', false);
             return;
         }
-        setInfoSingleLine('Processing...');
-        await new Promise(r => setTimeout(r, 0));
+        setInfoProcessing();
+        await new Promise(resolve => setTimeout(resolve, 0));
         const lastAction = state.actionHistory.pop();
         log(`Reverting: ${lastAction.type}`, 'info');
         if (lastAction.type === 'durations') {
@@ -1195,11 +1480,29 @@
                 restored++;
             }
             updateRevertButton();
+            await clearInfoProcessing();
             const plural = restored > 1 ? 's' : '';
             setInfoSingleLine(`Done! Reverted ${restored} duration${plural}`, true);
             log(`Done! Reverted ${restored} duration${plural}`, 'success');
             return;
         }
+
+        if (lastAction.type === 'capitalization') {
+            let restored = 0;
+            for (const change of lastAction.changes) {
+                if (change.titleInput && change.oldTitle !== undefined) {
+                    setReactValue(change.titleInput, change.oldTitle);
+                    restored++;
+                }
+            }
+            updateRevertButton();
+            await clearInfoProcessing();
+            const plural = restored > 1 ? 's' : '';
+            setInfoSingleLine(`Done! Reverted ${restored} capitalized title${plural}`, true);
+            log(`Done! Reverted ${restored} capitalized title${plural}`, 'success');
+            return;
+        }
+
         if (lastAction.type === 'artists' || lastAction.type === 'featuring' || lastAction.type === 'remixers') {
             for (const change of lastAction.changes) {
                 if (change.titleInput && change.oldTitle !== undefined) {
@@ -1235,7 +1538,7 @@
             }
             for (const act of removeActions) {
                 if (act.removeEl && act.removeEl.isConnected) {
-                    try { dispatchMouseClick(act.removeEl); } catch (e) { }
+                    try { dispatchMouseClick(act.removeEl); } catch (e) {}
                 }
             }
             const timeout = 1200;
@@ -1243,7 +1546,7 @@
             const start = Date.now();
             let unresolved = removeActions.filter(a => a.targetNode && a.targetNode.isConnected);
             while (unresolved.length > 0 && (Date.now() - start) < timeout) {
-                await new Promise(r => setTimeout(r, pollInterval));
+                await new Promise(resolve => setTimeout(resolve, pollInterval));
                 unresolved = removeActions.filter(a => a.targetNode && a.targetNode.isConnected);
             }
             let removed = 0;
@@ -1262,14 +1565,26 @@
                 }
             }
             updateRevertButton();
-            const word = lastAction.type === 'artists' ? 'artist' : (lastAction.type === 'featuring' ? 'feat. artist' : 'remixer');
+
+            const involvesCredits = lastAction.changes.some(ch => ch.artistInput || ch.creditItem || ch.roleInput || ch.removeButton);
+            let word;
+            if (lastAction.type === 'artists') {
+                word = involvesCredits ? 'artist' : 'artist title';
+            } else if (lastAction.type === 'featuring') {
+                word = involvesCredits ? 'feat artist' : 'feat title';
+            } else {
+                word = involvesCredits ? 'remixer' : 'remixer title';
+            }
+
             const plural = removed !== 1 ? 's' : '';
             const summary = `Reverted ${removed} ${word}${plural}`;
+            await clearInfoProcessing();
             if (removed > 0) { setInfoSingleLine(`Done! ${summary}`, true); log(`Done! ${summary}`, 'success'); }
             if (failed > 0) { log(`${failed} removal(s) failed`, 'warning'); if (removed === 0) setInfoSingleLine(`${failed} removal(s) failed`, false); }
             return;
         }
         updateRevertButton();
+        await clearInfoProcessing();
         setInfoSingleLine('Done! Reverted', true);
         log('Done! Reverted', 'success');
     }
@@ -1291,7 +1606,7 @@
     }
 
     function applyTheme(theme) {
-        const panel = document.getElementById('durations-helper-panel');
+        const panel = document.getElementById('helper-panel');
         if (!panel) return;
         const panelContent = panel.querySelector('#panel-content');
         const styleButtons = panel.querySelectorAll('.dh-btn');
@@ -1302,11 +1617,18 @@
         const infoDiv = panel.querySelector('#track-info');
         const headerTitle = panel.querySelector('.panel-header strong');
         const featToggle = document.getElementById('toggle-feat-remove');
+        const mainToggle = document.getElementById('toggle-main-remove');
         const remixToggle = document.getElementById('toggle-remix-optional');
         const activeBlueLight = '#1e66d6';
         const activeBlueDark = '#0b5fd6';
-        const inactiveBgLight = '#e6e6e6';
-        const inactiveBgDark = '#2b2b2b';
+
+        const inactiveBgLight = 'rgba(0,0,0,0.05)';
+        const inactiveBgDark = 'rgba(255,255,255,0.04)';
+        const borderColLight = 'rgba(0,0,0,0.12)';
+        const borderColDark = 'rgba(255,255,255,0.08)';
+
+        const miniButtons = panel.querySelectorAll('#extract-remixers-optional-only, #remove-main-from-title, #remove-feat-from-title');
+
         if (theme === 'dark') {
             panel.style.background = '#0f1112';
             panel.style.color = '#ddd';
@@ -1318,8 +1640,16 @@
             if (collapseBtn) collapseBtn.style.color = '#fff';
             if (closeBtn) closeBtn.style.color = '#fff';
             if (headerTitle) { headerTitle.style.color = '#fff'; headerTitle.style.whiteSpace = 'nowrap'; headerTitle.style.overflow = 'hidden'; headerTitle.style.textOverflow = 'ellipsis'; }
-            if (featToggle) { featToggle.style.background = state.removeFeatFromTitle ? activeBlueDark : inactiveBgDark; featToggle.style.color = '#fff'; featToggle.style.border = '1px solid #1b446f'; }
-            if (remixToggle) { remixToggle.style.background = state.remixOptionalEnabled ? activeBlueDark : inactiveBgDark; remixToggle.style.color = '#fff'; remixToggle.style.border = '1px solid #1b446f'; }
+
+            if (featToggle) { featToggle.style.background = state.removeFeatFromTitle ? activeBlueDark : inactiveBgDark; featToggle.style.color = '#fff'; featToggle.style.border = `0.5px solid ${state.removeFeatFromTitle ? '#1b446f' : borderColDark}`; }
+            if (mainToggle) { mainToggle.style.background = state.removeMainFromTitle ? activeBlueDark : inactiveBgDark; mainToggle.style.color = '#fff'; mainToggle.style.border = `0.5px solid ${state.removeMainFromTitle ? '#1b446f' : borderColDark}`; }
+            if (remixToggle) { remixToggle.style.background = state.remixOptionalEnabled ? activeBlueDark : inactiveBgDark; remixToggle.style.color = '#fff'; remixToggle.style.border = `0.5px solid ${state.remixOptionalEnabled ? '#1b446f' : borderColDark}`; }
+
+            miniButtons.forEach(mb => {
+                mb.style.background = inactiveBgDark;
+                mb.style.borderColor = borderColDark;
+            });
+
         } else {
             panel.style.background = '#fff';
             panel.style.color = '#111';
@@ -1331,17 +1661,25 @@
             if (collapseBtn) collapseBtn.style.color = '#111';
             if (closeBtn) closeBtn.style.color = '#111';
             if (headerTitle) { headerTitle.style.color = '#111'; headerTitle.style.whiteSpace = 'nowrap'; headerTitle.style.overflow = 'hidden'; headerTitle.style.textOverflow = 'ellipsis'; }
-            if (featToggle) { featToggle.style.background = state.removeFeatFromTitle ? activeBlueLight : inactiveBgLight; featToggle.style.color = state.removeFeatFromTitle ? '#fff' : '#111'; featToggle.style.border = '1px solid #bfcfe8'; }
-            if (remixToggle) { remixToggle.style.background = state.remixOptionalEnabled ? activeBlueLight : inactiveBgLight; remixToggle.style.color = state.remixOptionalEnabled ? '#fff' : '#111'; remixToggle.style.border = '1px solid #bfcfe8'; }
+
+            if (featToggle) { featToggle.style.background = state.removeFeatFromTitle ? activeBlueLight : inactiveBgLight; featToggle.style.color = state.removeFeatFromTitle ? '#fff' : '#111'; featToggle.style.border = `0.5px solid ${state.removeFeatFromTitle ? '#bfcfe8' : borderColLight}`; }
+            if (mainToggle) { mainToggle.style.background = state.removeMainFromTitle ? activeBlueLight : inactiveBgLight; mainToggle.style.color = state.removeMainFromTitle ? '#fff' : '#111'; mainToggle.style.border = `0.5px solid ${state.removeMainFromTitle ? '#bfcfe8' : borderColLight}`; }
+            if (remixToggle) { remixToggle.style.background = state.remixOptionalEnabled ? activeBlueLight : inactiveBgLight; remixToggle.style.color = state.remixOptionalEnabled ? '#fff' : '#111'; remixToggle.style.border = `0.5px solid ${state.remixOptionalEnabled ? '#bfcfe8' : borderColLight}`; }
+
+            miniButtons.forEach(mb => {
+                mb.style.background = inactiveBgLight;
+                mb.style.borderColor = borderColLight;
+            });
         }
-        if (featToggle) { featToggle.title = `Remove feat text from title`; featToggle.textContent = state.removeFeatFromTitle ? '✓' : ''; }
+        if (featToggle) { featToggle.title = `Automatically remove feat artists from titles`; featToggle.textContent = state.removeFeatFromTitle ? '✓' : ''; }
+        if (mainToggle) { mainToggle.title = `Automatically remove main artists from titles`; mainToggle.textContent = state.removeMainFromTitle ? '✓' : ''; }
         if (remixToggle) updateRemixToggleUI();
     }
 
     function initThemeFromStorage() {
         let theme = 'light';
         try {
-            const stored = localStorage.getItem(CONFIG.THEME_KEY);
+            const stored = localStorage.getItem(STORAGE_KEYS.THEME_KEY);
             if (stored === 'dark' || stored === 'light') theme = stored;
         } catch (e) { log('Could not load theme preference', 'warning'); }
         applyTheme(theme);
@@ -1350,13 +1688,44 @@
     function addPanelStyles() {
         if (document.getElementById('discogs-helper-panel-styles')) return;
         const css = `
-            #durations-helper-panel { border-radius: 8px !important; overflow: hidden !important; box-sizing: border-box !important; }
-            #durations-helper-panel .panel-header strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: middle; }
-            #durations-helper-panel #panel-content { box-sizing: border-box; background: transparent; }
-            #durations-helper-panel #log-container { border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; box-sizing: border-box; }
-            #durations-helper-panel, #durations-helper-panel * { box-sizing: border-box; }
-            #toggle-feat-remove, #toggle-remix-optional { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; font-size: 12px; line-height: 1; cursor: pointer; user-select: none; }
-            #toggle-feat-remove:focus, #toggle-remix-optional:focus { outline: 2px solid rgba(30, 102, 214, 0.3); outline-offset: 2px; }
+            #helper-panel { border-radius: 8px !important; overflow: hidden !important; box-sizing: border-box !important; }
+            #helper-panel .panel-header strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: middle; }
+            #helper-panel #panel-content { box-sizing: border-box; background: transparent; }
+            #helper-panel #log-container { border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; box-sizing: border-box; }
+            #helper-panel, #helper-panel * { box-sizing: border-box; }
+
+            #extract-remixers-optional-only, #remove-main-from-title, #remove-feat-from-title,
+            #toggle-feat-remove, #toggle-remix-optional, #toggle-main-remove {
+                width: 24px !important;
+                height: 24px !important;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 4px;
+                cursor: pointer;
+                user-select: none;
+                transition: all 0.1s ease-in-out;
+                border-width: 0.5px !important;
+                border-style: solid;
+            }
+
+            #toggle-feat-remove, #toggle-remix-optional, #toggle-main-remove { font-size: 14px !important; }
+            #extract-remixers-optional-only { font-size: 15px !important; }
+            #remove-main-from-title, #remove-feat-from-title { font-size: 13px !important; }
+
+            #extract-remixers-optional-only:hover, #remove-main-from-title:hover, #remove-feat-from-title:hover,
+            #toggle-feat-remove:hover, #toggle-remix-optional:hover, #toggle-main-remove:hover {
+                transform: scale(1.08);
+            }
+
+            #extract-remixers-optional-only:active, #remove-main-from-title:active, #remove-feat-from-title:active,
+            #toggle-feat-remove:active, #toggle-remix-optional:active, #toggle-main-remove:active {
+                transform: scale(0.94);
+            }
+
+            #toggle-feat-remove:focus, #toggle-remix-optional:focus, #toggle-main-remove:focus {
+                outline: 2px solid rgba(30, 102, 214, 0.3); outline-offset: 1px;
+            }
         `;
         const style = document.createElement('style');
         style.id = 'discogs-helper-panel-styles';
@@ -1365,10 +1734,10 @@
     }
 
     function createPanel() {
-        const existing = document.getElementById('durations-helper-panel');
+        const existing = document.getElementById('helper-panel');
         if (existing) existing.remove();
         const panel = document.createElement('div');
-        panel.id = 'durations-helper-panel';
+        panel.id = 'helper-panel';
         panel.style.cssText = `
             position: fixed;
             right: 20px;
@@ -1392,15 +1761,20 @@
                 </div>
             </div>
             <div id="panel-content" style="padding: 12px; box-sizing: border-box;">
-                <button id="scan-and-extract" class="dh-btn" title="Extracts durations from the end of track titles">🕛 Extract Durations</button>
-                <button id="extract-artists" class="dh-btn" title="Splitter Keywords: ${CONFIG.ARTIST_SPLITTER_PATTERNS.join(', ')}">👤 Extract Artists</button>
-                <button id="extract-featuring" class="dh-btn" title="Keywords: ${CONFIG.FEATURING_PATTERNS.join(', ')}">👥 Extract Feat. Artists</button>
+                <div style="display: flex; gap: 6px; margin-bottom: 0px;">
+                    <button id="scan-and-extract" class="dh-btn" style="flex: 1; margin-bottom: 0;" title="Extract durations from the end of track titles">🕛 Durations</button>
+                    <button id="capitalize-titles" class="dh-btn" style="flex: 1; margin-bottom: 0;" title="Capitalize the first letter of each word in titles">🔠 Capitalize</button>
+                </div>
+
+                <button id="extract-artists" class="dh-btn" title="Splitter Patterns: ${CONFIG.ARTIST_SPLITTER_PATTERNS.join(', ')}">👤 Extract Main Artists</button>
+                <button id="extract-featuring" class="dh-btn" title="Feat Patterns: ${CONFIG.FEATURING_PATTERNS.join(', ')}">👥 Extract Feat Artists</button>
                 <div style="display:flex; gap:8px; align-items:center;">
                     <button id="extract-remixers" class="dh-btn" style="flex:1;">🎶 Extract Remixers</button>
                 </div>
-                <button id="revert-last" class="dh-btn" style="margin-top: 8px;">↩️ Revert Actions</button>
-                <div id="track-info" style="background: #f8f9fa; padding: 8px; border-radius: 4px; margin-top: 8px; font-size: 12px; display: block; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Ready</div>
-                <div id="log-section" style="margin-top: 10px; display: block;">
+
+                <button id="revert-last" class="dh-btn" style="margin-top: 0px;">↩️ Revert Actions</button>
+                <div id="track-info" style="background: #f8f9fa; padding: 8px; border-radius: 4px; margin-top: 6px; font-size: 12px; display: block; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Ready</div>
+                <div id="log-section" style="margin-top: 6px; display: block;">
                     <div id="log-toggle" style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; cursor: pointer;">
                         <strong style="font-size: 11px; color: #666;">Activity Log</strong>
                         <span id="log-arrow" style="font-size: 12px; color: #666;">▼</span>
@@ -1413,12 +1787,14 @@
         addPanelStyles();
         const styleButtons = panel.querySelectorAll('.dh-btn');
         styleButtons.forEach(btn => {
-            btn.style.cssText = `
-                display: block;
+            btn.style.cssText += `
+                display: flex;
+                align-items: center;
+                justify-content: flex-start;
                 width: 100%;
                 box-sizing: border-box;
                 padding: 10px 12px;
-                margin-bottom: 8px;
+                margin-bottom: 6px;
                 background: #f1f3f5;
                 color: #111;
                 border: 1px solid #e4e6e8;
@@ -1433,21 +1809,50 @@
         if (remixBtn) {
             remixBtn.style.display = 'flex';
             remixBtn.style.alignItems = 'center';
-            remixBtn.style.justifyContent = 'space-between';
+            remixBtn.style.justifyContent = 'flex-start';
             remixBtn.style.gap = '8px';
+
+            const optionalOnlyBtn = document.createElement('span');
+            optionalOnlyBtn.id = 'extract-remixers-optional-only';
+            optionalOnlyBtn.setAttribute('role', 'button');
+            optionalOnlyBtn.setAttribute('tabindex', '0');
+            optionalOnlyBtn.textContent = '🎵';
+            optionalOnlyBtn.title = `Extract optional patterns only: ${CONFIG.REMIX_PATTERNS_OPTIONAL.join(', ')}`;
+            optionalOnlyBtn.style.cssText = `
+                flex: 0 0 auto;
+                margin: 0;
+                margin-left: auto;
+                padding: 0;
+                width: 24px;
+                height: 24px;
+                font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", "Segoe UI Symbol", system-ui, -apple-system, "Helvetica Neue", Arial;
+                border-radius: 4px;
+                cursor: pointer;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                user-select: none;
+            `;
+            optionalOnlyBtn.addEventListener('click', (e) => {
+                if (e && e.stopPropagation) e.stopPropagation();
+                if (e && e.preventDefault) e.preventDefault();
+                extractRemixers(true);
+            });
+            optionalOnlyBtn.addEventListener('keydown', (ev) => { if (ev.key === ' ' || ev.key === 'Enter') { ev.preventDefault(); optionalOnlyBtn.click(); } });
+            remixBtn.appendChild(optionalOnlyBtn);
+
             const remixToggle = document.createElement('span');
             remixToggle.id = 'toggle-remix-optional';
             remixToggle.setAttribute('role', 'button');
             remixToggle.setAttribute('tabindex', '0');
             remixToggle.textContent = state.remixOptionalEnabled ? '✓' : '';
-            remixToggle.title = `Optional Keywords: ${CONFIG.REMIX_PATTERNS_OPTIONAL.join(', ')}`;
+            remixToggle.title = `Optional Remix Patterns: ${CONFIG.REMIX_PATTERNS_OPTIONAL.join(', ')}`;
             remixToggle.style.cssText = `
                 flex: 0 0 auto;
                 margin: 0;
                 padding: 0;
-                width: 18px;
-                height: 18px;
-                font-size: 12px;
+                width: 24px;
+                height: 24px;
                 border-radius: 4px;
                 cursor: pointer;
                 display: inline-flex;
@@ -1459,9 +1864,9 @@
                 if (e && e.stopPropagation) e.stopPropagation();
                 if (e && e.preventDefault) e.preventDefault();
                 state.remixOptionalEnabled = !state.remixOptionalEnabled;
-                try { localStorage.setItem(CONFIG.REMIX_OPTIONAL_KEY, state.remixOptionalEnabled ? '1' : '0'); } catch (err) { log('Could not save remix optional setting', 'warning'); }
+                try { localStorage.setItem(STORAGE_KEYS.REMIX_OPTIONAL_KEY, state.remixOptionalEnabled ? '1' : '0'); } catch (err) { log('Could not save remix optional setting', 'warning'); }
                 updateRemixToggleUI();
-                const current = localStorage.getItem(CONFIG.THEME_KEY) === 'dark' ? 'dark' : 'light';
+                const current = localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark' ? 'dark' : 'light';
                 applyTheme(current);
             });
             remixToggle.addEventListener('keydown', (ev) => { if (ev.key === ' ' || ev.key === 'Enter') { ev.preventDefault(); remixToggle.click(); } });
@@ -1472,21 +1877,49 @@
         if (featBtn) {
             featBtn.style.display = 'flex';
             featBtn.style.alignItems = 'center';
-            featBtn.style.justifyContent = 'space-between';
+            featBtn.style.justifyContent = 'flex-start';
             featBtn.style.gap = '8px';
+
+            const removeFeatSmall = document.createElement('span');
+            removeFeatSmall.id = 'remove-feat-from-title';
+            removeFeatSmall.setAttribute('role', 'button');
+            removeFeatSmall.setAttribute('tabindex', '0');
+            removeFeatSmall.textContent = '✂️';
+            removeFeatSmall.title = 'Remove feat artists from titles';
+            removeFeatSmall.style.cssText = `
+                flex: 0 0 auto;
+                margin: 0;
+                margin-left: auto;
+                padding: 0;
+                width: 24px;
+                height: 24px;
+                border-radius: 4px;
+                cursor: pointer;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                user-select: none;
+            `;
+            removeFeatSmall.addEventListener('click', (e) => {
+                if (e && e.stopPropagation) e.stopPropagation();
+                if (e && e.preventDefault) e.preventDefault();
+                removeFeaturingFromTitle();
+            });
+            removeFeatSmall.addEventListener('keydown', (ev) => { if (ev.key === ' ' || ev.key === 'Enter') { ev.preventDefault(); removeFeatSmall.click(); } });
+            featBtn.appendChild(removeFeatSmall);
+
             const featToggle = document.createElement('span');
             featToggle.id = 'toggle-feat-remove';
             featToggle.setAttribute('role', 'button');
             featToggle.setAttribute('tabindex', '0');
             featToggle.textContent = state.removeFeatFromTitle ? '✓' : '';
-            featToggle.title = `Remove feat text from title`;
+            featToggle.title = `Automatically remove feat artists from titles`;
             featToggle.style.cssText = `
                 flex: 0 0 auto;
                 margin: 0;
                 padding: 0;
-                width: 18px;
-                height: 18px;
-                font-size: 12px;
+                width: 24px;
+                height: 24px;
                 border-radius: 4px;
                 cursor: pointer;
                 display: inline-flex;
@@ -1500,14 +1933,82 @@
                 if (e && e.preventDefault) e.preventDefault();
                 state.removeFeatFromTitle = !state.removeFeatFromTitle;
                 featToggle.textContent = state.removeFeatFromTitle ? '✓' : '';
-                featToggle.title = `Remove feat text from title`;
-                try { localStorage.setItem(CONFIG.FEAT_REMOVE_KEY, state.removeFeatFromTitle ? '1' : '0'); } catch (err) { log('Could not save feat setting', 'warning'); }
-                const current = localStorage.getItem(CONFIG.THEME_KEY) === 'dark' ? 'dark' : 'light';
+                featToggle.title = `Automatically remove feat artists from titles`;
+                try { localStorage.setItem(STORAGE_KEYS.FEAT_REMOVE_KEY, state.removeFeatFromTitle ? '1' : '0'); } catch (err) { log('Could not save feat setting', 'warning'); }
+                const current = localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark' ? 'dark' : 'light';
                 applyTheme(current);
             }
             featToggle.addEventListener('click', toggleFeatHandler);
             featToggle.addEventListener('keydown', (ev) => { if (ev.key === ' ' || ev.key === 'Enter') toggleFeatHandler(ev); });
             featBtn.appendChild(featToggle);
+        }
+
+        const mainBtn = document.getElementById('extract-artists');
+        if (mainBtn) {
+            mainBtn.style.display = 'flex';
+            mainBtn.style.alignItems = 'center';
+            mainBtn.style.justifyContent = 'flex-start';
+            mainBtn.style.gap = '8px';
+
+            const removeMain = document.createElement('span');
+            removeMain.id = 'remove-main-from-title';
+            removeMain.setAttribute('role', 'button');
+            removeMain.setAttribute('tabindex', '0');
+            removeMain.textContent = '✂️';
+            removeMain.title = 'Remove main artists from titles';
+            removeMain.style.cssText = `
+                flex: 0 0 auto;
+                margin: 0;
+                margin-left: auto;
+                padding: 0;
+                width: 24px;
+                height: 24px;
+                border-radius: 4px;
+                cursor: pointer;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                user-select: none;
+            `;
+            removeMain.addEventListener('click', (e) => {
+                if (e && e.stopPropagation) e.stopPropagation();
+                if (e && e.preventDefault) e.preventDefault();
+                removeMainArtistsFromTitle();
+            });
+            removeMain.addEventListener('keydown', (ev) => { if (ev.key === ' ' || ev.key === 'Enter') { ev.preventDefault(); removeMain.click(); } });
+            mainBtn.appendChild(removeMain);
+
+            const mainToggle = document.createElement('span');
+            mainToggle.id = 'toggle-main-remove';
+            mainToggle.setAttribute('role', 'button');
+            mainToggle.setAttribute('tabindex', '0');
+            mainToggle.textContent = state.removeMainFromTitle ? '✓' : '';
+            mainToggle.title = `Automatically remove main artists from titles`;
+            mainToggle.style.cssText = `
+                flex: 0 0 auto;
+                margin: 0;
+                padding: 0;
+                width: 24px;
+                height: 24px;
+                border-radius: 4px;
+                cursor: pointer;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                user-select: none;
+            `;
+            function toggleMainHandler(e) {
+                if (e && e.stopPropagation) e.stopPropagation();
+                if (e && e.preventDefault) e.preventDefault();
+                state.removeMainFromTitle = !state.removeMainFromTitle;
+                mainToggle.textContent = state.removeMainFromTitle ? '✓' : '';
+                try { localStorage.setItem(STORAGE_KEYS.MAIN_REMOVE_KEY, state.removeMainFromTitle ? '1' : '0'); } catch (err) { log('Could not save main-remove setting', 'warning'); }
+                const current = localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark' ? 'dark' : 'light';
+                applyTheme(current);
+            }
+            mainToggle.addEventListener('click', toggleMainHandler);
+            mainToggle.addEventListener('keydown', (ev) => { if (ev.key === ' ' || ev.key === 'Enter') toggleMainHandler(ev); });
+            mainBtn.appendChild(mainToggle);
         }
 
         const collapseBtn = document.getElementById('collapse-panel');
@@ -1521,7 +2022,7 @@
             if (content.style.display === 'none') {
                 content.style.display = 'block';
                 collapseBtn.textContent = '▲';
-                collapseBtn.title = 'Collapse';
+                collapseBtn.title = 'Expand';
                 state.isCollapsed = false;
                 resetHideTimer();
             } else {
@@ -1535,6 +2036,7 @@
         document.getElementById('extract-artists').onclick = extractArtists;
         document.getElementById('extract-featuring').onclick = extractFeaturing;
         document.getElementById('extract-remixers').onclick = extractRemixers;
+        document.getElementById('capitalize-titles').onclick = capitalizeTitles;
         document.getElementById('revert-last').onclick = revertLastAction;
         logToggle.onclick = () => {
             if (!logContainer) return;
@@ -1547,9 +2049,9 @@
             }
         };
         themeBtn.onclick = () => {
-            const current = localStorage.getItem(CONFIG.THEME_KEY) === 'dark' ? 'dark' : 'light';
+            const current = localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark' ? 'dark' : 'light';
             const next = current === 'dark' ? 'light' : 'dark';
-            try { localStorage.setItem(CONFIG.THEME_KEY, next); } catch (e) { log('Could not save theme preference', 'warning'); }
+            try { localStorage.setItem(STORAGE_KEYS.THEME_KEY, next); } catch (e) { log('Could not save theme preference', 'warning'); }
             applyTheme(next);
         };
         initThemeFromStorage();
@@ -1581,10 +2083,7 @@
         createPanel();
         updateRevertButton();
         log('Discogs Edit Helper ready');
-        document.body.addEventListener('mousemove', resetHideTimer);
-        document.body.addEventListener('keydown', resetHideTimer);
-        document.body.addEventListener('click', resetHideTimer);
-        const panel = document.getElementById('durations-helper-panel');
+        const panel = document.getElementById('helper-panel');
         if (panel) {
             panel.addEventListener('mousemove', resetHideTimer);
             panel.addEventListener('keydown', resetHideTimer);
