@@ -15,7 +15,7 @@ for best experience use along with [**Audio To Discogs CSV Exporter**](https://g
 ## Features
 
 - **🕛 Duration Extraction** - Extracts and assigns track durations (e.g., “3:45”) to duration fields
-- **🔠 Capitalize Titles** - Capitalizes the first letter of each word in titles
+- **🔠 Capitalize Titles** - Capitalizes the first letter of each word in titles (including Unicode / non-Latin)
 - **👤 Main Artist Extraction** - Extracts and assigns track artists from the “Artist - Title” format
 - **👥 Feat Artist Extraction** - Extracts and assigns featuring artists (e.g., “featuring”, “feat.”, etc.) to credits
 - **🎶 Remixer Extraction** - Extracts and assigns remixers (e.g., “remix”, “rmx”, etc.) to credits
