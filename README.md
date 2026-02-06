@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 
 *Automatically extracts info from track titles and assigns to the appropriate fields,  
-for best experience use together with [**Audio To Discogs CSV Exporter**](https://github.com/chr1sx/Audio-To-Discogs-CSV-Exporter) or [**Bandcamp to Discogs**](https://github.com/Serhii-DV/bandcamp-to-discogs?tab=readme-ov-file).*
+for best experience use along with [**Audio To Discogs CSV Exporter**](https://github.com/chr1sx/Audio-To-Discogs-CSV-Exporter) or [**Bandcamp to Discogs**](https://github.com/Serhii-DV/bandcamp-to-discogs?tab=readme-ov-file).*
 
 </div>
 
