@@ -5,8 +5,9 @@
 [![Install Script](https://img.shields.io/badge/Install%20Script-brightgreen?style=for-the-badge)](https://github.com/chr1sx/Discogs-Edit-Helper/raw/refs/heads/main/Discogs%20Edit%20Helper.user.js)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 
-Automatically extracts info from track titles and assigns to the appropriate fields,  
-intended to work with [**Audio To Discogs CSV Exporter**](https://github.com/chr1sx/Audio-To-Discogs-CSV-Exporter).
+*Automatically extracts info from track titles and assigns to the appropriate fields,  
+for best experience use together with [**Audio To Discogs CSV Exporter**](https://github.com/chr1sx/Audio-To-Discogs-CSV-Exporter) or [**Bandcamp to Discogs**](https://github.com/Serhii-DV/bandcamp-to-discogs?tab=readme-ov-file).*
+
 </div>
 
 ---
@@ -14,10 +15,11 @@ intended to work with [**Audio To Discogs CSV Exporter**](https://github.com/chr
 ## Features
 
 - **🕛 Duration Extraction** - Extracts and assigns track durations (e.g., “3:45”) to duration fields
-- **👤 Artist Extraction** - Extracts and assigns track artists from the “Artist - Title” format
-- **👥 Feat. Artist Extraction** - Extracts and assigns featuring artists (e.g., “featuring”, “feat.”, etc.) to credits
-- **🎶 Remixer Extraction** - Extracts and assigns remixers (e.g., “remix”, “rmx by”, etc.) to credits
-- **↩️ Undo Support** - Revert any extraction action with a single click
+- **🔠 Capitalize Titles** - Capitalizes the first letter of each word in titles
+- **👤 Main Artist Extraction** - Extracts and assigns track artists from the “Artist - Title” format
+- **👥 Feat Artist Extraction** - Extracts and assigns featuring artists (e.g., “featuring”, “feat.”, etc.) to credits
+- **🎶 Remixer Extraction** - Extracts and assigns remixers (e.g., “remix”, “rmx”, etc.) to credits
+- **↩️ Undo Support** - Revert any action with a single click
 - **🌓 Dark/Light Theme** - Toggle between dark and light themes
 
 ---
@@ -56,7 +58,6 @@ This userscript is available under the [MIT License](LICENSE).
 
 <div align="left">
 <img src="https://github.com/chr1sx/Discogs-Edit-Helper/blob/main/Images/screenshot1.png?raw=true" width="250" alt="Helper panel">
-<img src="https://github.com/chr1sx/Discogs-Edit-Helper/blob/main/Images/screenshot2.png?raw=true" width="250" alt="Helper panel">
 </div>
 
 ---
