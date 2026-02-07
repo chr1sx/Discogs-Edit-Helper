@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      1.3
+// @version      1.3.1
 // @description  Automatically extracts info from track titles and assigns to the appropriate fields.
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
@@ -242,7 +242,7 @@
     function splitArtistsByConfiguredPatterns(raw) {
     if (!raw) return [];
     const tokens = CONFIG.ARTIST_SPLITTER_PATTERNS.map(t => escapeRegExp(t)).join('|');
-    const splitter = new RegExp(`\\s*(?:${tokens})\\s*`, 'gi');  // Changed 'g' flag to 'gi'
+    const splitter = new RegExp(`\\s*(?:${tokens})\\s*`, 'gi');
     const parts = raw.split(splitter).map(p => cleanupArtistName(p, true)).filter(Boolean);
     return parts;
     }
@@ -770,7 +770,7 @@
     async function removeFeaturingFromTitle() {
         setInfoProcessing();
         await new Promise(resolve => setTimeout(resolve, 0));
-        log('Starting surgical feat text removal...', 'info');
+        log('Starting feat artist removal (title-only)...', 'info');
 
         let trackRows = document.querySelectorAll('tr.track_row');
         if (trackRows.length === 0) trackRows = document.querySelectorAll('tr[class*="track"]');
@@ -799,7 +799,7 @@
                 setReactValue(titleInput, newTitle);
                 changes.push({ titleInput, oldTitle: originalTitle, newTitle });
                 processed++;
-                log(`Track ${i + 1}: Surgical feat removal -> "${newTitle}"`, 'success');
+                log(`Track ${i + 1}: Removed feat artist part, title -> "${newTitle}"`, 'success');
             }
         }
 
@@ -809,17 +809,20 @@
 
         if (processed > 0) {
             await clearInfoProcessing();
-            setInfoSingleLine(`Done! Cleaned ${processed} feat title${processed > 1 ? 's' : ''}`, true);
+            const plural = processed > 1 ? 's' : '';
+            setInfoSingleLine(`Done! Cleaned ${processed} feat title${plural}`, true);
+            log(`Done! Removed feat artists from ${processed} title${plural}`, 'success');
         } else {
             await clearInfoProcessing();
             setInfoSingleLine('No feat artists found', false);
+            log('No feat artists found', 'info');
         }
     }
 
     async function extractFeaturing() {
         setInfoProcessing();
         await new Promise(resolve => setTimeout(resolve, 0));
-        log('Starting featuring artist extraction...', 'info');
+        log('Starting feat artist extraction...', 'info');
         let trackRows = document.querySelectorAll('tr.track_row');
         if (trackRows.length === 0) trackRows = document.querySelectorAll('tr[class*="track"]');
         let processed = 0;
@@ -848,7 +851,6 @@
                 if (!featArtistsText) continue;
 
                 const remainingInBracket = originalTitle.substring(match.index + match[0].length);
-                const featRegexGlobal = new RegExp(`(?:${featPattern})`, 'gi');
                 const hasRemixLater = new RegExp(`^.*?\\b(?:${remixTerminatorPattern})\\b\\s*[\\)\\]]`, 'i').test(remainingInBracket);
 
                 if (hasRemixLater) {
@@ -881,6 +883,7 @@
                     });
                     processed++;
                     foundInThisTrack = true;
+                    log(`Track ${i + 1}: Extracted feat artist "${partsToAdd[k]}"`, 'success');
                 }
             }
 
@@ -896,7 +899,9 @@
         }
         await clearInfoProcessing();
         const plural = processed > 1 ? 's' : '';
-        setInfoSingleLine(processed > 0 ? `Done! Extracted ${processed} feat artist${plural}` : 'No feat artists found', processed > 0);
+        const summary = processed > 0 ? `Done! Extracted ${processed} feat artist${plural}` : 'No feat artists found';
+        setInfoSingleLine(summary, processed > 0);
+        log(summary, processed > 0 ? 'success' : 'info');
     }
 
     function getActiveRemixTokens() {
@@ -1643,7 +1648,7 @@ Optional Remix Patterns: ${optionalPatternsWrapped}`;
 
             if (featToggle) { featToggle.style.background = state.removeFeatFromTitle ? activeBlueDark : inactiveBgDark; featToggle.style.color = '#fff'; featToggle.style.border = `0.5px solid ${state.removeFeatFromTitle ? '#1b446f' : borderColDark}`; }
             if (mainToggle) { mainToggle.style.background = state.removeMainFromTitle ? activeBlueDark : inactiveBgDark; mainToggle.style.color = '#fff'; mainToggle.style.border = `0.5px solid ${state.removeMainFromTitle ? '#1b446f' : borderColDark}`; }
-            if (remixToggle) { remixToggle.style.background = state.remixOptionalEnabled ? activeBlueDark : inactiveBgDark; remixToggle.style.color = '#fff'; remixToggle.style.border = `0.5px solid ${state.remixOptionalEnabled ? '#1b446f' : borderColDark}`; }
+            if (remixToggle) { remixToggle.style.background = state.remixOptionalEnabled ? activeBlueDark : inactiveBgDark; remixToggle.style.color = '#fff'; remixToggle.style.border = `0.5px solid ${state.removeRemixOpt ? '#1b446f' : borderColDark}`; }
 
             miniButtons.forEach(mb => {
                 mb.style.background = inactiveBgDark;
