@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      1.3.1
+// @version      1.3.2
 // @description  Automatically extracts info from track titles and assigns to the appropriate fields.
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
@@ -25,10 +25,10 @@
         PROCESSING_DELAY_MS: 300,
         INFO_TEXT_COLOR: '#28a745',
         FEATURING_PATTERNS: ['featuring', 'feat', 'ft', 'f/', 'w/'],
-        REMIX_PATTERNS: ['remix', 'rmx'],
-        REMIX_PATTERNS_OPTIONAL: ['edit', 'mix', 'rework', 'version'],
-        REMIX_BY_PATTERNS: ['remixed by', 'remix by', 'rmx by', 'reworked by', 'rework by', 'edited by', 'edit by', 'mixed by', 'mix by', 'version by'],
-        ARTIST_SPLITTER_PATTERNS: ['vs', '&', '+', '/', ',']
+        REMIX_PATTERNS: ['re(?:\\-)?mix', 'rmx'],
+        REMIX_PATTERNS_OPTIONAL: ['edit', 're(?:\\-)?work', 'mix', 'version'],
+        REMIX_BY_PATTERNS: ['remixed by', 're(?:\\-)?mix by', 'rmx by', 're(?:\\-)?build by', 're(?:\\-)?built by', 're(?:\\-)?worked by', 're(?:\\-)?work by', 'edited by', 'edit by', 'mixed by', 'mix by', 'version by'],
+        ARTIST_SPLITTER_PATTERNS: ['vs', 'v', '&', '+', '/', ',']
     };
 
     const STORAGE_KEYS = {
@@ -51,7 +51,7 @@
     };
 
     function getRemixByRegex() {
-        const patterns = CONFIG.REMIX_BY_PATTERNS.map(p => escapeRegExp(p)).join('|');
+        const patterns = CONFIG.REMIX_BY_PATTERNS.map(p => patternToRegex(p)).join('|');
         return new RegExp(`^(?:${patterns})\\s+`, 'i');
     }
 
@@ -60,7 +60,7 @@
             ...CONFIG.REMIX_PATTERNS,
             ...CONFIG.REMIX_PATTERNS_OPTIONAL,
             ...CONFIG.REMIX_BY_PATTERNS
-        ].map(p => escapeRegExp(p)).join('|');
+        ].map(p => patternToRegex(p)).join('|');
         return all;
     }
 
@@ -81,6 +81,17 @@
 
     function escapeRegExp(str) {
         return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function patternToRegex(pattern) {
+        if (pattern.includes('(?:') || pattern.includes('[')) {
+            return pattern;
+        }
+        return escapeRegExp(pattern);
+    }
+
+    function patternToDisplay(pattern) {
+        return pattern.replace(/\(\?:\\-\)\?/g, '');
     }
 
     function setReactValue(element, value) {
@@ -915,7 +926,7 @@
         const toggle = document.getElementById('toggle-remix-optional');
         if (!toggle) return;
         toggle.textContent = state.remixOptionalEnabled ? '✓' : '';
-        toggle.title = `Automatically extract optional patterns: ${CONFIG.REMIX_PATTERNS_OPTIONAL.join(', ')}`;
+        toggle.title = `Automatically extract optional patterns: ${CONFIG.REMIX_PATTERNS_OPTIONAL.map(patternToDisplay).join(', ')}`;
         updateRemixButtonTitle();
     }
 
@@ -938,14 +949,20 @@
             }, '');
         };
 
-        let remixPatterns =
-`Remix Patterns: ${wrap(CONFIG.REMIX_PATTERNS, 6, 8)}
-Remix By Patterns: ${wrap(CONFIG.REMIX_BY_PATTERNS, 4, 6)}`;
+        const displayPatterns = CONFIG.REMIX_PATTERNS.map(patternToDisplay);
+        const displayByPatterns = CONFIG.REMIX_BY_PATTERNS.map(patternToDisplay).map(p => p.replace(/\s+by\s*$/i, ''));
 
-        const optionalPatternsWrapped = wrap(CONFIG.REMIX_PATTERNS_OPTIONAL, 5, 8);
-        if (state.remixOptionalEnabled && optionalPatternsWrapped) {
-            remixPatterns += `
+        let remixPatterns =
+`Remix Patterns: ${wrap(displayPatterns, 6, 7)}
+Remix By Patterns: ${wrap(displayByPatterns, 5, 7)}`;
+
+        if (state.remixOptionalEnabled) {
+            const displayOptional = CONFIG.REMIX_PATTERNS_OPTIONAL.map(patternToDisplay);
+            const optionalPatternsWrapped = wrap(displayOptional, 5, 7);
+            if (optionalPatternsWrapped) {
+                remixPatterns += `
 Optional Remix Patterns: ${optionalPatternsWrapped}`;
+            }
         }
 
         remixBtn.title = remixPatterns;
@@ -983,13 +1000,13 @@ Optional Remix Patterns: ${optionalPatternsWrapped}`;
             }
         }
 
-        if (!/['’`ʻ]/.test(token)) {
+        if (!/[''`ʻ]/.test(token)) {
             if (/[A-Za-z]\.[A-Za-z]/.test(token) || /[A-Z][a-z]*[A-Z]/.test(token)) {
                 return token;
             }
         }
 
-        return token.replace(/([\p{L}\p{N}'’`ʻ]+)/gu, (core) => {
+        return token.replace(/([\p{L}\p{N}''`ʻ]+)/gu, (core) => {
             if (isAllUpper(core) && core.length <= 3) {
                 return core;
             }
@@ -1024,7 +1041,7 @@ Optional Remix Patterns: ${optionalPatternsWrapped}`;
                 if (tokens.length === 0) return txt;
                 const outTokens = tokens.map((tok) => {
                     if (!/\p{L}/u.test(tok)) return tok;
-                    const internalChars = "'’`ʻ";
+                    const internalChars = "''`ʻ";
                     const leadMatch = tok.match(new RegExp(`^([^\\p{L}\\p{N}${internalChars}]*)(.*)$`, 'u'));
                     const lead = (leadMatch ? leadMatch[1] : '') || '';
                     const rest = (leadMatch ? leadMatch[2] : tok) || tok;
@@ -1093,46 +1110,35 @@ Optional Remix Patterns: ${optionalPatternsWrapped}`;
 
     async function extractRemixers(optionalOnly = false) {
         if (typeof optionalOnly !== 'boolean') optionalOnly = false;
-
         setInfoProcessing();
         await new Promise(resolve => setTimeout(resolve, 0));
         log(`Starting remixer extraction${optionalOnly ? ' (Strict Optional Only)' : ''}...`, 'info');
-
         const activeTokens = optionalOnly ? CONFIG.REMIX_PATTERNS_OPTIONAL.slice() : getActiveRemixTokens();
-        const remixPatternWords = activeTokens.map(p => escapeRegExp(p)).join('|');
-
-        const remixByPatternWordsForRegex = CONFIG.REMIX_BY_PATTERNS.map(p => escapeRegExp(p)).join('|');
+        const remixPatternWords = activeTokens.map(p => patternToRegex(p)).join('|');
+        const remixByPatternWordsForRegex = CONFIG.REMIX_BY_PATTERNS.map(p => patternToRegex(p)).join('|');
         const remixByRegexFull = new RegExp(`\\b(?:${remixByPatternWordsForRegex})\\b`, 'i');
-
         const remixByPatternWords = optionalOnly ? '' : remixByPatternWordsForRegex;
         const splitterRegex = buildSplitterRegex();
         const remixAnyPattern = [remixPatternWords, remixByPatternWords].filter(Boolean).join('|');
         const remixAnyRegex = remixAnyPattern ? new RegExp(`\\b(?:${remixAnyPattern})\\b`, 'i') : null;
-
         let trackRows = document.querySelectorAll('tr.track_row');
         if (trackRows.length === 0) trackRows = document.querySelectorAll('tr[class*="track"]');
-
         let processed = 0;
         const changes = [];
         const TRACK_TIMEOUT_MS = 8000;
-
         function normalizeForCompare(name) {
             if (!name) return '';
             return String(name).replace(/^[\(\[]+|[\)\]]+$/g, '').trim().toLowerCase();
         }
-
         function cleanPartsPreserveWrapping(rawParts) {
             const out = [];
             for (let raw of rawParts) {
                 const orig = String(raw || '').trim();
                 if (!orig) continue;
-
                 let cleaned = orig.replace(getRemixByRegex(), '');
                 cleaned = cleaned.replace(/^by\s+/i, '');
                 cleaned = cleanupArtistName(cleaned, true);
-
                 cleaned = cleaned.replace(/[\(\[]+$/g, '').replace(/^[\)\]]+/g, '').trim();
-
                 if (orig.startsWith('[') && !cleaned.endsWith(']')) {
                     cleaned = '[' + cleaned.replace(/^\[+/, '') + ']';
                 }
@@ -1143,25 +1149,20 @@ Optional Remix Patterns: ${optionalPatternsWrapped}`;
             }
             return out;
         }
-
         for (let i = 0; i < trackRows.length; i++) {
             const row = trackRows[i];
             const titleInput = row.querySelector('input[data-type="track-title"], input[id*="track-title"]');
             if (!titleInput) continue;
             const title = titleInput.value.trim();
-
             const containerRegex = /([\(\[\uFF08\uFF3B]\s*(.*?)\s*[\)\]\uFF09\uFF3D])/g;
-
             const trackPromise = (async () => {
                 try {
                     let matchInContainer;
                     while ((matchInContainer = containerRegex.exec(title)) !== null) {
                         const inner = (matchInContainer[2] || '').trim();
-
                         if (optionalOnly && remixByRegexFull.test(inner)) {
                             continue;
                         }
-
                         if (remixByPatternWords) {
                             const remByRegex = new RegExp(`(?:${remixByPatternWords})\\s+(.+)$`, 'i');
                             const remByMatch = inner.match(remByRegex);
@@ -1186,11 +1187,9 @@ Optional Remix Patterns: ${optionalPatternsWrapped}`;
                                     remixes = cleanPartsPreserveWrapping(origParts);
                                 }
                                 if (remixes.length === 0) continue;
-
                                 const existingVals = Array.from(row.querySelectorAll('input.credit-artist-name-input, input[data-type="artist-name"], input.add-credit-artist-input'))
                                     .map(inp => normalizeForCompare(inp.value || ''));
                                 const partsToAdd = remixes.filter(p => !existingVals.includes(normalizeForCompare(p)));
-
                                 const allArtistInputs = Array.from(row.querySelectorAll('input.credit-artist-name-input, input.add-credit-artist-input, input[data-type="artist-name"], input[name*="artist"]'));
                                 const emptyInputs = allArtistInputs.filter(inp => !(inp.value || '').trim());
                                 const inputsToUse = [];
@@ -1205,7 +1204,6 @@ Optional Remix Patterns: ${optionalPatternsWrapped}`;
                                         else break;
                                     }
                                 }
-
                                 for (let k = 0; k < partsToAdd.length && k < inputsToUse.length; k++) {
                                     const part = partsToAdd[k];
                                     const artistInput = inputsToUse[k];
@@ -1234,7 +1232,6 @@ Optional Remix Patterns: ${optionalPatternsWrapped}`;
                                 continue;
                             }
                         }
-
                         if (remixAnyRegex) {
                             const remMatch = inner.match(remixAnyRegex);
                             if (remMatch) {
@@ -1244,7 +1241,6 @@ Optional Remix Patterns: ${optionalPatternsWrapped}`;
                                 const afterRemixStart = remIndex + remKeyword.length;
                                 const afterRemix = inner.substring(afterRemixStart).trim();
                                 let remixes = [];
-
                                 if (!beforeRemix && afterRemix) {
                                     const featTokens = CONFIG.FEATURING_PATTERNS.map(escapeRegExp).join('|');
                                     const featRegex = new RegExp(`(?:${featTokens})`, 'i');
@@ -1258,7 +1254,6 @@ Optional Remix Patterns: ${optionalPatternsWrapped}`;
                                     let lastFeatMatch = null;
                                     let fm;
                                     while ((fm = featRegexGlobal.exec(beforeRemix)) !== null) { lastFeatMatch = fm; }
-
                                     if (lastFeatMatch) {
                                         const lastFeatIndex = lastFeatMatch.index;
                                         const featToken = lastFeatMatch[0];
@@ -1293,16 +1288,13 @@ Optional Remix Patterns: ${optionalPatternsWrapped}`;
                                         }
                                     }
                                 }
-
                                 if (remixes.length === 0 && afterRemix) {
-                                    const byPattern = CONFIG.REMIX_BY_PATTERNS.map(p => escapeRegExp(p)).join('|');
+                                    const byPattern = CONFIG.REMIX_BY_PATTERNS.map(p => patternToRegex(p)).join('|');
                                     const startsWithBy = new RegExp(`^(?:${byPattern})\\b`, 'i');
-
                                     if (!startsWithBy.test(afterRemix)) {
                                         const featTokens = CONFIG.FEATURING_PATTERNS.map(escapeRegExp).join('|');
                                         const featRegex = new RegExp(`(?:${featTokens})`, 'i');
                                         const featMatch = featRegex.exec(afterRemix);
-
                                         if (featMatch) {
                                             const beforeFeat = afterRemix.substring(0, featMatch.index).trim();
                                             if (beforeFeat) {
@@ -1315,12 +1307,10 @@ Optional Remix Patterns: ${optionalPatternsWrapped}`;
                                         }
                                     }
                                 }
-
                                 if (remixes.length > 0) {
                                     const existingVals = Array.from(row.querySelectorAll('input.credit-artist-name-input, input[data-type="artist-name"], input.add-credit-artist-input'))
                                         .map(inp => normalizeForCompare(inp.value || ''));
                                     const partsToAdd = remixes.filter(p => !existingVals.includes(normalizeForCompare(p)));
-
                                     const allArtistInputs = Array.from(row.querySelectorAll('input.credit-artist-name-input, input.add-credit-artist-input, input[data-type="artist-name"], input[name*="artist"]'));
                                     const emptyInputs = allArtistInputs.filter(inp => !(inp.value || '').trim());
                                     const inputsToUse = [];
@@ -1335,7 +1325,6 @@ Optional Remix Patterns: ${optionalPatternsWrapped}`;
                                             else break;
                                         }
                                     }
-
                                     for (let k = 0; k < partsToAdd.length && k < inputsToUse.length; k++) {
                                         const part = partsToAdd[k];
                                         const artistInput = inputsToUse[k];
@@ -1370,7 +1359,6 @@ Optional Remix Patterns: ${optionalPatternsWrapped}`;
                     log(`Track ${i + 1}: error during remixer extraction: ${err && err.message ? err.message : err}`, 'error');
                 }
             })();
-
             try {
                 await Promise.race([
                     trackPromise,
@@ -1380,7 +1368,6 @@ Optional Remix Patterns: ${optionalPatternsWrapped}`;
                 log(`Track ${i + 1}: extraction failed or timed out`, 'warning');
             }
         }
-
         if (changes.length > 0) {
             addActionToHistory({ type: 'remixers', changes });
         }
@@ -1491,7 +1478,6 @@ Optional Remix Patterns: ${optionalPatternsWrapped}`;
             log(`Done! Reverted ${restored} duration${plural}`, 'success');
             return;
         }
-
         if (lastAction.type === 'capitalization') {
             let restored = 0;
             for (const change of lastAction.changes) {
@@ -1507,7 +1493,6 @@ Optional Remix Patterns: ${optionalPatternsWrapped}`;
             log(`Done! Reverted ${restored} capitalized title${plural}`, 'success');
             return;
         }
-
         if (lastAction.type === 'artists' || lastAction.type === 'featuring' || lastAction.type === 'remixers') {
             for (const change of lastAction.changes) {
                 if (change.titleInput && change.oldTitle !== undefined) {
@@ -1570,7 +1555,6 @@ Optional Remix Patterns: ${optionalPatternsWrapped}`;
                 }
             }
             updateRevertButton();
-
             const involvesCredits = lastAction.changes.some(ch => ch.artistInput || ch.creditItem || ch.roleInput || ch.removeButton);
             let word;
             if (lastAction.type === 'artists') {
@@ -1580,7 +1564,6 @@ Optional Remix Patterns: ${optionalPatternsWrapped}`;
             } else {
                 word = involvesCredits ? 'remixer' : 'remixer title';
             }
-
             const plural = removed !== 1 ? 's' : '';
             const summary = `Reverted ${removed} ${word}${plural}`;
             await clearInfoProcessing();
@@ -1626,14 +1609,11 @@ Optional Remix Patterns: ${optionalPatternsWrapped}`;
         const remixToggle = document.getElementById('toggle-remix-optional');
         const activeBlueLight = '#1e66d6';
         const activeBlueDark = '#0b5fd6';
-
         const inactiveBgLight = 'rgba(0,0,0,0.05)';
         const inactiveBgDark = 'rgba(255,255,255,0.04)';
         const borderColLight = 'rgba(0,0,0,0.12)';
         const borderColDark = 'rgba(255,255,255,0.08)';
-
         const miniButtons = panel.querySelectorAll('#extract-remixers-optional-only, #remove-main-from-title, #remove-feat-from-title');
-
         if (theme === 'dark') {
             panel.style.background = '#0f1112';
             panel.style.color = '#ddd';
@@ -1645,16 +1625,13 @@ Optional Remix Patterns: ${optionalPatternsWrapped}`;
             if (collapseBtn) collapseBtn.style.color = '#fff';
             if (closeBtn) closeBtn.style.color = '#fff';
             if (headerTitle) { headerTitle.style.color = '#fff'; headerTitle.style.whiteSpace = 'nowrap'; headerTitle.style.overflow = 'hidden'; headerTitle.style.textOverflow = 'ellipsis'; }
-
             if (featToggle) { featToggle.style.background = state.removeFeatFromTitle ? activeBlueDark : inactiveBgDark; featToggle.style.color = '#fff'; featToggle.style.border = `0.5px solid ${state.removeFeatFromTitle ? '#1b446f' : borderColDark}`; }
             if (mainToggle) { mainToggle.style.background = state.removeMainFromTitle ? activeBlueDark : inactiveBgDark; mainToggle.style.color = '#fff'; mainToggle.style.border = `0.5px solid ${state.removeMainFromTitle ? '#1b446f' : borderColDark}`; }
             if (remixToggle) { remixToggle.style.background = state.remixOptionalEnabled ? activeBlueDark : inactiveBgDark; remixToggle.style.color = '#fff'; remixToggle.style.border = `0.5px solid ${state.removeRemixOpt ? '#1b446f' : borderColDark}`; }
-
             miniButtons.forEach(mb => {
                 mb.style.background = inactiveBgDark;
                 mb.style.borderColor = borderColDark;
             });
-
         } else {
             panel.style.background = '#fff';
             panel.style.color = '#111';
@@ -1666,11 +1643,9 @@ Optional Remix Patterns: ${optionalPatternsWrapped}`;
             if (collapseBtn) collapseBtn.style.color = '#111';
             if (closeBtn) closeBtn.style.color = '#111';
             if (headerTitle) { headerTitle.style.color = '#111'; headerTitle.style.whiteSpace = 'nowrap'; headerTitle.style.overflow = 'hidden'; headerTitle.style.textOverflow = 'ellipsis'; }
-
             if (featToggle) { featToggle.style.background = state.removeFeatFromTitle ? activeBlueLight : inactiveBgLight; featToggle.style.color = state.removeFeatFromTitle ? '#fff' : '#111'; featToggle.style.border = `0.5px solid ${state.removeFeatFromTitle ? '#bfcfe8' : borderColLight}`; }
             if (mainToggle) { mainToggle.style.background = state.removeMainFromTitle ? activeBlueLight : inactiveBgLight; mainToggle.style.color = state.removeMainFromTitle ? '#fff' : '#111'; mainToggle.style.border = `0.5px solid ${state.removeMainFromTitle ? '#bfcfe8' : borderColLight}`; }
             if (remixToggle) { remixToggle.style.background = state.remixOptionalEnabled ? activeBlueLight : inactiveBgLight; remixToggle.style.color = state.remixOptionalEnabled ? '#fff' : '#111'; remixToggle.style.border = `0.5px solid ${state.remixOptionalEnabled ? '#bfcfe8' : borderColLight}`; }
-
             miniButtons.forEach(mb => {
                 mb.style.background = inactiveBgLight;
                 mb.style.borderColor = borderColLight;
@@ -1822,7 +1797,7 @@ Optional Remix Patterns: ${optionalPatternsWrapped}`;
             optionalOnlyBtn.setAttribute('role', 'button');
             optionalOnlyBtn.setAttribute('tabindex', '0');
             optionalOnlyBtn.textContent = '🎵';
-            optionalOnlyBtn.title = `Extract optional patterns only: ${CONFIG.REMIX_PATTERNS_OPTIONAL.join(', ')}`;
+            optionalOnlyBtn.title = `Extract optional patterns only: ${CONFIG.REMIX_PATTERNS_OPTIONAL.map(patternToDisplay).join(', ')}`;
             optionalOnlyBtn.style.cssText = `
                 flex: 0 0 auto;
                 margin: 0;
@@ -1851,7 +1826,7 @@ Optional Remix Patterns: ${optionalPatternsWrapped}`;
             remixToggle.setAttribute('role', 'button');
             remixToggle.setAttribute('tabindex', '0');
             remixToggle.textContent = state.remixOptionalEnabled ? '✓' : '';
-            remixToggle.title = `Optional Remix Patterns: ${CONFIG.REMIX_PATTERNS_OPTIONAL.join(', ')}`;
+            remixToggle.title = `Optional Remix Patterns: ${CONFIG.REMIX_PATTERNS_OPTIONAL.map(patternToDisplay).join(', ')}`;
             remixToggle.style.cssText = `
                 flex: 0 0 auto;
                 margin: 0;
