@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      1.3.2
+// @version      1.3.3
 // @description  Automatically extracts info from track titles and assigns to the appropriate fields.
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
@@ -26,7 +26,7 @@
         INFO_TEXT_COLOR: '#28a745',
         FEATURING_PATTERNS: ['featuring', 'feat', 'ft', 'f/', 'w/'],
         REMIX_PATTERNS: ['re(?:\\-)?mix', 'rmx'],
-        REMIX_PATTERNS_OPTIONAL: ['edit', 're(?:\\-)?work', 'mix', 'version'],
+        REMIX_PATTERNS_OPTIONAL: ['edit', 're(?:\\-)?work', '(?<!re-)mix', 'version'],
         REMIX_BY_PATTERNS: ['remixed by', 're(?:\\-)?mix by', 'rmx by', 're(?:\\-)?build by', 're(?:\\-)?built by', 're(?:\\-)?worked by', 're(?:\\-)?work by', 'edited by', 'edit by', 'mixed by', 'mix by', 'version by'],
         ARTIST_SPLITTER_PATTERNS: ['vs', 'v', '&', '+', '/', ',']
     };
@@ -91,7 +91,7 @@
     }
 
     function patternToDisplay(pattern) {
-        return pattern.replace(/\(\?:\\-\)\?/g, '');
+        return pattern.replace(/\(\?:\\-\)\?/g, '').replace(/\(\?[:<!=][^)]*\)/g, '');
     }
 
     function setReactValue(element, value) {
