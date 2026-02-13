@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      1.3.3
-// @description  Automatically extracts info from track titles and assigns to the appropriate fields.
+// @version      1.3.4
+// @description  Automatically extracts info from track titles and assigns to the appropriate fields
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
 // @grant        none
@@ -25,9 +25,9 @@
         PROCESSING_DELAY_MS: 300,
         INFO_TEXT_COLOR: '#28a745',
         FEATURING_PATTERNS: ['featuring', 'feat', 'ft', 'f/', 'w/'],
-        REMIX_PATTERNS: ['re(?:\\-)?mix', 'rmx'],
-        REMIX_PATTERNS_OPTIONAL: ['edit', 're(?:\\-)?work', '(?<!re-)mix', 'version'],
-        REMIX_BY_PATTERNS: ['remixed by', 're(?:\\-)?mix by', 'rmx by', 're(?:\\-)?build by', 're(?:\\-)?built by', 're(?:\\-)?worked by', 're(?:\\-)?work by', 'edited by', 'edit by', 'mixed by', 'mix by', 'version by'],
+        REMIX_PATTERNS: ['remix', 'rmx'],
+        REMIX_BY_PATTERNS: ['remixed by', 'remix by', 'rmx by', 'rebuild by', 'rebuilt by', 'reworked by', 'rework by', 'edited by', 'edit by', 'mixed by', 'mix by', 'version by'],
+        REMIX_PATTERNS_OPTIONAL: ['edit', 'rework', 'mix', 'version'],
         ARTIST_SPLITTER_PATTERNS: ['vs', 'v', '&', '+', '/', ',']
     };
 
@@ -49,6 +49,29 @@
         removeFeatFromTitle: false,
         remixOptionalEnabled: false
     };
+
+    function expandPattern(pattern, context = 'default') {
+        if (!pattern) return pattern;
+
+        if (pattern === 'mix' && context === 'optional') {
+            return '(?:(?<!\\w)(?<!re-)mix)';
+        }
+
+        const reMatch = pattern.match(/^(re)([a-z]+)(ed)?(\s+by)?$/i);
+        if (reMatch) {
+            const prefix = reMatch[1];
+            const word = reMatch[2];
+            const ed = reMatch[3] || '';
+            const by = reMatch[4] || '';
+            return `${prefix}(?:\\-)?${word}${ed}${by}`;
+        }
+
+        return pattern;
+    }
+
+    CONFIG.REMIX_PATTERNS = CONFIG.REMIX_PATTERNS.map(p => expandPattern(p, 'remix'));
+    CONFIG.REMIX_PATTERNS_OPTIONAL = CONFIG.REMIX_PATTERNS_OPTIONAL.map(p => expandPattern(p, 'optional'));
+    CONFIG.REMIX_BY_PATTERNS = CONFIG.REMIX_BY_PATTERNS.map(p => expandPattern(p, 'by'));
 
     function getRemixByRegex() {
         const patterns = CONFIG.REMIX_BY_PATTERNS.map(p => patternToRegex(p)).join('|');
@@ -91,7 +114,10 @@
     }
 
     function patternToDisplay(pattern) {
-        return pattern.replace(/\(\?:\\-\)\?/g, '').replace(/\(\?[:<!=][^)]*\)/g, '');
+        pattern = pattern.replace(/\(\?[<!=][^)]*\)/g, '');
+        pattern = pattern.replace(/\(\?:\\-\)\?/g, '');
+        pattern = pattern.replace(/\(\?:([^)]+)\)/g, '$1');
+        return pattern;
     }
 
     function setReactValue(element, value) {
