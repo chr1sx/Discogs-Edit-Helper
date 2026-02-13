@@ -5,8 +5,8 @@
 [![Install Script](https://img.shields.io/badge/Install%20Script-brightgreen?style=for-the-badge)](https://github.com/chr1sx/Discogs-Edit-Helper/raw/refs/heads/main/Discogs%20Edit%20Helper.user.js)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 
-*Automatically extracts info from track titles and assigns to the appropriate fields,  
-for best experience use along with [**Audio To Discogs CSV Exporter**](https://github.com/chr1sx/Audio-To-Discogs-CSV-Exporter) or [**Bandcamp to Discogs**](https://github.com/Serhii-DV/bandcamp-to-discogs).*
+*Automatically extracts info from track titles and assigns to the appropriate fields.  
+For best experience use along with [**Audio To Discogs CSV Exporter**](https://github.com/chr1sx/Audio-To-Discogs-CSV-Exporter) or [**Bandcamp to Discogs**](https://github.com/Serhii-DV/bandcamp-to-discogs).*
 
 </div>
 
