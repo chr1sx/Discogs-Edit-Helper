@@ -23,7 +23,7 @@ For best experience use along with [**Audio To Discogs CSV Exporter**](https://g
 - **👤 Main Artist Extraction** - Extracts and assigns track artists from the “Artist - Title” format
 - **👥 Feat Artist Extraction** - Extracts and assigns featuring artists (e.g., “featuring”, “feat.”, etc.) to credits
 - **🎶 Remixer Extraction** - Extracts and assigns remixers (e.g., “remix”, “rmx”, etc.) to credits
-- **✂️ Clean Titles** – Removes redundant bracket content from titles (e.g., “(Original Mix)”, “(Bonus Track)”)
+- **✂️ Clean Titles** - Removes redundant bracket content from titles (e.g., “(Original Mix)”, “(Bonus Track)”)
 - **↩️ Undo Support** - Revert any action with a single click
 - **⚙️ Config Panel** - Fully customisable patterns for artist splitters, featuring, remix and capitalisation rules
 - **🌓 Dark/Light Theme** - Toggle between dark and light themes
