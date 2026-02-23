@@ -16,16 +16,16 @@ For best experience use along with [**Audio To Discogs CSV Exporter**](https://g
 
 ## Features
 
-- **🔢 Position Extraction** Extracts and assigns track positions (e.g., “01”, “A1”) to position fields
+- **🔢 Position Extraction** - Extracts and assigns track positions (e.g., “01”, “A1”) to position fields
 - **🕛 Duration Extraction** - Extracts and assigns track durations (e.g., “3:45”) to duration fields
 - **🔠 Title Capitalization** - Capitalizes the first letter of each word in titles (including Unicode / non-Latin)
-- **📝 Tracklist Import** Paste a tracklist in plain text and automatically populate positions, titles, and durations
+- **📝 Tracklist Import** - Paste a tracklist in plain text and automatically populate positions, titles, and durations
 - **👤 Main Artist Extraction** - Extracts and assigns track artists from the “Artist - Title” format
 - **👥 Feat Artist Extraction** - Extracts and assigns featuring artists (e.g., “featuring”, “feat.”, etc.) to credits
 - **🎶 Remixer Extraction** - Extracts and assigns remixers (e.g., “remix”, “rmx”, etc.) to credits
 - **✂️ Clean Titles** – Removes redundant bracket content from titles (e.g., “(Original Mix)”, “(Bonus Track)”)
 - **↩️ Undo Support** - Revert any action with a single click
-- **⚙️ Config Panel** Fully customisable patterns for artist splitters, featuring, remix and capitalisation rules
+- **⚙️ Config Panel** - Fully customisable patterns for artist splitters, featuring, remix and capitalisation rules
 - **🌓 Dark/Light Theme** - Toggle between dark and light themes
 
 ---
