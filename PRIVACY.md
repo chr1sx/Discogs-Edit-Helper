@@ -16,7 +16,7 @@ The extension reads information from Discogs pages solely to extract track and r
 
 Any saved settings are stored locally using the browser's storage API. No data is sent to external servers.
 
-## Third Parties
+## Third Parties 
 
 The extension does not use analytics, tracking scripts, remote code, or third-party services.
 
