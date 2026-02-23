@@ -1,4 +1,6 @@
 <div align="center">
+
+<img src="https://github.com/chr1sx/Discogs-Edit-Helper/blob/main/Images/icon-1024.png?raw=true" width="200" alt="Logo">
   
 # Discogs Edit Helper
 
@@ -14,12 +16,16 @@ For best experience use along with [**Audio To Discogs CSV Exporter**](https://g
 
 ## Features
 
+- **🔢 Position Extraction** Extracts and assigns track positions (e.g., “01”, “A1”) to position fields
 - **🕛 Duration Extraction** - Extracts and assigns track durations (e.g., “3:45”) to duration fields
 - **🔠 Title Capitalization** - Capitalizes the first letter of each word in titles (including Unicode / non-Latin)
+- **📝 Tracklist Import** Paste a tracklist in plain text and automatically populate positions, titles, and durations
 - **👤 Main Artist Extraction** - Extracts and assigns track artists from the “Artist - Title” format
 - **👥 Feat Artist Extraction** - Extracts and assigns featuring artists (e.g., “featuring”, “feat.”, etc.) to credits
 - **🎶 Remixer Extraction** - Extracts and assigns remixers (e.g., “remix”, “rmx”, etc.) to credits
+- **✂️ Clean Titles** – Removes redundant bracket content from titles (e.g., “(Original Mix)”, “(Bonus Track)”)
 - **↩️ Undo Support** - Revert any action with a single click
+- **⚙️ Config Panel** Fully customisable patterns for artist splitters, featuring, remix and capitalisation rules
 - **🌓 Dark/Light Theme** - Toggle between dark and light themes
 
 ---
@@ -41,7 +47,7 @@ For best experience use along with [**Audio To Discogs CSV Exporter**](https://g
 ---
 
 ## Usage
-1. Navigate to an edit page on Discogs.  
+1. Navigate to an edit page on Discogs ([example page](https://www.discogs.com/release/add)).  
 2. The helper panel appears automatically on the right side of the page.  
 3. Use the extraction buttons to process your tracks.  
 4. Complete the edit as usual.
@@ -57,8 +63,14 @@ This userscript is available under the [MIT License](LICENSE).
 ## Screenshots
 
 <div align="left">
-<img src="https://github.com/chr1sx/Discogs-Edit-Helper/blob/main/Images/screenshot1.png?raw=true" width="250" alt="Helper panel">
+<img src="https://github.com/chr1sx/Discogs-Edit-Helper/blob/main/Images/screenshot1.png?raw=true" width="250" alt="Screenshot">
+<img src="https://github.com/chr1sx/Discogs-Edit-Helper/blob/main/Images/screenshot2.png?raw=true" width="250" alt="Screenshot">
+<img src="https://github.com/chr1sx/Discogs-Edit-Helper/blob/main/Images/screenshot3.png?raw=true" width="250" alt="Screenshot">
 </div>
 
 ---
 
+## Disclaimer
+This tool does not automate or submit data on your behalf.  
+It assists with formatting and extraction, and errors may occur.  
+You are solely responsible for reviewing and submitting accurate information.  
