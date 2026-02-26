@@ -1,4 +1,4 @@
-# Privacy Policy for Discogs Edit Helper
+# Privacy Policy for Discogs Edit Helper Add-on/Extension
 
 **Effective Date:** 2026
 
