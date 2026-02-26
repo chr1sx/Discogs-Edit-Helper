@@ -5,8 +5,8 @@
 # Discogs Edit Helper
 
 [![Install Script](https://img.shields.io/badge/Install%20Script-brightgreen?style=for-the-badge)](https://github.com/chr1sx/Discogs-Edit-Helper/raw/main/Discogs%20Edit%20Helper.user.js)
-[![Firefox Add-on](https://img.shields.io/amo/v/discogs-edit-helper?style=for-the-badge&logo=firefox&logoColor=white&color=orange&label=Firefox%20Add-on)](https://addons.mozilla.org/en-US/firefox/addon/discogs-edit-helper/)
-[![Chrome Web Store](https://img.shields.io/chrome-web-store/v/eaokknhgjhjelnafpakjdmbigjklmdhd?style=for-the-badge&logo=google-chrome&logoColor=white&color=4285F4&label=Chrome%20Extension)](https://chrome.google.com/webstore/detail/discogs-edit-helper/eaokknhgjhjelnafpakjdmbigjklmdhd)
+[![Firefox Add-on](https://img.shields.io/amo/v/discogs-edit-helper?style=for-the-badge&logo=firefox&logoColor=white&color=orange&label=Firefox)](https://addons.mozilla.org/en-US/firefox/addon/discogs-edit-helper/)
+[![Chrome Web Store](https://img.shields.io/chrome-web-store/v/eaokknhgjhjelnafpakjdmbigjklmdhd?style=for-the-badge&logo=google-chrome&logoColor=white&color=EA4335&label=Chrome)](https://chrome.google.com/webstore/detail/discogs-edit-helper/eaokknhgjhjelnafpakjdmbigjklmdhd)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 
 *Automatically extracts info from track titles and assigns to the appropriate fields.  
