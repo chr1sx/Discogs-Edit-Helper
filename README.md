@@ -9,7 +9,8 @@
 [![Firefox Add-on](https://img.shields.io/amo/v/discogs-edit-helper?style=for-the-badge&logo=firefox&logoColor=white&color=orange&label=Firefox)](https://addons.mozilla.org/en-US/firefox/addon/discogs-edit-helper/)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 
-*Imports metadata from web stores and plain-text tracklists, extracts info from titles and assigns data to the appropriate fields*
+*Imports metadata from web stores and plain-text tracklists,  
+extracts info from titles and assigns data to the appropriate fields*
 
 </div>
 
