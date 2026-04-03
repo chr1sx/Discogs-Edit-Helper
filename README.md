@@ -9,8 +9,7 @@
 [![Firefox Add-on](https://img.shields.io/amo/v/discogs-edit-helper?style=for-the-badge&logo=firefox&logoColor=white&color=orange&label=Firefox)](https://addons.mozilla.org/en-US/firefox/addon/discogs-edit-helper/)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 
-*Automatically extracts info from track titles and assigns to the appropriate fields.  
-For best experience use along with [**Audio To Discogs CSV Exporter**](https://github.com/chr1sx/Audio-To-Discogs-CSV-Exporter) or [**Bandcamp to Discogs**](https://github.com/Serhii-DV/bandcamp-to-discogs).*
+*Imports metadata from web stores and plain-text tracklists, extracts info from titles and assigns data to the appropriate fields*
 
 </div>
 
@@ -18,17 +17,25 @@ For best experience use along with [**Audio To Discogs CSV Exporter**](https://g
 
 ## Features
 
+- **🌐 Web Store Import** - Imports metadata from a web store, supported stores:  
+*7digital, Apple Music, Bandcamp, Beatport, Bleep, Boomkat, eClassical, HDtracks, HighResAudio,*  
+*Juno Download, Kompakt, Mora, NativeDSD, OTOTOY, Presto Music, ProStudioMasters, Qobuz, Traxsource.*
+- **📝 Tracklist Import** - Paste a tracklist in plain text and automatically populate positions, titles, and durations
+- **🔠 Capitalization** - Capitalizes artists, joiners and titles (including Unicode / non-Latin)
 - **🔢 Position Extraction** - Extracts and assigns track positions (e.g., “01”, “A1”) to position fields
 - **🕛 Duration Extraction** - Extracts and assigns track durations (e.g., “3:45”) to duration fields
-- **🔠 Title Capitalization** - Capitalizes the first letter of each word in titles (including Unicode / non-Latin)
-- **📝 Tracklist Import** - Paste a tracklist in plain text and automatically populate positions, titles, and durations
+- **✂️ Clean Titles** - Removes redundant bracket content from titles (e.g., “(Original Mix)”, “(Bonus Track)”)
 - **👤 Main Artist Extraction** - Extracts and assigns track artists from the “Artist - Title” format
 - **👥 Feat Artist Extraction** - Extracts and assigns featuring artists (e.g., “featuring”, “feat.”, etc.) to credits
 - **🎶 Remixer Extraction** - Extracts and assigns remixers (e.g., “remix”, “rmx”, etc.) to credits
-- **✂️ Clean Titles** - Removes redundant bracket content from titles (e.g., “(Original Mix)”, “(Bonus Track)”)
 - **↩️ Undo Support** - Revert any action with a single click
 - **⚙️ Config Panel** - Fully customizable patterns for artist splitters, featuring, remix and capitalization rules
 - **🌓 Dark/Light Theme** - Toggle between dark and light themes
+
+---
+
+## Web Import Supported Stores
+
 
 ---
 
@@ -74,5 +81,5 @@ This userscript is available under the [MIT License](LICENSE).
 
 ## Disclaimer
 - This tool does not automate or submit data on your behalf.  
-- It assists with formatting and extraction, and errors may occur.  
+- It assists with import, formatting and extraction, and errors may occur.  
 - You are solely responsible for reviewing and submitting accurate information.  
