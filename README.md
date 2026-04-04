@@ -35,11 +35,6 @@ extracts info from titles and assigns data to the appropriate fields*
 
 ---
 
-## Web Import Supported Stores
-
-
----
-
 ## Requirements
 
 - A userscript manager extension for the web browser:  
