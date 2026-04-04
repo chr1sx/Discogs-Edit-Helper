@@ -76,6 +76,6 @@ This userscript is available under the [MIT License](LICENSE).
 ---
 
 ## Disclaimer
-- This tool does not automate or submit data on your behalf.  
-- It assists with import, formatting and extraction, and errors may occur.  
-- You are solely responsible for reviewing and submitting accurate information.  
+This tool does not automate or submit data on your behalf.  
+It assists with import, formatting and extraction, and errors may occur.  
+You are solely responsible for reviewing and submitting accurate information.  
