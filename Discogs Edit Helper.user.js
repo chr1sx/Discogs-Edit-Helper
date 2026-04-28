@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      1.5
+// @version      1.5.1
 // @description  Imports metadata from web stores and plain-text tracklists, extracts info from titles and assigns data to the appropriate fields
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
@@ -32,16 +32,16 @@
         CREDIT_SEPARATOR_PATTERNS: ['and', '&', '+', ',', '/', '\\'],
         FEATURING_PATTERNS: ['featuring', 'feat', 'ft', 'f/', 'w/'],
         REMIX_PATTERNS: ['remix', 'rmx'],
-        REMIX_BY_PATTERNS: ['remixed by', 'remix by', 'rmx by', 'rebuild by', 'rebuilt by', 'reworked by', 'rework by', 'edited by', 'edit by', 'mixed by', 'mix by', 'version by'],
-        REMIX_PATTERNS_OPTIONAL: ['edit', 'rework', 'mix', 'version'],
-        CAPITALIZE_KEEP_UPPER: ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'AM', 'DJ', 'EP', 'FM', 'MC', 'PM', 'HD', 'VIP'],
+        REMIX_BY_PATTERNS: ['remixed by', 'remix by', 'rmx by', 'rebuild by', 'rebuilt by', 'reworked by', 'rework by', 'edited by', 'edit by', 'mixed by', 'mix by', 'version by', 'dub by'],
+        REMIX_PATTERNS_OPTIONAL: ['dub', 'edit', 'rework', 'mix', 'version'],
+        CAPITALIZE_KEEP_UPPER: ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'DJ', 'EP', 'FM', 'MC', 'PM', 'HD', 'VIP'],
         CAPITALIZE_KEEP_LOWER: ['da', 'de', 'del', 'des', 'di', 'du', 'la', 'van', 'von'],
         CLEAN_TITLE_PATTERNS: ['original mix', 'explicit', 'digital bonus track', 'digital bonus', 'bonus track', 'bonus']
     };
     const CONFIG_RAW = {
         REMIX_PATTERNS: ['remix', 'rmx'],
-        REMIX_BY_PATTERNS: ['remixed by', 'remix by', 'rmx by', 'rebuild by', 'rebuilt by', 'reworked by', 'rework by', 'edited by', 'edit by', 'mixed by', 'mix by', 'version by'],
-        REMIX_PATTERNS_OPTIONAL: ['edit', 'rework', 'mix', 'version'],
+        REMIX_BY_PATTERNS: ['remixed by', 'remix by', 'rmx by', 'rebuild by', 'rebuilt by', 'reworked by', 'rework by', 'edited by', 'edit by', 'mixed by', 'mix by', 'version by', 'dub by'],
+        REMIX_PATTERNS_OPTIONAL: ['dub', 'edit', 'rework', 'mix', 'version'],
     };
     const CONFIG_DEFAULTS = {
         INACTIVITY_TIMEOUT_MS:    60 * 1000,
@@ -49,9 +49,9 @@
         CREDIT_SEPARATOR_PATTERNS: ['and', '&', '+', ',', '/', '\\'],
         FEATURING_PATTERNS:        ['featuring', 'feat', 'ft', 'f/', 'w/'],
         REMIX_PATTERNS:           ['remix', 'rmx'],
-        REMIX_BY_PATTERNS:        ['remixed by', 'remix by', 'rmx by', 'rebuild by', 'rebuilt by', 'reworked by', 'rework by', 'edited by', 'edit by', 'mixed by', 'mix by', 'version by'],
-        REMIX_PATTERNS_OPTIONAL:  ['edit', 'rework', 'mix', 'version'],
-        CAPITALIZE_KEEP_UPPER:    ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'AM', 'DJ', 'EP', 'FM', 'MC', 'PM', 'HD', 'VIP'],
+        REMIX_BY_PATTERNS:        ['remixed by', 'remix by', 'rmx by', 'rebuild by', 'rebuilt by', 'reworked by', 'rework by', 'edited by', 'edit by', 'mixed by', 'mix by', 'version by', 'dub by'],
+        REMIX_PATTERNS_OPTIONAL:  ['dub', 'edit', 'rework', 'mix', 'version'],
+        CAPITALIZE_KEEP_UPPER:    ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'DJ', 'EP', 'FM', 'MC', 'PM', 'HD', 'VIP'],
         CAPITALIZE_KEEP_LOWER:    ['da', 'de', 'del', 'des', 'di', 'du', 'la', 'van', 'von'],
         CLEAN_TITLE_PATTERNS:     ['original mix', 'explicit', 'digital bonus track', 'digital bonus', 'bonus track', 'bonus'],
     };
@@ -73,8 +73,10 @@
         CFG_KEEP_LOWER:     'discogs_helper_cfg_keep_lower',
         CFG_CLEAN_TITLE:    'discogs_helper_cfg_clean_title',
         CFG_CAPITALIZE_FIELDS: 'discogs_helper_cfg_capitalize_fields_v1',
+        CFG_CAPITALIZE_BTN_FIELDS: 'discogs_helper_cfg_capitalize_btn_fields_v1',
         CFG_SPLIT_IMPORT:    'discogs_helper_cfg_split_import_v2',
         CFG_IMPORT_CREDITS:  'discogs_helper_cfg_import_credits_v1',
+        CFG_IMPORT_STYLES:   'discogs_helper_cfg_import_styles_v1',
     };
 
     const state = {
@@ -86,8 +88,10 @@
         isCollapsed: false,
         startCollapsed: false,
         capitalizeFields: { albumArtists: true, albumTitle: true, label: true, vaArtists: true, trackTitles: true, joiners: true, creditNames: true, trackCredits: true },
+        capitalizeBtnFields: { albumArtists: true, albumTitle: true, label: true, vaArtists: true, trackTitles: true, joiners: true, creditNames: true, trackCredits: true },
         splitImport: true,
         importCredits: true,
+        importStyles: true,
         removeMainFromTitle: true,
         removeFeatFromTitle: false,
         remixOptionalEnabled: false,
@@ -176,10 +180,21 @@
                     }
                 }
             } catch(e) {}
+            try {
+                const storedCapBtnFields = localStorage.getItem(STORAGE_KEYS.CFG_CAPITALIZE_BTN_FIELDS);
+                if (storedCapBtnFields) {
+                    const parsed = JSON.parse(storedCapBtnFields);
+                    if (parsed && typeof parsed === 'object') {
+                        state.capitalizeBtnFields = { ...state.capitalizeBtnFields, ...parsed };
+                    }
+                }
+            } catch(e) {}
             const storedSplitImport = localStorage.getItem(STORAGE_KEYS.CFG_SPLIT_IMPORT);
             state.splitImport = storedSplitImport !== null ? (storedSplitImport === '1') : true;
             const storedImportCredits = localStorage.getItem(STORAGE_KEYS.CFG_IMPORT_CREDITS);
             state.importCredits = storedImportCredits !== null ? (storedImportCredits === '1') : true;
+            const storedImportStyles = localStorage.getItem(STORAGE_KEYS.CFG_IMPORT_STYLES);
+            state.importStyles = storedImportStyles !== null ? (storedImportStyles === '1') : true;
         } catch(e) {}
     }
 
@@ -1322,6 +1337,48 @@
         }
     }
 
+    async function swapArtistTitle() {
+        await setInfoProcessing();
+        log('Starting artist ↔ title swap...', 'info');
+        await wiOpenSavedLinks();
+
+        let trackRows = await getTrackRowsOrBail();
+        if (!trackRows) return;
+
+        const changes = [];
+        let processed = 0;
+
+        for (let i = 0; i < trackRows.length; i++) {
+            const row = trackRows[i];
+            const titleInput  = row.querySelector('input[data-type="track-title"], input[id*="track-title"]');
+            const trackRowEls = new Set(getTrackInputRows());
+            const artistInput = row.querySelector('input[data-type="artist-name"], input.credit-artist-name-input');
+            if (!titleInput || !artistInput) continue;
+
+            const oldTitle  = (titleInput.value  || '').trim();
+            const oldArtist = (artistInput.value || '').trim();
+            if (!oldTitle && !oldArtist) continue;
+
+            setReactValue(titleInput,  oldArtist);
+            setReactValue(artistInput, oldTitle);
+            changes.push({ titleInput, artistInput, oldTitle, newTitle: oldArtist, oldArtist, newArtist: oldTitle });
+            processed++;
+            log(`Track ${i + 1}: Swapped artist "${oldArtist}" ↔ title "${oldTitle}"`, 'success');
+        }
+
+        if (changes.length > 0) addActionToHistory({ type: 'swapArtistTitle', changes });
+
+        await clearInfoProcessing();
+        if (processed > 0) {
+            const plural = processed !== 1 ? 's' : '';
+            setInfoSingleLine(`Done! Swapped ${processed} track${plural}`, true);
+            log(`Done! Swapped ${processed} track${plural}`, 'success');
+        } else {
+            setInfoSingleLine('Nothing to swap', false);
+            log('No swappable tracks found', 'info');
+        }
+    }
+
     function surgicalRemoval(title, featPattern, remixOrPattern) {
         let newTitle = title;
         const containerRegex = /([\(\[\uFF08\uFF3B]\s*(.*?)\s*[\)\]\uFF09\uFF3D])/g;
@@ -1604,8 +1661,11 @@
         if (core.indexOf('.') !== -1) {
             const parts = core.split('.').filter(Boolean);
             if (parts.length > 1 && parts.every(p => /^[\p{L}]+$/u.test(p) && p.length <= 3)) {
-                const suffix = core.endsWith('.') ? '.' : '';
-                return parts.map(p => p.toUpperCase()).join('.') + suffix;
+                if (/[a-z]/.test(core) && !CONFIG.CAPITALIZE_KEEP_UPPER.includes(core.toUpperCase())) {
+                } else {
+                    const suffix = core.endsWith('.') ? '.' : '';
+                    return parts.map(p => p.toUpperCase()).join('.') + suffix;
+                }
             }
         }
         if (CONFIG.CAPITALIZE_KEEP_UPPER.some(w => w.toLowerCase() === lc)) {
@@ -1620,7 +1680,10 @@
     function capitalizeSegmentSegmentwise(token, isFirst) {
         if (!token) return token;
         if (/^[\p{L}]{1,3}(\.[\p{L}]{1,3})+\.?$/u.test(token)) {
-            return token.toUpperCase();
+            if (/[a-z]/.test(token) && !CONFIG.CAPITALIZE_KEEP_UPPER.includes(token.toUpperCase())) {
+            } else {
+                return token.toUpperCase();
+            }
         }
         let firstMatchDone = false;
         return token.replace(/([\p{L}\p{N}\u0027\u2018\u2019\u201B\u02BB\u02BC\u00B4`]+)/gu, (core) => {
@@ -1630,6 +1693,52 @@
             firstMatchDone = true;
             return capitalizeWord(core, isFirst);
         });
+    }
+
+    function getFieldLabel(el, preTrackRows, preAlbumArtistEls) {
+        const id = el.id || '';
+        const dataType = el.getAttribute('data-type') || '';
+        const cls = el.className || '';
+        const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
+        const placeholder = el.getAttribute('placeholder') || '';
+        const trackRows = preTrackRows || getTrackInputRows();
+        const trackRowEls = new Set(trackRows);
+        const albumArtistEls = preAlbumArtistEls || new Set(
+            Array.from(document.querySelectorAll('input[data-type="artist-name"], #artist-name-input'))
+                .filter(el => !Array.from(trackRowEls).some(row => row.contains(el)))
+        );
+        const trackIdx = trackRows.findIndex(row =>
+            Array.from(row.querySelectorAll(
+                'input[data-type="artist-name"], input.credit-artist-name-input, ' +
+                'input[data-type="track-title"], input[id*="track-title"], ' +
+                'input.track-number-input, td.subform_track_duration input, ' +
+                'input[aria-label*="duration" i], input.add-credit-role-input'
+            )).includes(el)
+        );
+        const trackPrefix = trackIdx >= 0 ? `Track ${trackIdx + 1}: ` : '';
+        if (id === 'release-title-input')           return 'Album Title';
+        if (id.startsWith('label-name-input')) {
+            const type = el.closest('fieldset')?.querySelector('select.label-name-select')?.selectedOptions?.[0]?.text || 'Label';
+            return `LCCN (${type}): Name`;
+        }
+        if (id.startsWith('catalog-number-input')) {
+            const type = el.closest('fieldset')?.querySelector('select.label-name-select')?.selectedOptions?.[0]?.text || 'Label';
+            return `LCCN (${type}): Cat#`;
+        }
+        if (id.startsWith('free-text-input'))       return 'Free Text';
+        if (id === 'release-date')                  return 'Date';
+        if (placeholder === 'Join' || ariaLabel === 'join') return `${trackPrefix}Joiner`;
+        if (dataType === 'track-title' || id.includes('track-title')) return `${trackPrefix}Title`;
+        if (cls.includes('track-number-input'))     return `${trackPrefix}Position`;
+        if (ariaLabel.includes('duration') || el.closest?.('td.subform_track_duration')) return `${trackPrefix}Duration`;
+        if (cls.includes('add-credit-role-input') || ariaLabel === 'add artist role') return `${trackPrefix}Role`;
+        if (cls.includes('credit-artist-name-input') || dataType === 'artist-name-credits') return `${trackPrefix}Credit`;
+        if (dataType === 'artist-name') return albumArtistEls.has(el) ? 'Album Artist' : `${trackPrefix}Artist`;
+        if (el.closest?.('div[data-path="/barcodes"]')) {
+            const type = el.closest('fieldset')?.querySelector('select')?.selectedOptions?.[0]?.text || 'Identifier';
+            return `BAOI (${type})`;
+        }
+        return `${trackPrefix}Field`;
     }
 
     function capitalizeTitleString(title, _firstWordSeen) {
@@ -1690,8 +1799,10 @@
         candidate = candidate.replace(/:(\s*)(\p{Ll})/gu, (match, space, p1) => ':' + space + p1.toUpperCase());
         candidate = candidate.replace(/\.(\p{Ll})/gu, (_, c) => '.' + c.toUpperCase());
         candidate = candidate.replace(/(\p{L})([\u2019\u0027])(\p{Ll})/gu, (_, before, apos, after) => before + apos + after);
-        candidate = candidate.replace(/(["\u201D\u2019\u0027\)\]])(\p{Ll})/gu, (_, close, c) => close + c.toUpperCase())
+        candidate = candidate.replace(/(?<![\p{L}\.])(["\u201D\u2019\u0027\)\]])(\p{Ll})/gu, (_, close, c) => close + c.toUpperCase())
+        candidate = candidate.replace(/(\p{L})([\u2019\u0027])S\b/gu, (_, before, apos) => before + apos + 's');
         candidate = candidate.replace(/(\p{L})([\u2019\u0027])(\p{Lu})/gu, (_, before, apos, after) => before + apos + after.toLowerCase());
+        candidate = candidate.replace(/\bSelf-Released\b/g, 'Self-released');
         return candidate;
     }
 
@@ -1827,6 +1938,75 @@
         }
     }
 
+    async function stripWhitespace() {
+        await setInfoProcessing();
+        log('Starting whitespace strip...', 'info');
+        await wiOpenSavedLinks();
+
+        const panel = document.getElementById('helper-panel');
+        const trackRows = getTrackInputRows();
+        const trackRowEls = new Set(trackRows);
+        const albumArtistEls = new Set(
+            Array.from(document.querySelectorAll('input[data-type="artist-name"], #artist-name-input'))
+                .filter(el => !Array.from(trackRowEls).some(row => row.contains(el)))
+        );
+        const getTrackIdx = (el) => trackRows.findIndex(row =>
+            Array.from(row.querySelectorAll(
+                'input[data-type="artist-name"], input.credit-artist-name-input, ' +
+                'input[data-type="track-title"], input[id*="track-title"], ' +
+                'input.track-number-input, td.subform_track_duration input, ' +
+                'input[aria-label*="duration" i], input.add-credit-role-input'
+            )).includes(el)
+        );
+        const seen = new Set();
+        const selectors = [
+            'input[data-type="artist-name"]',
+            '#artist-name-input',
+            '#release-title-input',
+            'input[id^="label-name-input"]',
+            'input[id^="catalog-number-input"]',
+            'input[id^="free-text-input"]',
+            '#release-date',
+            'input[placeholder="Join"], input[aria-label="Join"]',
+            'input[data-type="track-title"], input[id*="track-title"]',
+            'input.track-number-input',
+            'td.subform_track_duration input, input[aria-label*="duration" i]',
+            'input.credit-artist-name-input',
+            'input[data-type="artist-name-credits"]',
+            'input.add-credit-role-input, input[aria-label="Add Artist Role"]',
+            'div[data-path="/barcodes"] input[type="text"]',
+        ];
+
+        const changes = [];
+        let processed = 0;
+
+        for (const el of selectors.flatMap(sel => Array.from(document.querySelectorAll(sel))).filter(el => {
+            if (!el || !el.isConnected || panel?.contains(el) || seen.has(el)) return false;
+            seen.add(el); return true;
+        })) {
+            const orig = el.value ?? '';
+            const stripped = orig.trim();
+            if (stripped !== orig) {
+                setReactValue(el, stripped);
+                changes.push({ titleInput: el, oldTitle: orig, newTitle: stripped });
+                log(`${getFieldLabel(el, trackRows, albumArtistEls)}: "${orig}" → "${stripped}"`, 'success');
+                processed++;
+            }
+        }
+
+        if (changes.length > 0) addActionToHistory({ type: 'stripWhitespace', changes });
+
+        await clearInfoProcessing();
+        if (processed > 0) {
+            const plural = processed !== 1 ? 's' : '';
+            setInfoSingleLine(`Done! Stripped ${processed} field${plural}`, true);
+            log(`Done! Stripped whitespace from ${processed} field${plural}`, 'success');
+        } else {
+            setInfoSingleLine('No whitespace found', false);
+            log('No whitespace to strip', 'info');
+        }
+    }
+
     async function wiOpenSavedLinks() {
         const panel = document.getElementById('helper-panel');
         const getOuterBtns = (icon) => Array.from(document.body.querySelectorAll('button'))
@@ -1852,59 +2032,248 @@
         return pencilBtns.length;
     }
 
+    async function openSavedLinksIfNeeded(editableItems) {
+        const panel = document.getElementById('helper-panel');
+        const anyInputSel = 'input[data-type="artist-name"], input.credit-artist-name-input, input[data-type="artist-name-credits"]';
+
+        function getDisplayedName(item) {
+            const rolloverLink = item.querySelector('a.rollover_link, span.rollover_link');
+            if (rolloverLink) return rolloverLink.textContent.trim();
+            const clone = item.cloneNode(true);
+            clone.querySelectorAll('button, input').forEach(el => el.remove());
+            const text = clone.textContent.trim();
+            if (!text || /^\s*[+&,/\\]\s*$/.test(text)) return null;
+            return text;
+        }
+
+
+        const containersToOpen = new Map();
+        for (const item of editableItems) {
+            if (!item.isConnected) continue;
+            const existingInput = item.querySelector(anyInputSel);
+            if (existingInput && existingInput.value && existingInput.value.trim()) {
+                continue;
+            }
+            const displayedName = getDisplayedName(item);
+            if (!displayedName) {
+                continue;
+            }
+            if (capitalizeTitleString(displayedName) === displayedName) {
+                continue;
+            }
+            const container = item.closest('td') || item.parentElement;
+            if (containersToOpen.has(container)) continue;
+            const pencilBtn = Array.from(container.querySelectorAll('button'))
+                .find(b => (!panel || !panel.contains(b)) && b.querySelector('i.icon-pencil'));
+            if (pencilBtn) {
+                containersToOpen.set(container, pencilBtn);
+            } else {
+            }
+        }
+
+        if (containersToOpen.size === 0) return 0;
+
+        const getCheckCount = () => Array.from(document.body.querySelectorAll('button'))
+            .filter(btn => (!panel || !panel.contains(btn)) && btn.querySelector('i.icon-check')).length;
+        const checksBefore = getCheckCount();
+        const expectedTotal = checksBefore + containersToOpen.size;
+        for (const btn of containersToOpen.values()) {
+            if (btn.isConnected) try { btn.click(); } catch(e) {}
+        }
+        const deadline = Date.now() + 4000;
+        while (Date.now() < deadline) {
+            await new Promise(r => setTimeout(r, 80));
+            if (getCheckCount() >= expectedTotal) { await new Promise(r => setTimeout(r, 150)); break; }
+        }
+        return containersToOpen.size;
+    }
+
+    async function openContainersIfSaved(containers) {
+        const panel = document.getElementById('helper-panel');
+        const toOpen = [];
+        const seen = new Set();
+        for (const container of containers) {
+            if (!container || !container.isConnected || seen.has(container)) continue;
+            seen.add(container);
+            const pencilBtn = Array.from(container.querySelectorAll('button'))
+                .find(b => (!panel || !panel.contains(b)) && b.querySelector('i.icon-pencil'));
+            if (pencilBtn) toOpen.push(pencilBtn);
+        }
+        if (toOpen.length === 0) return 0;
+        const getCheckCount = () => Array.from(document.body.querySelectorAll('button'))
+            .filter(btn => (!panel || !panel.contains(btn)) && btn.querySelector('i.icon-check')).length;
+        const checksBefore = getCheckCount();
+        const expectedTotal = checksBefore + toOpen.length;
+        for (const btn of toOpen) {
+            if (btn.isConnected) try { btn.click(); } catch(e) {}
+        }
+        const deadline = Date.now() + 4000;
+        while (Date.now() < deadline) {
+            await new Promise(r => setTimeout(r, 80));
+            if (getCheckCount() >= expectedTotal) { await new Promise(r => setTimeout(r, 150)); break; }
+        }
+        return toOpen.length;
+    }
+
+    function getJoinerContainersNeedingWork() {
+        const panel = document.getElementById('helper-panel');
+        const joinSel = 'input[placeholder="Join"], input[aria-label="Join"]';
+        const needsCap = (s) => s && capitalizeTitleString(s.trim()) !== s.trim();
+        const result = [];
+        const seen = new Set();
+
+        function getSavedJoinTexts(container) {
+            const texts = [];
+            for (const item of container.querySelectorAll('li.editable_item')) {
+                const creditRole = item.querySelector('span.credit_role');
+                if (!creditRole) continue;
+                for (const span of creditRole.children) {
+                    if (span.tagName !== 'SPAN') continue;
+                    if (span.className) continue;
+                    const t = span.textContent.trim();
+                    if (t) texts.push(t);
+                }
+            }
+            return texts;
+        }
+
+        function checkContainer(container) {
+            if (!container || !container.isConnected || seen.has(container)) return;
+            seen.add(container);
+
+            const visibleJoins = Array.from(container.querySelectorAll(joinSel));
+            if (visibleJoins.some(el => needsCap(el.value))) {
+                result.push(container);
+                return;
+            }
+
+            const pencilBtn = Array.from(container.querySelectorAll('button'))
+                .find(b => (!panel || !panel.contains(b)) && b.querySelector('i.icon-pencil'));
+            if (!pencilBtn) return;
+
+            const joinTexts = getSavedJoinTexts(container);
+            if (joinTexts.some(t => needsCap(t))) {
+                result.push(container);
+            }
+        }
+
+        for (const row of getTrackInputRows()) {
+            const td = row.querySelector('td.subform_track_artists');
+            if (td) checkContainer(td);
+        }
+
+        const trackRowEls = new Set(getTrackInputRows());
+        const albumArtistInputs = Array.from(
+            document.querySelectorAll('input[data-type="artist-name"], #artist-name-input')
+        ).filter(el => !Array.from(trackRowEls).some(row => row.contains(el)));
+
+        for (const input of albumArtistInputs) {
+            let el = input.parentElement;
+            while (el && el !== document.body) {
+                if (el.querySelector('li.editable_item') || el.querySelector(joinSel)) {
+                    checkContainer(el);
+                    break;
+                }
+                el = el.parentElement;
+            }
+        }
+        const albumItems = Array.from(document.querySelectorAll('li.editable_item'))
+            .filter(item => !Array.from(trackRowEls).some(row => row.contains(item))
+                         && !item.querySelector('span.credit_role'));
+        for (const item of albumItems) {
+            const container = item.closest('td')
+                           || item.closest('fieldset')
+                           || item.closest('[data-path]')
+                           || item.parentElement?.closest('div, section');
+            if (container) checkContainer(container);
+        }
+
+        return result;
+    }
+
     async function capitalizeAll() {
         await setInfoProcessing();
-        await wiOpenSavedLinks();
         const cf = state.capitalizeFields;
         const capStr = (s) => s ? capitalizeTitleString(s) : s;
-        const applyField = (el, changes) => {
+        const applyField = (el, changes, fieldLabel) => {
             const orig = (el.value || '').trim();
             const cand = capStr(orig);
-            if (cand && cand !== orig) { setReactValue(el, cand); changes.push({ titleInput: el, oldTitle: orig, newTitle: cand }); return 1; }
+            if (cand && cand !== orig) {
+                setReactValue(el, cand);
+                changes.push({ titleInput: el, oldTitle: orig, newTitle: cand });
+                log(`${fieldLabel}: "${orig}" → "${cand}"`, 'success');
+                return 1;
+            }
             return 0;
         };
 
         const changes = [];
         let processed = 0;
+        const trackRows = getTrackInputRows();
+        const trackRowEls = new Set(trackRows);
+
+        if (cf.albumArtists || cf.creditNames) {
+            const albumItems = Array.from(document.querySelectorAll('li.editable_item'))
+                .filter(item => !Array.from(trackRowEls).some(row => row.contains(item)));
+            await openSavedLinksIfNeeded(albumItems);
+        }
+
+        if (cf.vaArtists || cf.trackCredits) {
+            const trackItems = [];
+            for (const row of trackRows) {
+                if (cf.vaArtists)    trackItems.push(...row.querySelectorAll('td.subform_track_artists li.editable_item'));
+                if (cf.trackCredits) trackItems.push(...row.querySelectorAll('td.subform_track_title li.editable_item'));
+            }
+            await openSavedLinksIfNeeded(trackItems);
+        }
+
+        if (cf.joiners) {
+            await openContainersIfSaved(getJoinerContainersNeedingWork());
+        }
 
         if (cf.albumArtists) {
-            const trackRowEls = new Set(getTrackInputRows());
             document.querySelectorAll('input[data-type="artist-name"], #artist-name-input').forEach(el => {
-                if (!Array.from(trackRowEls).some(row => row.contains(el))) processed += applyField(el, changes);
+                if (!Array.from(trackRowEls).some(row => row.contains(el))) processed += applyField(el, changes, 'Album Artist');
             });
         }
 
         if (cf.creditNames) {
-            const trackRowEls = new Set(getTrackInputRows());
             document.querySelectorAll('input.credit-artist-name-input, input[data-type="artist-name-credits"]').forEach(el => {
-                if (!Array.from(trackRowEls).some(row => row.contains(el))) processed += applyField(el, changes);
+                if (!Array.from(trackRowEls).some(row => row.contains(el))) processed += applyField(el, changes, 'Album Credit');
             });
         }
 
-        const trackRows = getTrackInputRows();
+        if (cf.joiners) {
+            document.querySelectorAll('input[placeholder="Join"], input[aria-label="Join"]').forEach(el => {
+                if (!Array.from(trackRowEls).some(row => row.contains(el)))
+                    processed += applyField(el, changes, 'Album Artist Joiner');
+            });
+        }
+
         for (let i = 0; i < trackRows.length; i++) {
             const row = trackRows[i];
+            const n = i + 1;
 
             if (cf.trackTitles) {
                 const titleInput = row.querySelector('input[data-type="track-title"], input[id*="track-title"]');
-                if (titleInput) processed += applyField(titleInput, changes);
+                if (titleInput) processed += applyField(titleInput, changes, `Track ${n}: Title`);
             }
 
             if (cf.vaArtists) {
-                row.querySelectorAll('input[data-type="artist-name"], input.credit-artist-name-input').forEach(el => {
-                    processed += applyField(el, changes);
+                row.querySelectorAll('td.subform_track_artists input[data-type="artist-name"], td.subform_track_artists input.credit-artist-name-input').forEach(el => {
+                    processed += applyField(el, changes, `Track ${n}: Artist`);
                 });
             }
 
             if (cf.joiners) {
                 row.querySelectorAll('input[placeholder="Join"], input[aria-label="Join"]').forEach(el => {
-                    processed += applyField(el, changes);
+                    processed += applyField(el, changes, `Track ${n}: Joiner`);
                 });
             }
 
             if (cf.trackCredits) {
-                row.querySelectorAll('input.credit-artist-name-input, input[data-type="artist-name-credits"]').forEach(el => {
-                    processed += applyField(el, changes);
+                row.querySelectorAll('td.subform_track_title input.credit-artist-name-input, td.subform_track_title input[data-type="artist-name-credits"]').forEach(el => {
+                    processed += applyField(el, changes, `Track ${n}: Credit`);
                 });
             }
         }
@@ -1991,6 +2360,7 @@
             while ((m = containerRegex.exec(title)) !== null) {
                 const inner = (m[2] || '').trim();
                 if (!inner) continue;
+                if (/^\s*original(?:\s+(?:mix|version|dub|edit|instrumental|vocal|radio\s+edit|club\s+mix|extended\s+mix))?\s*$/i.test(inner)) continue;
                 if (optionalOnly && remixByRegexFull.test(inner)) continue;
 
                 if (remixByPatternWords) {
@@ -2316,7 +2686,7 @@
         state.actionHistory.pop();
     }
     const lastAction = state.actionHistory.pop();
-    log(`Reverting: ${lastAction.type}`, 'info');
+    log(`Reverting last action (${lastAction.type})…`, 'info');
 
     if (lastAction.type === 'durations') {
         let restored = 0;
@@ -2348,7 +2718,7 @@
         return;
     }
 
-    if (lastAction.type === 'cleanTitles' || lastAction.type === 'capitalization' || lastAction.type === 'bracketsToParen') {
+    if (lastAction.type === 'cleanTitles' || lastAction.type === 'capitalization' || lastAction.type === 'bracketsToParen' || lastAction.type === 'stripWhitespace') {
         let restored = 0;
         for (const change of lastAction.changes) {
             if (change.titleInput && change.oldTitle !== undefined) {
@@ -2359,11 +2729,27 @@
         updateRevertButtons();
         await clearInfoProcessing();
         const plural = restored > 1 ? 's' : '';
-        const verb = lastAction.type === 'bracketsToParen' ? `bracket title${plural}`
-                   : lastAction.type === 'cleanTitles'     ? `cleaned title${plural}`
-                   :                                         `capitalized title${plural}`;
+        const verb = lastAction.type === 'bracketsToParen'  ? `bracket title${plural}`
+                   : lastAction.type === 'cleanTitles'      ? `cleaned title${plural}`
+                   : lastAction.type === 'stripWhitespace'  ? `stripped field${plural}`
+                   :                                          `capitalized field${plural}`;
         setInfoSingleLine(`Done! Reverted ${restored} ${verb}`, true);
         log(`Done! Reverted ${restored} ${verb}`, 'success');
+        return;
+    }
+
+    if (lastAction.type === 'swapArtistTitle') {
+        let restored = 0;
+        for (const change of lastAction.changes) {
+            if (change.titleInput?.isConnected)  setReactValue(change.titleInput,  change.oldTitle  ?? '');
+            if (change.artistInput?.isConnected) setReactValue(change.artistInput, change.oldArtist ?? '');
+            restored++;
+        }
+        updateRevertButtons();
+        await clearInfoProcessing();
+        const plural = restored !== 1 ? 's' : '';
+        setInfoSingleLine(`Done! Reverted ${restored} swap${plural}`, true);
+        log(`Done! Reverted ${restored} swap${plural}`, 'success');
         return;
     }
 
@@ -2429,6 +2815,27 @@
         const summary = `Reverted ${removed} ${word}${plural}`;
         if (removed > 0) { setInfoSingleLine(`Done! ${summary}`, true); log(`Done! ${summary}`, 'success'); }
         if (failed > 0)  { log(`${failed} removal(s) failed`, 'warning'); if (removed === 0) setInfoSingleLine(`${failed} removal(s) failed`, false); }
+        return;
+    }
+
+    if (lastAction.type === 'discogsCreditsImport') {
+        const removeBtns = (lastAction.addedCreditRemoveBtns || []).filter(b => b?.isConnected);
+        if (removeBtns.length > 0) {
+            for (const btn of [...removeBtns].reverse()) {
+                try { btn.click(); } catch(e) {}
+                await new Promise(r => setTimeout(r, 30));
+            }
+            const deadline = Date.now() + 2000;
+            while (removeBtns.some(b => b.isConnected) && Date.now() < deadline)
+                await new Promise(r => setTimeout(r, 50));
+        }
+        updateRevertButtons();
+        await clearInfoProcessing();
+        const n = removeBtns.length;
+        const logMsg  = `Reverted ${n} credit${n !== 1 ? 's' : ''} from Discogs #${lastAction.releaseId || '?'}`;
+        const infoMsg = `Done! Reverted ${n} credit${n !== 1 ? 's' : ''} from Discogs`;
+        setInfoSingleLine(infoMsg, true);
+        log(`Done! ${logMsg}`, 'success');
         return;
     }
 
@@ -2574,7 +2981,13 @@
         }
     }
 
-    if (allChanges.length === 0 && allAddedArtistRemoveBtns.length === 0) {
+    const allDiscogsCreditRemoveBtns = [];
+    for (const action of historySnapshot) {
+        if (action.type === 'discogsCreditsImport' && action.addedCreditRemoveBtns?.length > 0)
+            allDiscogsCreditRemoveBtns.push(...action.addedCreditRemoveBtns.filter(b => b?.isConnected));
+    }
+
+    if (allChanges.length === 0 && allAddedArtistRemoveBtns.length === 0 && allDiscogsCreditRemoveBtns.length === 0) {
         updateRevertButtons();
         await clearInfoProcessing();
         setInfoSingleLine('No changes to revert', false);
@@ -2603,6 +3016,7 @@
     const originalTitles         = new Map();
     const originalDurations      = new Map();
     const originalTrackPositions = new Map();
+    const originalArtists        = new Map();
     for (const change of allChanges) {
         if (change.titleInput         && change.oldTitle         !== undefined && !originalTitles.has(change.titleInput))
             originalTitles.set(change.titleInput, change.oldTitle);
@@ -2610,10 +3024,13 @@
             originalDurations.set(change.durationInput, change.oldDuration || '');
         if (change.trackPositionInput && !originalTrackPositions.has(change.trackPositionInput))
             originalTrackPositions.set(change.trackPositionInput, change.oldTrackPosition || '');
+        if (change.artistInput        && change.oldArtist        !== undefined && !originalArtists.has(change.artistInput))
+            originalArtists.set(change.artistInput, change.oldArtist);
     }
     for (const [el, val] of originalTitles)         if (el.isConnected) setReactValue(el, val);
     for (const [el, val] of originalDurations)      if (el.isConnected) setReactValue(el, val);
     for (const [el, val] of originalTrackPositions) if (el.isConnected) setReactValue(el, val);
+    for (const [el, val] of originalArtists)        if (el.isConnected) setReactValue(el, val);
 
     const allArtistFields = [];
     for (const change of allChanges) {
@@ -2706,7 +3123,16 @@
         catch(e) { log('Track removal error during revert all: ' + e.message, 'warning'); }
     }
 
-    const webImportActions = historySnapshot.filter(a => a.type === 'webImport');
+    if (allDiscogsCreditRemoveBtns.length > 0) {
+        for (const btn of [...allDiscogsCreditRemoveBtns].reverse()) {
+            try { btn.click(); } catch(e) {}
+            await new Promise(r => setTimeout(r, 40));
+        }
+        await new Promise(r => setTimeout(r, 200));
+        log(`Reverted ${allDiscogsCreditRemoveBtns.length} Discogs credit${allDiscogsCreditRemoveBtns.length !== 1 ? 's' : ''}`, 'success');
+    }
+
+    const webImportActions = historySnapshot.filter(a => a.type === 'webImport' || a.type === 'discogsCreditsImport');
     if (webImportActions.length > 0) {
         const combinedPreReactIds = new Set();
         for (const action of webImportActions) {
@@ -2896,25 +3322,40 @@
                     <input type="checkbox" id="cfg-start-collapsed" ${state.startCollapsed ? 'checked' : ''}>
                     <span class="dh-cfg-top-label" style="font-weight:600;">Collapsed</span>
                 </label>
-                <label style="display:flex; align-items:center; gap:5px; font-size:11px; cursor:pointer; user-select:none; white-space:nowrap;"
-                    title="Split artists during web import">
-                    <input type="checkbox" id="cfg-split-import" ${state.splitImport ? 'checked' : ''}>
-                    <span class="dh-cfg-top-label" style="font-weight:600;">Split</span>
-                </label>
-                <label style="display:flex; align-items:center; gap:5px; font-size:11px; cursor:pointer; user-select:none; white-space:nowrap;"
-                    title="Enter credits (roles and names) when importing from Bandcamp">
-                    <input type="checkbox" id="cfg-import-credits" ${state.importCredits ? 'checked' : ''}>
-                    <span class="dh-cfg-top-label" style="font-weight:600;">Credits</span>
-                </label>
+                <div style="position:relative; display:inline-block;">
+                    <button id="cfg-import-toggle" type="button"
+                        title="Web import options"
+                        style="display:flex; align-items:center; gap:4px; font-size:11px; font-weight:600; cursor:pointer; user-select:none; white-space:nowrap; background:none; border:none; padding:0; color:inherit;">
+                        Import &#9660;
+                    </button>
+                    <div id="cfg-import-dropdown" style="display:none; position:absolute; top:100%; right:0; z-index:9999; background:#fff; border:1px solid #ccc; border-radius:5px; padding:6px 13px 6px 8px; box-shadow:0 3px 10px rgba(0,0,0,0.15); flex-direction:column; gap:4px; width:max-content;">
+                        <label style="display:flex;align-items:center;gap:5px;font-size:11px;cursor:pointer;white-space:nowrap;" title="Split artists when importing from web stores">
+                            <input type="checkbox" id="cfg-split-import" ${state.splitImport ? 'checked' : ''}>
+                            <span>Split Artists</span>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:5px;font-size:11px;cursor:pointer;white-space:nowrap;" title="Enter credits (roles and names) when importing from web stores">
+                            <input type="checkbox" id="cfg-import-credits" ${state.importCredits ? 'checked' : ''}>
+                            <span>Credits</span>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:5px;font-size:11px;cursor:pointer;white-space:nowrap;" title="Enter genres and styles when importing from web stores">
+                            <input type="checkbox" id="cfg-import-styles" ${state.importStyles ? 'checked' : ''}>
+                            <span>Styles</span>
+                        </label>
+                        <hr style="margin:1px 0; border:none; border-top:1px solid #ddd;">
+                        <span style="font-size:10px; font-weight:700; text-transform:uppercase; opacity:0.5; user-select:none; cursor:default;" title="Controls which fields get capitalized during web import">Capitalize</span>
+                        <button id="cfg-cap-toggle-all" style="display:block; width:100%; font-size:10px; padding:2px 4px; margin-bottom:0; border:1px solid #ccc; border-radius:3px; cursor:pointer; text-align:center; box-sizing:border-box;">Select All</button>
+                        ${(()=>{ const labels={'albumArtists':'Album Artists','albumTitle':'Album Title','label':'Label','joiners':'Joiners','vaArtists':'Track Artists','trackTitles':'Track Titles','creditNames':'Album Credits'}; return Object.keys(labels).map(k=>`<label style="display:flex;align-items:center;gap:5px;font-size:11px;cursor:pointer;white-space:nowrap;"><input type="checkbox" class="cfg-cap-field" data-field="${k}" ${state.capitalizeFields[k]?'checked':''}><span>${labels[k]}</span></label>`).join(''); })()}
+                    </div>
+                </div>
                 <div style="position:relative; display:inline-block;">
                     <button id="cfg-capitalize-toggle" type="button"
-                        title="Choose what gets capitalized during web import"
+                        title="Controls which fields are included when using Everything button"
                         style="display:flex; align-items:center; gap:4px; font-size:11px; font-weight:600; cursor:pointer; user-select:none; white-space:nowrap; background:none; border:none; padding:0; color:inherit;">
                         Capitalize &#9660;
                     </button>
                     <div id="cfg-capitalize-dropdown" style="display:none; position:absolute; top:100%; right:0; z-index:9999; background:#fff; border:1px solid #ccc; border-radius:5px; padding:6px 13px 6px 8px; box-shadow:0 3px 10px rgba(0,0,0,0.15); flex-direction:column; gap:4px; width:max-content;">
-                        <button id="cfg-cap-toggle-all" style="display:block; width:100%; font-size:10px; padding:2px 4px; margin-bottom:4px; border:1px solid #ccc; border-radius:3px; cursor:pointer; text-align:center; box-sizing:border-box;">Select All</button>
-                        ${(()=>{ const labels={'albumArtists':'Album Artist(s)','joiners':'Joiners','albumTitle':'Album Title','label':'Label','vaArtists':'Track Artists','trackTitles':'Track Titles','creditNames':'Album Credits'}; return Object.keys(labels).map(k=>`<label style="display:flex;align-items:center;gap:5px;font-size:11px;cursor:pointer;white-space:nowrap;"><input type="checkbox" class="cfg-cap-field" data-field="${k}" ${state.capitalizeFields[k]?'checked':''}><span>${labels[k]}</span></label>`).join(''); })()}
+                        <button id="cfg-cap-btn-toggle-all" style="display:block; width:100%; font-size:10px; padding:2px 4px; margin-bottom:4px; border:1px solid #ccc; border-radius:3px; cursor:pointer; text-align:center; box-sizing:border-box;">Select All</button>
+                        ${(()=>{ const labels={'albumArtists':'Album Artists','albumTitle':'Album Title','label':'Label/Company','joiners':'Joiners','vaArtists':'Track Artists','trackTitles':'Track Titles','trackCredits':'Track Credits','creditNames':'Album Credits'}; return Object.keys(labels).map(k=>`<label style="display:flex;align-items:center;gap:5px;font-size:11px;cursor:pointer;white-space:nowrap;"><input type="checkbox" class="cfg-cap-btn-field" data-field="${k}" ${state.capitalizeBtnFields[k]?'checked':''}><span>${labels[k]}</span></label>`).join(''); })()}
                     </div>
                 </div>
             </div>
@@ -2956,6 +3397,10 @@
                 state.capitalizeFields[cb.dataset.field] = cb.checked;
             });
             try { localStorage.setItem(STORAGE_KEYS.CFG_CAPITALIZE_FIELDS, JSON.stringify(state.capitalizeFields)); } catch(e) {}
+            document.querySelectorAll('.cfg-cap-btn-field').forEach(cb => {
+                state.capitalizeBtnFields[cb.dataset.field] = cb.checked;
+            });
+            try { localStorage.setItem(STORAGE_KEYS.CFG_CAPITALIZE_BTN_FIELDS, JSON.stringify(state.capitalizeBtnFields)); } catch(e) {}
             const splitImportEl = document.getElementById('cfg-split-import');
             if (splitImportEl) {
                 state.splitImport = splitImportEl.checked;
@@ -2965,6 +3410,11 @@
             if (importCreditsEl) {
                 state.importCredits = importCreditsEl.checked;
                 try { localStorage.setItem(STORAGE_KEYS.CFG_IMPORT_CREDITS, state.importCredits ? '1' : '0'); } catch(e) {}
+            }
+            const importStylesEl = document.getElementById('cfg-import-styles');
+            if (importStylesEl) {
+                state.importStyles = importStylesEl.checked;
+                try { localStorage.setItem(STORAGE_KEYS.CFG_IMPORT_STYLES, state.importStyles ? '1' : '0'); } catch(e) {}
             }
             const splitter       = parseField('cfg-splitter');
             const creditSep      = parseField('cfg-credit-sep');
@@ -3021,8 +3471,10 @@
             CONFIG.INACTIVITY_TIMEOUT_MS    = CONFIG_DEFAULTS.INACTIVITY_TIMEOUT_MS;
             state.startCollapsed            = false;
             state.capitalizeFields          = { albumArtists: true, albumTitle: true, label: true, vaArtists: true, trackTitles: true, joiners: true, creditNames: true, trackCredits: true };
+            state.capitalizeBtnFields       = { albumArtists: true, albumTitle: true, label: true, vaArtists: true, trackTitles: true, joiners: true, creditNames: true, trackCredits: true };
             state.splitImport               = true;
             state.importCredits             = true;
+            state.importStyles              = true;
 
             applyPatternExpansions();
 
@@ -3030,7 +3482,7 @@
                 STORAGE_KEYS.CFG_FEATURING, STORAGE_KEYS.CFG_REMIX, STORAGE_KEYS.CFG_REMIX_BY,
                 STORAGE_KEYS.CFG_REMIX_OPT, STORAGE_KEYS.CFG_SPLITTER, STORAGE_KEYS.CFG_CREDIT_SEP, STORAGE_KEYS.CFG_KEEP_UPPER,
                 STORAGE_KEYS.CFG_KEEP_LOWER, STORAGE_KEYS.CFG_CLEAN_TITLE,
-                STORAGE_KEYS.CFG_TIMEOUT, STORAGE_KEYS.CFG_START_COLLAPSED, STORAGE_KEYS.CFG_CAPITALIZE_FIELDS, STORAGE_KEYS.CFG_SPLIT_IMPORT, STORAGE_KEYS.CFG_IMPORT_CREDITS
+                STORAGE_KEYS.CFG_TIMEOUT, STORAGE_KEYS.CFG_START_COLLAPSED, STORAGE_KEYS.CFG_CAPITALIZE_FIELDS, STORAGE_KEYS.CFG_CAPITALIZE_BTN_FIELDS, STORAGE_KEYS.CFG_SPLIT_IMPORT, STORAGE_KEYS.CFG_IMPORT_CREDITS, STORAGE_KEYS.CFG_IMPORT_STYLES
             ];
             keys.forEach(k => { try { localStorage.removeItem(k); } catch(e) {} });
             fields.forEach(f => {
@@ -3042,10 +3494,13 @@
             const scEl = document.getElementById('cfg-start-collapsed');
             if (scEl) scEl.checked = false;
             document.querySelectorAll('.cfg-cap-field').forEach(cb => { cb.checked = true; });
+            document.querySelectorAll('.cfg-cap-btn-field').forEach(cb => { cb.checked = true; });
             const splitImpEl = document.getElementById('cfg-split-import');
             if (splitImpEl) splitImpEl.checked = true;
             const credImpEl = document.getElementById('cfg-import-credits');
             if (credImpEl) credImpEl.checked = true;
+            const stylesImpEl = document.getElementById('cfg-import-styles');
+            if (stylesImpEl) stylesImpEl.checked = true;
 
             updateRemixToggleUI();
             updateRemixButtonTitle();
@@ -3058,8 +3513,40 @@
         document.getElementById('dh-config-save').onclick   = () => { saveConfig(); overlay.style.display = 'none'; };
         document.getElementById('dh-config-reset').onclick  = resetToDefaults;
 
+        const _capBtnToggleAll = document.getElementById('cfg-cap-btn-toggle-all');
+        if (_capBtnToggleAll) {
+            _capBtnToggleAll.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const boxes = document.querySelectorAll('.cfg-cap-btn-field');
+                const allChecked = Array.from(boxes).every(cb => cb.checked);
+                boxes.forEach(cb => { cb.checked = !allChecked; });
+                _capBtnToggleAll.textContent = allChecked ? 'Select All' : 'Deselect All';
+            });
+        }
         const _capToggle   = document.getElementById('cfg-capitalize-toggle');
         const _capDropdown = document.getElementById('cfg-capitalize-dropdown');
+        if (_capToggle && _capDropdown) {
+            _capToggle.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const open = _capDropdown.style.display !== 'none';
+                _capDropdown.style.display = open ? 'none' : 'flex';
+                _capToggle.textContent = open ? 'Capitalize \u25BC' : 'Capitalize \u25B2';
+                const isDark = localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
+                _capDropdown.style.background  = isDark ? '#1f2224' : '#fff';
+                _capDropdown.style.borderColor = isDark ? '#444' : '#ccc';
+                _capDropdown.style.color       = isDark ? '#ddd' : '#111';
+                if (_capBtnToggleAll) {
+                    _capBtnToggleAll.style.background  = isDark ? '#2a2d30' : '#f1f3f5';
+                    _capBtnToggleAll.style.color       = isDark ? '#ddd' : '#111';
+                    _capBtnToggleAll.style.borderColor = isDark ? '#444' : '#ccc';
+                }
+            });
+            document.addEventListener('click', () => {
+                _capDropdown.style.display = 'none';
+                _capToggle.textContent = 'Capitalize \u25BC';
+            });
+            _capDropdown.addEventListener('click', e => e.stopPropagation());
+        }
         const _capToggleAll = document.getElementById('cfg-cap-toggle-all');
         if (_capToggleAll) {
             _capToggleAll.addEventListener('click', (e) => {
@@ -3070,27 +3557,32 @@
                 _capToggleAll.textContent = allChecked ? 'Select All' : 'Deselect All';
             });
         }
-        if (_capToggle && _capDropdown) {
-            _capToggle.addEventListener('click', (e) => {
+
+        const _impToggle   = document.getElementById('cfg-import-toggle');
+        const _impDropdown = document.getElementById('cfg-import-dropdown');
+        if (_impToggle && _impDropdown) {
+            _impToggle.addEventListener('click', (e) => {
                 e.stopPropagation();
-                const open = _capDropdown.style.display !== 'none';
-                _capDropdown.style.display = open ? 'none' : 'flex';
-                _capToggle.textContent = open ? 'Capitalize \u25BC' : 'Capitalize \u25B2';
+                const open = _impDropdown.style.display !== 'none';
+                _impDropdown.style.display = open ? 'none' : 'flex';
+                _impToggle.textContent = open ? 'Import \u25BC' : 'Import \u25B2';
                 const isDark = localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
-                _capDropdown.style.background   = isDark ? '#1f2224' : '#fff';
-                _capDropdown.style.borderColor  = isDark ? '#444' : '#ccc';
-                _capDropdown.style.color        = isDark ? '#ddd' : '#111';
+                _impDropdown.style.background  = isDark ? '#1f2224' : '#fff';
+                _impDropdown.style.borderColor = isDark ? '#444' : '#ccc';
+                _impDropdown.style.color       = isDark ? '#ddd' : '#111';
                 if (_capToggleAll) {
-                    _capToggleAll.style.background   = isDark ? '#2a2d30' : '#f1f3f5';
-                    _capToggleAll.style.color        = isDark ? '#ddd' : '#111';
-                    _capToggleAll.style.borderColor  = isDark ? '#444' : '#ccc';
+                    _capToggleAll.style.background  = isDark ? '#2a2d30' : '#f1f3f5';
+                    _capToggleAll.style.color       = isDark ? '#ddd' : '#111';
+                    _capToggleAll.style.borderColor = isDark ? '#444' : '#ccc';
                 }
+                const hr = _impDropdown.querySelector('hr');
+                if (hr) hr.style.borderTopColor = isDark ? '#444' : '#ddd';
             });
             document.addEventListener('click', () => {
-                _capDropdown.style.display = 'none';
-                _capToggle.textContent = 'Capitalize \u25BC';
+                _impDropdown.style.display = 'none';
+                _impToggle.textContent = 'Import \u25BC';
             });
-            _capDropdown.addEventListener('click', e => e.stopPropagation());
+            _impDropdown.addEventListener('click', e => e.stopPropagation());
         }
 
         overlay.addEventListener('mousemove', resetHideTimer);
@@ -3224,7 +3716,7 @@
         const inactiveBgDark = 'rgba(255,255,255,0.04)';
         const borderColLight = 'rgba(0,0,0,0.12)';
         const borderColDark = 'rgba(255,255,255,0.08)';
-        const miniButtons = panel.querySelectorAll('#extract-remixers-optional-only, #remove-main-from-title, #remove-feat-from-title');
+        const miniButtons = panel.querySelectorAll('#extract-remixers-optional-only, #remove-main-from-title, #remove-feat-from-title, #swap-artist-title');
         const configOverlay = document.getElementById('dh-config-overlay');
 
         if (theme === 'dark') {
@@ -3374,7 +3866,7 @@
                 border-radius: 4px !important;
                 margin-top: 5px !important;
             }
-            #extract-remixers-optional-only, #remove-main-from-title, #remove-feat-from-title,
+            #extract-remixers-optional-only, #remove-main-from-title, #remove-feat-from-title, #swap-artist-title,
             #toggle-feat-remove, #toggle-remix-optional, #toggle-main-remove {
                 width: 30px !important; height: 30px !important;
                 display: inline-flex; align-items: center; justify-content: center;
@@ -3385,11 +3877,12 @@
             #toggle-feat-remove, #toggle-remix-optional, #toggle-main-remove { font-size: 16px !important; }
             #extract-remixers-optional-only { font-size: 18px !important; }
             #remove-main-from-title, #remove-feat-from-title { font-size: 16px !important; }
+            #swap-artist-title { font-size: 20px !important; }
             #extract-remixers-optional-only:hover, #remove-main-from-title:hover,
-            #remove-feat-from-title:hover, #toggle-feat-remove:hover,
+            #remove-feat-from-title:hover, #swap-artist-title:hover, #toggle-feat-remove:hover,
             #toggle-remix-optional:hover, #toggle-main-remove:hover { transform: scale(1.12); }
             #extract-remixers-optional-only:active, #remove-main-from-title:active,
-            #remove-feat-from-title:active, #toggle-feat-remove:active,
+            #remove-feat-from-title:active, #swap-artist-title:active, #toggle-feat-remove:active,
             #toggle-remix-optional:active, #toggle-main-remove:active { transform: scale(0.9); }
             #toggle-feat-remove:focus, #toggle-remix-optional:focus, #toggle-main-remove:focus {
                 outline: 2px solid rgba(30,102,214,0.3); outline-offset: 1px;
@@ -3721,6 +4214,27 @@
         return new DOMParser().parseFromString(html, 'text/html');
     }
 
+    function wiAntiBotError(url) {
+        const domain = (() => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch(e) { return url; } })();
+        return `Anti-bot verification required for ${domain}.\n<a href="${url}" target="_blank" style="color:#00e6ff;font-weight:bold;">Open the page in your browser</a>, complete the check, return and "Fetch" again.`;
+    }
+
+    function wiIsAntiBotPage(html) {
+        const lower = html.toLowerCase();
+        return lower.includes('is verifying your browser') ||
+               lower.includes('fastly is verifying') ||
+               lower.includes('cf-challenge') ||
+               lower.includes('cf-browser-verification') ||
+               lower.includes('are you human') ||
+               lower.includes('enable javascript') ||
+               lower.includes('just a moment') ||
+               lower.includes('security check') ||
+               lower.includes('attention required') ||
+               lower.includes('access denied') ||
+               lower.includes('client challenge') ||
+               /fastly\s*error/i.test(html);
+    }
+
     function wiCrossFetch(url, options = {}) {
         return new Promise((resolve, reject) => {
             if (typeof GM_xmlhttpRequest !== 'undefined') {
@@ -3730,6 +4244,7 @@
                 const isBoomkat = urlObj.hostname.includes('boomkat.com');
                 const isJuno = urlObj.hostname.includes('junodownload.com');
                 const isTraxsource = urlObj.hostname.includes('traxsource.com');
+                const isDiscogs = urlObj.hostname.includes('discogs.com');
                 const isQobuz = urlObj.hostname.includes('qobuz.com');
                 const isPresto = urlObj.hostname.includes('prestomusic.com');
 
@@ -3767,6 +4282,10 @@
                     headers['Referer'] = 'https://www.prestomusic.com/';
                 }
 
+                if (isDiscogs) {
+                    headers['Referer'] = 'https://www.discogs.com/';
+                }
+
                 const finalHeaders = Object.assign(headers, options.headers || {});
 
                 const _performRequest = (extraCookieStr) => {
@@ -3789,7 +4308,7 @@
                             }
                             if (response.status === 403) {
                                 if (isJuno || isBoomkat || isTraxsource) {
-                                    reject(new Error(`Security check required for ${domain}. + <a href="${url}" target="_blank" style="color:#00e6ff; font-weight:bold;">Open this page in your browser</a> and complete any verification, then return and click Fetch again.`));
+                                    reject(new Error(wiAntiBotError(url)));
                                     return;
                                 }
                                 reject(new Error(`Access forbidden (HTTP 403): ${domain}`));
@@ -3818,15 +4337,8 @@
                                 return;
                             }
 
-                            const bodyLower = content.toLowerCase();
-                            const isChallenge = bodyLower.includes('is verifying your browser') ||
-                                              bodyLower.includes('fastly is verifying') ||
-                                              bodyLower.includes('cf-challenge') ||
-                                              /fastly\s*error/i.test(content) ||
-                                              bodyLower.includes('are you human');
-
-                            if (isChallenge) {
-                                reject(new Error(`Security check required for ${domain}. + <a href="${url}" target="_blank" style="color:#00e6ff; font-weight:bold;">Open this page in your browser</a> and complete any verification, then return and click Fetch again.`));
+                            if (wiIsAntiBotPage(content)) {
+                                reject(new Error(wiAntiBotError(url)));
                                 return;
                             }
 
@@ -3841,7 +4353,7 @@
                     });
                 };
 
-                if ((isBoomkat || isJuno) && typeof GM_cookie !== 'undefined' && typeof GM_cookie.list === 'function') {
+                if ((isBoomkat || isJuno || isDiscogs) && typeof GM_cookie !== 'undefined' && typeof GM_cookie.list === 'function') {
                     GM_cookie.list({ url: urlObj.origin }, (cookies, error) => {
                         if (!error && cookies && cookies.length) {
                             const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
@@ -3877,7 +4389,10 @@
                     }
                     return r.text();
                 })
-                .then(resolve)
+                .then(html => {
+                    if (wiIsAntiBotPage(html)) throw new Error(wiAntiBotError(url));
+                    resolve(html);
+                })
                 .catch(reject);
         });
     }
@@ -4134,6 +4649,8 @@
         [/^cover(?:\s+art(?:work)?)?(?:\s+by)?$/i,                                                  'Cover'],
         [/^graphic(?:al)?[- ]?design(?:er|ed)?(?:\s+by)?$/i,                                        'Graphic Design'],
         [/^graphic[- ]?desing(?:\s+by)?$/i,                                                         'Graphic Design'],
+        [/^graphics?(?:\s+by)?$/i,                                                                   'Graphics'],
+        [/^graphic\s+support(?:\s+by)?$/i,                                                          'Graphics'],
         [/^grahpic[- ]?design(?:\s+by)?$/i,                                                         'Graphic Design'],
         [/^re[-_]?design(?:ed)?(?:\s+by)?$/i,                                                        'Design'],
         [/^design(?:ed)?(?:\s+by)?$/i,                                                               'Design'],
@@ -4142,6 +4659,7 @@
         [/^(?:cover[- ]?)?lauyout(?:\s+by)?$/i,                                                     'Layout'],
         [/^(?:cover[- ]?)?layuot(?:\s+by)?$/i,                                                      'Layout'],
         [/^(?:photography|photographer|photographs?|photos?|fotos?|(?:cover\s+)?images?)(?:\s+by)?$/i, 'Photography By'],
+        [/^pictures?(?:\s+by)?$/i,                                                                   'Photography By'],
         [/^(?:photography|photo)\s+art(?:ist)?(?:\s+by)?$/i,                                         'Photography By'],
         [/^photgraphy(?:\s+by)?$/i,                                                                  'Photography By'],
         [/^photograhpy(?:\s+by)?$/i,                                                                 'Photography By'],
@@ -4321,7 +4839,6 @@
   ['recorded by', 'Recorded By'],
   ['remastered by', 'Remastered By'],
   ['(re)mastering', 'Remastered By'],
-  ['(re)mastered', 'Remastered By'],
   ['(re)mastered by', 'Remastered By'],
   ['restoration', 'Restoration'],
   ['tape op', 'Tape Op'],
@@ -4458,7 +4975,6 @@
   ['noises', 'Noises'],
   ['samples', 'Samples'],
   ['turntables', 'Turntables'],
-  ['dj mix', 'DJ Mix'],
   ['drum machine', 'Drum Machine'],
   ['sequencer', 'Sequencer'],
   ['sampler', 'Sampler'],
@@ -4472,8 +4988,7 @@
   ['band', 'Band'],
   ['performer', 'Performer'],
   ['ensemble', 'Ensemble'],
-  ['orchestra', 'Orchestra'],
-  ['choir', 'Choir']
+  ['orchestra', 'Orchestra']
     ]);
 
     function splitOutsideQuotes(s) {
@@ -4511,12 +5026,10 @@
         ['cover photo',               [{ official: 'Photography By', bracket: 'Cover Photo' }]],
         ['cover photograph',          [{ official: 'Photography By', bracket: 'Cover Photo' }]],
         ['cover photography',         [{ official: 'Photography By', bracket: 'Cover Photo' }]],
-        ['cover photo by',            [{ official: 'Photography By', bracket: 'Cover Photo' }]],
-        ['cover photograph by',       [{ official: 'Photography By', bracket: 'Cover Photo' }]],
-        ['cover photography by',      [{ official: 'Photography By', bracket: 'Cover Photo' }]],
         ['cover and cover photo',     ['Cover', { official: 'Photography By', bracket: 'Cover Photo' }]],
         ['cover and cover photograph',['Cover', { official: 'Photography By', bracket: 'Cover Photo' }]],
-        ['font by',                   [{ official: 'Typography', bracket: null }]],
+        ['macro-photography',         [{ official: 'Photography By', bracket: 'Macro-Photography' }]],
+        ['macro photography',         [{ official: 'Photography By', bracket: 'Macro-Photography' }]],
         ['font',                      [{ official: 'Typography', bracket: null }]],
         ['digital artwork',           [{ official: 'Artwork', bracket: 'Digital' }]],
         ['digital art',               [{ official: 'Artwork', bracket: 'Digital' }]],
@@ -4548,12 +5061,8 @@
         ['vocals and lyrics',         ['Vocals', 'Lyrics By']],
         ['lyrics and vocals',         ['Lyrics By', 'Vocals']],
         ['voices',                    [{ official: 'Voice', bracket: 'Voices' }]],
-        ['voices by',                 [{ official: 'Voice', bracket: 'Voices' }]],
         ['lead voices',               [{ official: 'Lead Vocals', bracket: null }]],
-        ['lead voices by',            [{ official: 'Lead Vocals', bracket: null }]],
-        ['remix production by',       [{ official: 'Producer', bracket: 'Remix Production' }]],
         ['executive production',      [{ official: 'Executive-Producer', bracket: 'Production' }]],
-        ['executive production by',   [{ official: 'Executive-Producer', bracket: 'Production' }]],
         ['all tracks',                [{ official: 'Music By', bracket: 'Tracks' }]],
         ['all songs',                 [{ official: 'Music By', bracket: 'Songs' }]],
         ['mixed and mastered',        ['Mixed By', 'Mastered By']],
@@ -4562,56 +5071,42 @@
         ['final mix and master',      ['Mixed By', 'Mastered By']],
         ['mix and master',            ['Mixed By', 'Mastered By']],
         ['mix and mastered',          ['Mixed By', 'Mastered By']],
-        ['mixed and mastered by',     ['Mixed By', 'Mastered By']],
-        ['final mixed and mastered by', ['Mixed By', 'Mastered By']],
         ['whisper',                   [{ official: 'Vocals', bracket: 'Whispers' }]],
         ['whispers',                  [{ official: 'Vocals', bracket: 'Whispers' }]],
         ['whispering',                [{ official: 'Vocals', bracket: 'Whispers' }]],
-        ['whisper by',                [{ official: 'Vocals', bracket: 'Whispers' }]],
-        ['whispers by',               [{ official: 'Vocals', bracket: 'Whispers' }]],
         ['background vocals',         [{ official: 'Backing Vocals', bracket: 'Background' }]],
-        ['background vocals by',      [{ official: 'Backing Vocals', bracket: 'Background' }]],
         ['aesthetic direction',       [{ official: 'Art Direction', bracket: 'Aesthetic' }]],
-        ['aesthetic direction by',    [{ official: 'Art Direction', bracket: 'Aesthetic' }]],
         ['riffs',                     [{ official: 'Guitar', bracket: 'Riffs' }]],
-        ['riffs by',                  [{ official: 'Guitar', bracket: 'Riffs' }]],
-        ['vocals written by',                [{ official: 'Written-By', bracket: 'Vocals' }]],
+        ['vocals written',                [{ official: 'Written-By', bracket: 'Vocals' }]],
         ['performed',                [{ official: 'Performer', bracket: 'Performed' }]],
-        ['performed by',             [{ official: 'Performer', bracket: 'Performed' }]],
         ['performer',                [{ official: 'Performer', bracket: 'Performed' }]],
-        ['vocals written and performed by',  [{ official: 'Written-By', bracket: 'Vocals' }, { official: 'Performer', bracket: 'Performed' }]],
         ['vocals written and performed',     [{ official: 'Written-By', bracket: 'Vocals' }, { official: 'Performer', bracket: 'Performed' }]],
-        ['written and performed by',         [{ official: 'Written-By', bracket: null }, { official: 'Performer', bracket: 'Performed' }]],
         ['written and performed',            [{ official: 'Written-By', bracket: null }, { official: 'Performer', bracket: 'Performed' }]],
-        ['written and produced by',          [{ official: 'Written-By', bracket: null }, { official: 'Producer', bracket: 'Produced' }]],
         ['written and produced',             [{ official: 'Written-By', bracket: null }, { official: 'Producer', bracket: 'Produced' }]],
-        ['written produced and performed by',[{ official: 'Written-By', bracket: null }, { official: 'Producer', bracket: 'Produced' }, { official: 'Performer', bracket: 'Performed' }]],
+        ['written produced and performed',[{ official: 'Written-By', bracket: null }, { official: 'Producer', bracket: 'Produced' }, { official: 'Performer', bracket: 'Performed' }]],
         ['remix produced',                   [{ official: 'Producer', bracket: 'Remix Produced' }]],
-        ['remix produced by',                [{ official: 'Producer', bracket: 'Remix Produced' }]],
         ['remix production',                 [{ official: 'Producer', bracket: 'Remix Production' }]],
-        ['remix production by',              [{ official: 'Producer', bracket: 'Remix Production' }]],
         ['remixes produced',                 [{ official: 'Producer', bracket: 'Remix Produced' }]],
-        ['remixes produced by',              [{ official: 'Producer', bracket: 'Remix Produced' }]],
-        ['lyrics written and performed by',  [{ official: 'Written-By', bracket: 'Vocals' }, { official: 'Performer', bracket: 'Performed' }]],
+        ['lyrics written and performed',  [{ official: 'Written-By', bracket: 'Vocals' }, { official: 'Performer', bracket: 'Performed' }]],
         ['spoken word',               [{ official: 'Words By', bracket: 'Spoken Word' }]],
-        ['spoken word by',            [{ official: 'Words By', bracket: 'Spoken Word' }]],
         ['spoken words',              [{ official: 'Words By', bracket: 'Spoken Word' }]],
-        ['spoken words by',           [{ official: 'Words By', bracket: 'Spoken Word' }]],
         ['spoken',                    [{ official: 'Words By', bracket: 'Spoken Word' }]],
-        ['spoken by',                 [{ official: 'Words By', bracket: 'Spoken Word' }]],
         ['designed',                  [{ official: 'Design', bracket: 'Designed' }]],
-        ['designed by',               [{ official: 'Design', bracket: 'Designed' }]],
         ['co-written',                [{ official: 'Written-By', bracket: 'Co-Written' }]],
-        ['co-written by',             [{ official: 'Written-By', bracket: 'Co-Written' }]],
         ['co-written with',           [{ official: 'Written-By', bracket: 'Co-Written With' }]],
-        ['co-written with by',        [{ official: 'Written-By', bracket: 'Co-Written With' }]],
         ['cowritten',                 [{ official: 'Written-By', bracket: 'Co-Written' }]],
-        ['cowritten by',              [{ official: 'Written-By', bracket: 'Co-Written' }]],
         ['co-writing',                [{ official: 'Written-By', bracket: 'Co-Written' }]],
         ['co-writer',                 [{ official: 'Written-By', bracket: 'Co-Written' }]],
         ['co-writer with',            [{ official: 'Written-By', bracket: 'Co-Written With' }]],
-        ['whispering by',             [{ official: 'Vocals', bracket: 'Whispers' }]],
+        ['mastering engineer',        [{ official: 'Engineer', bracket: 'Mastering Engineer' }]],
+        ['mastering engineered',     [{ official: 'Engineer', bracket: 'Mastering Engineered' }]],
+        ['mixing engineer',           [{ official: 'Engineer', bracket: 'Mixing Engineer' }]],
+        ['mixing engineered',        [{ official: 'Engineer', bracket: 'Mixing Engineered' }]],
     ]);
+    function getCompound(key) {
+        return COMPOUND_ROLE_EXPANSIONS.get(key)
+            ?? COMPOUND_ROLE_EXPANSIONS.get(key.replace(/\s+by$/i, '').trimEnd());
+    }
     function normalizeCreditRole(raw) {
         let s = raw.trim();
         s = s.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '').trim();
@@ -4631,7 +5126,7 @@
         const hadOriginalSuffix = !!_origSuffixM;
         if (_origSuffixM) s = s.slice(0, s.length - _origSuffixM[0].length);
         s = s.trim();
-        const compound = COMPOUND_ROLE_EXPANSIONS.get(s.toLowerCase().replace(/\s+/g, ' '));
+        const compound = getCompound(s.toLowerCase().replace(/\s+/g, ' '));
         if (compound) return compound.map(e => typeof e === 'string' ? { official: e, bracket: null } : e);
         const allPrefix = /^(?:(?:all\s+)?(?:all\s+original\s+)?(?:music|songs?|tracks?)|album|remixes?|original(?:ly)?|cover|additional|add(?:'t|\.t|`t|t|\.)|session)\s+/i;
         let sStripped = s;
@@ -4639,19 +5134,22 @@
         sStripped = sStripped.replace(/\s*,?\s*\b(?:on|for)\s+(?:(?:CD|disc|vinyl|tape|side|lp|ep)\s+\w+\s+)?(?:tracks?\s+)?[\d\s,&\-\u2013]+(?:\s+and\s+\d+)?\s*$/gi, '').trim();
         const _instRecM = sStripped.match(/^(.+?)\s+recorded(?:\s+by)?$/i);
         if (_instRecM) {
-            const inst = _instRecM[1].trim().replace(/(^|\s)(\p{L})/gu, (_, sp, c) => sp + c.toUpperCase());
+            const inst = _instRecM[1].trim().toLowerCase().replace(/(^|\s)(\p{L})/gu, (_, sp, c) => sp + c.toUpperCase());
             return { official: 'Recorded By', bracket: inst };
         }
         const _instPerfM = sStripped.match(/^(.+?)\s+performed(?:\s+by)?$/i);
         if (_instPerfM) {
-            const inst = _instPerfM[1].trim().replace(/(^|\s)(\p{L})/gu, (_, sp, c) => sp + c.toUpperCase());
+            const inst = _instPerfM[1].trim().toLowerCase().replace(/(^|\s)(\p{L})/gu, (_, sp, c) => sp + c.toUpperCase());
             return { official: inst, bracket: 'Performed' };
         }
         const _createdM = sStripped.match(/^(.+?)\s+created(?:\s+by)?$/i);
         if (_createdM) {
             const prefix = _createdM[1].trim();
-            const prefixTitled = prefix.replace(/(^|\s)(\p{L})/gu, (_, sp, c) => sp + c.toUpperCase());
-            return { official: prefixTitled, bracket: 'Created' };
+            const _prefixRole = normalizeCreditRole(prefix);
+            if (_prefixRole) {
+                const prefixTitled = prefix.toLowerCase().replace(/(^|\s)(\p{L})/gu, (_, sp, c) => sp + c.toUpperCase());
+                return { official: prefixTitled, bracket: 'Created' };
+            }
         }
         const _logoM = sStripped.match(/^logo\s+(.+?)(?:\s+by)?$/i);
         if (_logoM) {
@@ -4678,7 +5176,7 @@
                     const qual = _logoFbM[1].trim();
                     return { official: 'Logo', bracket: qual.charAt(0).toUpperCase() + qual.slice(1).toLowerCase() };
                 }
-                const fbCompound = COMPOUND_ROLE_EXPANSIONS.get(fb.toLowerCase().replace(/\s+/g, ' '));
+                const fbCompound = getCompound(fb.toLowerCase().replace(/\s+/g, ' '));
                 if (fbCompound) return fbCompound.length === 1 ? fbCompound[0] : fbCompound;
                 for (const [re, off] of CREDIT_ROLE_MAP) { if (re.test(fb)) { official = off; sStripped = fb; break; } }
                 if (official) break;
@@ -4687,7 +5185,7 @@
                 if (ex) { official = ex; sStripped = fb; break; }
             }
             if (!official) {
-                const fbFinalCompound = COMPOUND_ROLE_EXPANSIONS.get(fb.toLowerCase().replace(/\s+/g, ' '));
+                const fbFinalCompound = getCompound(fb.toLowerCase().replace(/\s+/g, ' '));
                 if (fbFinalCompound) return fbFinalCompound.length === 1 ? fbFinalCompound[0] : fbFinalCompound;
                 for (const [re, off] of CREDIT_ROLE_MAP) { if (re.test(fb)) { official = off; sStripped = fb; break; } }
                 if (!official) {
@@ -4743,8 +5241,8 @@
             : matchesBase
                 ? null
                 : strippedPrefix
-                    ? (bracketSrcLow === official.toLowerCase() || bracketSrcLow === oBase ? (hadAdditionalPrefix ? 'Additional' : null) : trimSharedPrefix(bracketSrc.replace(/(^|\s)(\p{L})/gu, (_, sp, c) => sp + c.toUpperCase())))
-                    : trimSharedPrefix(s.replace(/(^|\s)(\p{L})/gu, (_, sp, c) => sp + c.toUpperCase()));
+                    ? (bracketSrcLow === official.toLowerCase() || bracketSrcLow === oBase ? (hadAdditionalPrefix ? 'Additional' : null) : trimSharedPrefix(bracketSrc.toLowerCase().replace(/(^|\s)(\p{L})/gu, (_, sp, c) => sp + c.toUpperCase())))
+                    : trimSharedPrefix(s.toLowerCase().replace(/(^|\s)(\p{L})/gu, (_, sp, c) => sp + c.toUpperCase()));
         return { official, bracket };
     }
     function formatTrackPositions(positions) {
@@ -4783,20 +5281,25 @@
             return [l];
         });
         lines = lines.flatMap(l => {
-            const exceptM = l.match(/\s+except\b(.*)/i);
+            const exceptM = l.match(/\bexcept\b(.*)/i);
             if (!exceptM) return [l];
             const tail = exceptM[1];
             const extra = [];
             const knownRoleKw = 'written|vocalized|vocalize|composed|lyrics|music|arranged|produced|mastered|mixed|performed|sung|played|recorded|engineered|edited|programmed|designed|illustrated|photographed|artwork|remixed';
+            const trackNumM = tail.match(/^\s+(?:tracks?\s+)?(\d+(?:\s*[-,]\s*\d+)*)\s+/i);
+            const trackPrefix = trackNumM ? trackNumM[1].trim() + ' ' : '';
+            const roleBody = trackNumM ? tail.slice(trackNumM[0].length) : tail;
             const rolePosRe = new RegExp(`\\b(${knownRoleKw})\\s+by\\s+`, 'gi');
-            const nameRe = /^((?:[A-Z][a-z]+|[A-Z]+)(?:\s+[A-Z][a-z]+)*)/;
+            const stopRe = new RegExp(`\\s*/\\s*|\\s+(?:${knownRoleKw})\\s+by\\s`, 'i');
             let m;
-            while ((m = rolePosRe.exec(tail)) !== null) {
-                const afterBy = tail.slice(m.index + m[0].length);
-                const nameM = afterBy.match(nameRe);
-                if (nameM) extra.push(`${m[1].toLowerCase()} by ${nameM[1].trim()}`);
+            while ((m = rolePosRe.exec(roleBody)) !== null) {
+                const afterBy = roleBody.slice(m.index + m[0].length);
+                const stopIdx = afterBy.search(stopRe);
+                const nameStr = (stopIdx === -1 ? afterBy : afterBy.slice(0, stopIdx)).trim().replace(/[.,;]+$/, '');
+                if (nameStr) extra.push(`${trackPrefix}${m[1].toLowerCase()} by ${nameStr}`);
             }
-            return [l, ...extra];
+            const beforeExcept = l.slice(0, l.search(/\bexcept\b/i)).trim().replace(/[.,;]+$/, '').trim();
+            return [...(beforeExcept ? [beforeExcept] : []), ...extra];
         });
         for (let line of lines) {
             if (/^[©℗]/.test(line.trim())) continue;
@@ -4876,7 +5379,7 @@
                 .filter(n => {
                     const t = n.trim();
                     if (!t.includes(' ')) return !normalizeCreditRole(t);
-                    const compound = COMPOUND_ROLE_EXPANSIONS.get(t.toLowerCase().replace(/\s+/g, ' '));
+                    const compound = getCompound(t.toLowerCase().replace(/\s+/g, ' '));
                     if (compound) return false;
                     const sNormDirect = t.toLowerCase().replace(/[.,;]+$/, '');
                     if (DISCOGS_OFFICIAL_CREDITS.get(sNormDirect) || DISCOGS_OFFICIAL_CREDITS.get(sNormDirect + ' by')) return false;
@@ -4885,13 +5388,25 @@
                     return true;
                 })
                 .filter(n => !/^in\s/i.test(n.trim()) && !/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s*\([A-Z]{2,3}\)$/.test(n.trim()))
-                .filter(n => !/^(?:live|studio|live\s+at|online|remote|digital|worldwide)$/i.test(n.trim()));
+                .filter(n => !/^(?:live|studio|live\s+at|online|remote|digital|worldwide)$/i.test(n.trim()))
+                .filter(n => {
+                    const _byM = n.trim().match(/^(.+?)\s+\bby\b\s+\S/i);
+                    if (_byM && normalizeCreditRole(_byM[1].trim())) return false;
+                    return true;
+                });
             };
-            const preNorm = (s) => s
-                .replace(/\ball\s+original\b\s*/gi, 'all original ')
-                .replace(/\b(?:words?\s*(?:[&]|and)\s*music|music\s*(?:[&]|and)\s*words?)(?=\s*,|\s*$)/gi, 'words, music')
-                .replace(/\b(vocals?|lyrics|mixing|mastering|production|arrangement|sequencing|sampling|recording|editing|engineering|writ(?:ten|ing)|produc(?:ed|tion))\s+and\s+(vocals?|lyrics|mixing|mastering|production|arrangement|sequencing|sampling|recording|editing|engineering|writ(?:ten|ing)|produc(?:ed|tion))\b/gi, '$1, $2')
-                .replace(/^album\s+/gi, '')
+            const _roleKwPat = 'writ(?:ten|ing)|mix(?:ed|ing)|master(?:ed|ing)|produc(?:ed|ing|tion)|record(?:ed|ing)|engineer(?:ed|ing)|arrang(?:ed|ing|ement)|programm(?:ed|ing)';
+            const _roleKwSpaceRe = new RegExp(`\\b(${_roleKwPat})\\s+(${_roleKwPat})\\b`, 'gi');
+            const preNorm = (s) => {
+                s = s
+                    .replace(/\ball\s+original\b\s*/gi, 'all original ')
+                    .replace(/\b(?:words?\s*(?:[&]|and)\s*music|music\s*(?:[&]|and)\s*words?)(?=\s*,|\s*$)/gi, 'words, music')
+                    .replace(/\b(vocals?|lyrics|mixing|mastering|production|arrangement|sequencing|sampling|recording|editing|engineering|writ(?:ten|ing)|produc(?:ed|tion))\s+and\s+(vocals?|lyrics|mixing|mastering|production|arrangement|sequencing|sampling|recording|editing|engineering|writ(?:ten|ing)|produc(?:ed|tion))\b/gi, '$1, $2')
+                    .replace(/^album\s+/gi, '');
+                let prev;
+                do { prev = s; s = s.replace(_roleKwSpaceRe, '$1, $2'); } while (s !== prev);
+                return s;
+            };
             const parseRoles = (s) => {
                 const wpResult = [];
                 const sRaw = s.trim().replace(/[.,;]+$/, '');
@@ -4923,7 +5438,7 @@
                                     return [...outerResolved, ...innerResolved];
                                 }
                             }
-                            const combined = COMPOUND_ROLE_EXPANSIONS.get((outerPart + ' and ' + innerPart).toLowerCase().replace(/\s+/g, ' '));
+                            const combined = getCompound((outerPart + ' and ' + innerPart).toLowerCase().replace(/\s+/g, ' '));
                             if (combined) return combined.map(e => typeof e === 'string' ? { official: e, bracket: null } : e);
                         }
                     }
@@ -4932,7 +5447,7 @@
                 const _allPfxRe = /^(?:(?:all\s+)?(?:all\s+original\s+)?(?:music|songs?|tracks?)|album|remixes?|original(?:ly)?|cover|additional|add(?:'t|\.t|`t|t|\.)|session)\s+/i;
                 let sRawKeyStripped = sRawKey.replace(/^all\s+(?:tracks?|songs?)\s+(?:are|were|have\s+been)\s+/, '');
                 while (_allPfxRe.test(sRawKeyStripped)) sRawKeyStripped = sRawKeyStripped.replace(_allPfxRe, '').trim();
-                const rawCompound = COMPOUND_ROLE_EXPANSIONS.get(sRawKey) || COMPOUND_ROLE_EXPANSIONS.get(sRawKeyStripped);
+                const rawCompound = getCompound(sRawKey) || getCompound(sRawKeyStripped);
                 if (rawCompound) return rawCompound.map(e => typeof e === 'string' ? { official: e, bracket: null } : e);
                 const sNorm = preNorm(s).trim().replace(/[.,;]+$/, '')
                     .replace(/\.\s+/g, ', ')
@@ -4941,7 +5456,7 @@
                     .replace(/^all\s+(?:tracks?|songs?)\s+(?:are|were|have\s+been)\s+/, '');
                 let sNormKeyStripped = sNormKey;
                 while (_allPfxRe.test(sNormKeyStripped)) sNormKeyStripped = sNormKeyStripped.replace(_allPfxRe, '').trim();
-                const wholeCompound = COMPOUND_ROLE_EXPANSIONS.get(sNormKey) || COMPOUND_ROLE_EXPANSIONS.get(sNormKeyStripped) || COMPOUND_ROLE_EXPANSIONS.get(sNorm.toLowerCase().replace(/\s+/g, ' '));
+                const wholeCompound = getCompound(sNormKey) || getCompound(sNormKeyStripped) || getCompound(sNorm.toLowerCase().replace(/\s+/g, ' '));
                 if (wholeCompound) return wholeCompound.map(e => typeof e === 'string' ? { official: e, bracket: null } : e);
                 const wpHandled = sNorm.replace(/\bW\s*[&+]\s*P\b/gi, () => {
                     wpResult.push(
@@ -4962,7 +5477,7 @@
             const _posTok  = '(?:[A-Za-z]\\d+|\\d+)';
             const _posRange = `${_posTok}[-\\u2013]${_posTok}`;
             const _posUnit  = `(?:${_posRange}|${_posTok})`;
-            const _posSep   = `(?:[\\s,\\|]+|\\s*(?:&|and)\\s*)`;
+            const _posSep   = `(?:[\\s,\\|+]+|\\s*(?:&|and)\\s*)`;
             const _posList  = `(${_posUnit}(?:${_posSep}${_posUnit})*)`;
             const prefixRe = new RegExp(
                 `^(?:(?:Tracks?|Tacks?|Tracsk?|Traks?|Trakcs?|Trcaks?|Tarck s?)\\s+)?${_posList}\\s+(?=\\S)`, 'i'
@@ -4989,11 +5504,49 @@
             });
 
             const splitNameClauses = (namePart) => {
-                const re = /(?:,\s*|\s+with\s+|\s*\/\s*|\.\s+|\s+(?=(?:remixed?|reworked?|rework|covered?|re-?edit(?:ed)?)\s+by\b))(?=[\w][\w\s\-]{0,30}\bby\b)/i;
-                const idx = namePart.search(re);
-                if (idx === -1) return [namePart, null];
-                const sep = namePart.slice(idx).match(/^(?:,\s*|\s+with\s+|\s*\/\s*|\.\s+|\s+)/)[0];
-                return [namePart.slice(0, idx), namePart.slice(idx + sep.length)];
+                const _roleWordRe2 = /\b(?:lyrics?|vocals?|voices?|music|mix(?:ed|ing)?|master(?:ed|ing)?|produc(?:ed|tion|ing)?|record(?:ed|ing)?|engineer(?:ed|ing)?|arrang(?:ed|ing|ement)?|programm(?:ed|ing)?|additional|backing|lead|performed|composed|written|artwork|design|photogr|illustr|remix(?:ed)?|editing)\b/i;
+
+                let bestSplitPos = -1, bestSplitAfter = null;
+
+                let _depth = 0;
+                for (let _i = 0; _i < namePart.length; _i++) {
+                    const _ch = namePart[_i];
+                    if (_ch === '(') _depth++;
+                    else if (_ch === ')') _depth = Math.max(0, _depth - 1);
+                    else if (_ch === ',' && _depth === 0) {
+                        const _after = namePart.slice(_i + 1).replace(/^\s+/, '');
+                        const _byM   = _after.match(/\bby\b/i);
+                        if (_byM && _byM.index > 0) {
+                            const _sentEnd = _after.search(/\.\s+[A-Z]/);
+                            const _candEnd = _sentEnd >= 0 ? Math.min(_byM.index, _sentEnd) : _byM.index;
+                            const _pure    = _after.slice(0, _candEnd).trim();
+                            if (_roleWordRe2.test(_pure)) {
+                                const _capWords = (_pure.match(/\b([A-Z][a-zA-ZÀ-ÿ]{1,})\b/g) || []);
+                                const _nonRoleCaps = _capWords.filter(w => !_roleWordRe2.test(w));
+                                if (!_nonRoleCaps.length) {
+                                    bestSplitPos   = _i;
+                                    bestSplitAfter = _after;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                const _sentByRe = /\.\s+(?=[\w][\w\s\-]{0,80}\bby\b)/i;
+                const _sentM = _sentByRe.exec(namePart);
+                if (_sentM && (bestSplitPos < 0 || _sentM.index < bestSplitPos)) {
+                    bestSplitPos   = _sentM.index;
+                    bestSplitAfter = namePart.slice(_sentM.index + _sentM[0].length);
+                }
+
+                if (bestSplitPos >= 0) return [namePart.slice(0, bestSplitPos), bestSplitAfter];
+
+                const _fallbackRe = /(?:\s+with\s+|\s*\/\s*|\s+(?=(?:remixed?|reworked?|rework|covered?|re-?edit(?:ed)?)\s+by\b))(?=[\w][\w\s\-]{0,80}\bby\b)/i;
+                const _fM = _fallbackRe.exec(namePart);
+                if (_fM) return [namePart.slice(0, _fM.index), namePart.slice(_fM.index + _fM[0].length)];
+
+                return [namePart, null];
             };
             const cleanName = (s) => {
                 const t = s.trim().replace(/^by[\s:]+/i, '').replace(/^:\s*/, '').replace(/[.,;]+$/, '')
@@ -5052,7 +5605,19 @@
                 );
                 const n = parseNames(cleanName(cleanedNameStr));
                 if (r.length > 0 && n.length > 0) {
-                    for (const name of n) results.push({ name: name.trim(), roles: r.map(toRoleStr), trackPositions: positions });
+                    for (const name of n) {
+                        const parenM = name.replace(/[\u200b\u200c\u200d\u200e\u200f\u00ad\ufeff\u2060\u180e]/g, '').trim().match(/^(.+?)\s*\(([^()]+)\)\s*$/);
+                        if (parenM) {
+                            const baseName = parenM[1].trim();
+                            const extraRoles = parseRoles(parenM[2].trim()).filter(role => !(role.official === 'Remix' && !role.bracket));
+                            if (extraRoles.length > 0 && baseName) {
+                                results.push({ name: baseName, roles: r.map(toRoleStr), trackPositions: positions });
+                                results.push({ name: baseName, roles: extraRoles.map(toRoleStr), trackPositions: positions });
+                                continue;
+                            }
+                        }
+                        results.push({ name: name.trim(), roles: r.map(toRoleStr), trackPositions: positions });
+                    }
                 }
             };
 
@@ -5063,6 +5628,13 @@
             const byMatch = line.match(/^(.+?)\bby\b(.+)$/i);
             if (byMatch) {
                 let currentRoles = byMatch[1];
+                const _titleColonM = currentRoles.match(/^(.+?)\s*:\s*(.+?)\s*$/);
+                if (_titleColonM) {
+                    const _titleNoParen = _titleColonM[1].trim().replace(/\s*\([^)]*\)/g, '').trim();
+                    if (!parseRoles(_titleNoParen).length) {
+                        currentRoles = _titleColonM[2];
+                    }
+                }
                 let remaining = byMatch[2];
                 while (remaining !== null) {
                     const [namePart, rest] = splitNameClauses(remaining);
@@ -5083,7 +5655,7 @@
                         continue;
                     }
                 }
-                const colonMatch = line.match(/^([^:\n]{1,40}):\s*(.+)$/);
+                const colonMatch = line.match(/^([^:\n]{1,60}):\s*(.+)$/);
                 if (colonMatch) {
                     const rolesFirst = parseRoles(colonMatch[1]);
                     if (rolesFirst.length) {
@@ -5154,7 +5726,11 @@
         const toLines = (el) => el.innerHTML
             .replace(/<br\s*\/?>/gi, '\n')
             .replace(/<[^>]+>/g, ' ')
-            .replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/&#\d+;/g, ' ')
+            .replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ')
+            .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(+d))
+            .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+            .replace(/[\u200b\u200c\u200d\u200e\u200f\u00ad\ufeff\u2060\u180e]/g, '')
+            .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')
             .split('\n').map(l => l.trim()).filter(Boolean);
 
         const expandInlineTrackLists = (lines) => {
@@ -5171,7 +5747,7 @@
 
         const joinContinuations = (lines) => {
             const out = [];
-            const trackPrefixRe = /^(?:(?:Tracks?|Tacks?|Tracsk?|Traks?|Trakcs?|Trcaks?|Tarck s?)\s+)?(?:[A-Za-z]\d+|\d)[\w,\s\|\/\-]*(?:\s*(?:&|and)\s*(?:[A-Za-z]\d+|\d)[\w,\s\|\/\-]*)*\s+/i;
+            const trackPrefixRe = /^(?:(?:Tracks?|Tacks?|Tracsk?|Traks?|Trakcs?|Trcaks?|Tarck s?)\s+)?(?:[A-Za-z]\d+|\d)[\w,\s\|\/\-+]*(?:\s*(?:&|and)\s*(?:[A-Za-z]\d+|\d)[\w,\s\|\/\-+]*)*\s+/i;
             let lastTrackPrefix = '';
             let lastByHeaderRole = '';
             for (let i = 0; i < lines.length; i++) {
@@ -5179,7 +5755,7 @@
                 const lCore = l.replace(/^[\p{Emoji_Presentation}\p{Extended_Pictographic}\s]+/gu, '').trim();
                 const prefixMatch = lCore.match(trackPrefixRe);
                 if (prefixMatch && /\bby\b/i.test(lCore)) lastTrackPrefix = prefixMatch[0].trim() + ' ';
-                else if (!prefixMatch && (!/\bby\b/i.test(lCore) || /^(?:layout|design|artwork|photography|photo|cover|(?:re-?)?mastered?|mixed?|recorded?|engineer)/i.test(lCore))) lastTrackPrefix = '';
+                else if (!prefixMatch && (!/\bby\b/i.test(lCore) || /^(?:all\s+(?:tracks?|songs?)\b|layout|design|artwork|pictures?|photography|photo|cover|(?:re-?)?master(?:ed|ing)?|mix(?:ed|ing)?|record(?:ed|ing)?|engineer)/i.test(lCore))) lastTrackPrefix = '';
                 if (/\bby\b/i.test(lCore)) lastByHeaderRole = '';
                 if (out.length && /,\s*$/.test(out[out.length - 1])) {
                     out[out.length - 1] = out[out.length - 1].replace(/,\s*$/, ', ') + lCore;
@@ -5234,7 +5810,7 @@
                     const names = [];
                     while (i + 1 < lines.length) {
                         const next = lines[i + 1].trim();
-                        if (!next || /\bby\b/i.test(next) || /^[^:]{1,40}:\s*.+$/.test(next) || /^released\b/i.test(next)) break;
+                        if (!next || /\bby\b/i.test(next) || /^[^:]{1,60}:\s*.+$/.test(next) || /^released\b/i.test(next)) break;
                         i++;
                         names.push(lines[i].replace(/\s+on\s+[\d\s,|&\-]+$/i, '').trim());
                     }
@@ -5283,7 +5859,7 @@
         return { credits: [], source: 'none' };
     }
 
-    async function wiApplyReleaseCredits(credits, wiFields, addedCreditRemoveBtns) {
+    async function wiApplyReleaseCredits(credits, wiFields, addedCreditRemoveBtns, appendOnly = false) {
         if (!credits || credits.length === 0) return;
 
         const getAddCreditBtn = () => document.getElementById('add-credit');
@@ -5300,9 +5876,11 @@
                 .map(inp => inp.closest('li, div.editable_item')).filter(Boolean);
         };
 
-        for (const item of [...getCreditItems()]) {
-            const removeBtn = item.querySelector('button[title="Remove"], button[aria-label="Remove"], button.drag_drop_field_remove_row');
-            if (removeBtn) { removeBtn.click(); await new Promise(r => setTimeout(r, 150)); }
+        if (!appendOnly) {
+            for (const item of [...getCreditItems()]) {
+                const removeBtn = item.querySelector('button[title="Remove"], button[aria-label="Remove"], button.drag_drop_field_remove_row');
+                if (removeBtn) { removeBtn.click(); await new Promise(r => setTimeout(r, 150)); }
+            }
         }
 
         const mergeMap = new Map();
@@ -5331,7 +5909,7 @@
             }
         }
         const deduped = mergeOrder;
-        for (const { name, roles, trackPositions } of deduped) {
+        for (const { name, anv, roles, trackPositions } of deduped) {
             const addBtn = getAddCreditBtn();
             if (!addBtn) { log('Credits: Add button not found', 'warning'); break; }
 
@@ -5365,17 +5943,27 @@
             }
             if (nameInput) {
                 wiFields.push({ el: nameInput, oldVal: nameInput.value });
-                const capName = state.capitalizeFields.creditNames ? capitalizeTitleString(name) : name;
+                const capName = (!appendOnly && state.capitalizeFields.creditNames) ? capitalizeTitleString(name) : name;
                 setReactValue(nameInput, capName);
+            }
+            if (anv) {
+                const anvBtn = newItem.querySelector('button[aria-label="Add ANV"], button.remove-artist-credits-anv');
+                if (anvBtn) {
+                    anvBtn.click();
+                    await new Promise(r => setTimeout(r, 200));
+                    const anvInput = newItem.querySelector('input[data-type="artist-credit-anv"]');
+                    if (anvInput) setReactValue(anvInput, anv);
+                }
             }
             if (trackPosInput && trackPositions) {
                 wiFields.push({ el: trackPosInput, oldVal: trackPosInput.value });
                 setReactValue(trackPosInput, trackPositions);
             }
             if (removeBtn) addedCreditRemoveBtns.push(removeBtn);
-            const logName = state.capitalizeFields.creditNames ? capitalizeTitleString(name) : name;
+            const logName = (!appendOnly && state.capitalizeFields.creditNames) ? capitalizeTitleString(name) : name;
             const posStr = trackPositions ? ` [${trackPositions}]` : '';
-            log(`Credit: ${roles.join(', ')} — ${logName}${posStr}`, 'success');
+            const anvStr = anv ? ` (ANV: ${anv})` : '';
+            log(`Credit: ${roles.join(', ')} — ${logName}${anvStr}${posStr}`, 'success');
         }
     }
 
@@ -5398,18 +5986,7 @@
             const pageTitle = doc.title || '';
             const bodyText  = (doc.body?.textContent || '').slice(0, 4000);
             const bodyLower = bodyText.toLowerCase();
-            const isFastlyChallenge =
-                bodyLower.includes('is verifying your browser') ||
-                bodyLower.includes('fastly is verifying') ||
-                /fastly\s*error/i.test(bodyText) ||
-                bodyLower.includes('are you human') ||
-                /just a moment|attention required|security check|access denied|client challenge/i.test(pageTitle);
-            if (isFastlyChallenge) {
-                throw new Error(
-                    `Security check required for bandcamp.com. ` +
-                    `<a href="${url}" target="_blank" style="color:#00e6ff; font-weight:bold;">Open this page in your browser</a> and complete any verification, then return and click Fetch again.`
-                );
-            }
+
             return wiGenericOG(doc, url, 'Bandcamp');
         }
         let tralbum;
@@ -5431,6 +6008,9 @@
             || doc.querySelector('p#band-name-location > span.title')?.textContent?.trim()
             || '';
         const date     = wiNormalizeDate(ldMeta?.datePublished || tralbum.current?.release_date || tralbum.album_release_date || '');
+        const _rawPublish = tralbum.current?.publish_date || '';
+        const _publishNorm = _rawPublish ? wiNormalizeDate(_rawPublish) : '';
+        const publishDate  = (_publishNorm && _publishNorm.slice(0, 10) !== date.slice(0, 10)) ? _publishNorm.slice(0, 10) : '';
         const imageUrl = (ldMeta?.image || '').replace(/_\d+(?=\.\w+$)/, '_16') || wiGetMeta(doc, 'og:image');
 
         let bitdepth = null, samplerate = null, fileType = 'FLAC', freeText = null;
@@ -5482,7 +6062,7 @@
         const tags = tagEls.length > 0
             ? Array.from(tagEls).map(a => a.textContent.trim())
             : [];
-        if (tags.length > 0) log(`Bandcamp tags: ${tags.join(', ')}`, 'info');
+
 
         const { credits, source: creditsSource } = parseBandcampCredits(doc);
         const creditsSourceInfo = creditsSource;
@@ -5490,7 +6070,7 @@
         return {
             artist, title, label,
             catno: tralbum.current?.sku || null,
-            date, tracks, imageUrl, tags, credits, creditsSource: creditsSourceInfo,
+            date, publishDate, tracks, imageUrl, tags, credits, creditsSource: creditsSourceInfo,
             bitdepth, samplerate, fileType, freeText,
             storeName: 'Bandcamp',
         };
@@ -6422,19 +7002,7 @@
         if (rawTracks.length === 0) {
             const bodyLower = (doc.body?.textContent || '').slice(0, 4000).toLowerCase();
             const pageTitle = doc.title || '';
-            const isFastlyChallenge =
-                bodyLower.includes('is verifying your browser') ||
-                bodyLower.includes('fastly is verifying') ||
-                /fastly\s*error/i.test(bodyLower) ||
-                bodyLower.includes('are you human') ||
-                /just a moment|attention required|security check|access denied|client challenge/i.test(pageTitle);
-            if (isFastlyChallenge) {
-                const d = new URL(url).hostname.replace('www.', '');
-                throw new Error(
-                    `Security check required for ${d}. ` +
-                    `<a href="${url}" target="_blank" style="color:#00e6ff; font-weight:bold;">Open this page in your browser</a> and complete any verification, then return and click Fetch again.`
-                );
-            }
+
         }
 
         const uniqueArtistGroups = [...new Set(rawTracks.map(t => t.trackArtist.toLowerCase()).filter(Boolean))];
@@ -7022,6 +7590,8 @@
     async function wiFetchReleaseData(url) {
         const u = new URL(url);
         const host = u.hostname.replace(/^www\./, '');
+        if (host.endsWith('discogs.com'))
+            throw new Error('This import link is not valid.\nPaste a Discogs release URL or release ID to import credits.');
         if (host.endsWith('music.apple.com'))      return wiParseAppleMusic(url);
         if (host.endsWith('7digital.com'))         return wiParse7digital(url);
         if (host.endsWith('beatport.com'))         return wiParseBeatport(url);
@@ -7048,8 +7618,6 @@
         if (!overlay) return;
         const previewEl = overlay.querySelector('#dh-wi-preview');
         const urlInput  = overlay.querySelector('#dh-wi-url');
-        const fetchBtn  = overlay.querySelector('#dh-wi-fetch');
-        const applyBtn  = overlay.querySelector('#dh-wi-apply');
         const cancelBtn = overlay.querySelector('#dh-wi-cancel');
         const header    = overlay.querySelector('.dh-wi-header');
         const footer    = overlay.querySelector('.dh-wi-footer');
@@ -7057,8 +7625,8 @@
             overlay.style.background  = '#111216';
             overlay.style.color       = '#ddd';
             overlay.style.borderColor = '#262626';
-            if (header) header.style.borderBottomColor = 'rgba(255,255,255,0.07)';
-            if (footer) footer.style.borderTopColor    = 'rgba(255,255,255,0.07)';
+            if (header)    header.style.borderBottomColor = 'rgba(255,255,255,0.07)';
+            if (footer)    footer.style.borderTopColor    = 'rgba(255,255,255,0.07)';
             if (urlInput)  { urlInput.style.background = '#1a1c1f'; urlInput.style.color = '#ddd'; urlInput.style.borderColor = '#333'; }
             if (previewEl) { previewEl.style.background = '#1a1c1f'; previewEl.style.borderColor = '#333'; }
             if (cancelBtn) { cancelBtn.style.background = '#1f2224'; cancelBtn.style.color = '#ddd'; cancelBtn.style.borderColor = '#333'; }
@@ -7066,8 +7634,8 @@
             overlay.style.background  = '#fff';
             overlay.style.color       = '#111';
             overlay.style.borderColor = '#ccc';
-            if (header) header.style.borderBottomColor = 'rgba(0,0,0,0.09)';
-            if (footer) footer.style.borderTopColor    = 'rgba(0,0,0,0.07)';
+            if (header)    header.style.borderBottomColor = 'rgba(0,0,0,0.09)';
+            if (footer)    footer.style.borderTopColor    = 'rgba(0,0,0,0.07)';
             if (urlInput)  { urlInput.style.background = '#fff'; urlInput.style.color = '#222'; urlInput.style.borderColor = '#ccc'; }
             if (previewEl) { previewEl.style.background = '#f8f9fa'; previewEl.style.borderColor = '#e0e0e0'; }
             if (cancelBtn) { cancelBtn.style.background = '#f1f3f5'; cancelBtn.style.color = '#111'; cancelBtn.style.borderColor = '#ccc'; }
@@ -7456,7 +8024,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
 
         const allCreditRemoveBtns = [];
         for (const action of historySnapshot) {
-            if (action.type === 'webImport' && action.addedCreditRemoveBtns?.length > 0)
+            if ((action.type === 'webImport' || action.type === 'discogsCreditsImport') && action.addedCreditRemoveBtns?.length > 0)
                 allCreditRemoveBtns.push(...action.addedCreditRemoveBtns.filter(b => b?.isConnected));
         }
         if (allCreditRemoveBtns.length > 0) {
@@ -7584,7 +8152,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                 let lbl = capIf(cf.label, (label || '').trim());
                 if (!lbl || (artist.trim() && lbl.toLowerCase() === artist.trim().toLowerCase())) lbl = `Not On Label (${artist.trim()} Self-released)`;
                 setReactValue(labelEl, lbl);
-                log(`Label: ${lbl} / Cat: ${catno || 'none'}`, 'success');
+                log(`Label/Company: ${lbl} / Cat: ${catno || 'none'}`, 'success');
             }
             setReactValue(document.querySelector('#catalog-number-input-0'), catno || 'none');
             if (date) setReactValue(document.querySelector('#release-date'), wiNormalizeDate(date));
@@ -7629,7 +8197,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                 log(`Tracklist: ${tracks.length} track${tracks.length !== 1 ? 's' : ''} applied`, 'success');
             }
 
-            if (data.tags && data.tags.length > 0) {
+            if (data.tags && data.tags.length > 0 && state.importStyles) {
                 const genreStyleMap = wiMatchTagsToGenresStyles(data.tags);
                 if (genreStyleMap.size > 0) {
                     const genreSnaps = await withTimeout(wiApplyGenresAndStyles(genreStyleMap), 10000, 'Genres/Styles');
@@ -7695,6 +8263,99 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
         }
     }
 
+
+    async function wiParseDiscogsCredits(input) {
+        const trimmed = input.trim();
+        let releaseId = null;
+        if (/^\d+$/.test(trimmed)) {
+            releaseId = trimmed;
+        } else {
+            const m = trimmed.match(/discogs\.com\/(?:[a-z]{2}\/)?release(?:\/edit)?\/(\d+)/i);
+            if (m) releaseId = m[1];
+        }
+        if (!releaseId) throw new Error('Could not extract a Discogs release ID from the input.');
+
+        const url = `https://www.discogs.com/release/${releaseId}`;
+        let html;
+        try {
+            html = await wiCrossFetch(url);
+        } catch (e) {
+            throw new Error(
+                `Could not fetch Discogs page. <a href="${url}" target="_blank" style="color:#00e6ff;font-weight:bold;">Open the page in your browser</a>, complete the check, return and "Fetch" again.`
+            );
+        }
+
+        const lower = html.toLowerCase();
+        if (
+wiIsAntiBotPage(html)) {
+            throw new Error(wiAntiBotError(url));
+        }
+
+        const doc = wiParseHTML(html);
+
+        const pageTitle = doc.querySelector('h1.title_1p40B')?.textContent?.trim()
+            || doc.querySelector('h1[class*="title"]')?.textContent?.trim()
+            || doc.querySelector('h1')?.textContent?.trim() || '';
+        const artistEl = doc.querySelector('h2[class*="artist"] a, span[class*="artist"] a, div[class*="artist"] a');
+        const artist = artistEl?.textContent?.trim() || '';
+
+        const creditsSection = doc.querySelector('section#release-credits');
+        if (!creditsSection) throw new Error('No credits section found on this Discogs page.');
+
+        const credits = [];
+        const items = creditsSection.querySelectorAll('li');
+        for (const li of items) {
+            const roleEl  = li.querySelector('span[class*="role_"]');
+            const nameEls = li.querySelectorAll('a[href*="/artist/"]');
+            if (!roleEl || nameEls.length === 0) continue;
+            const roleRaw = roleEl.textContent.trim();
+            const roleParts = [];
+            let depth = 0, buf = '';
+            for (const ch of roleRaw) {
+                if (ch === '[') { depth++; buf += ch; }
+                else if (ch === ']') { depth = Math.max(0, depth - 1); buf += ch; }
+                else if (ch === ',' && depth === 0) { roleParts.push(buf.trim()); buf = ''; }
+                else buf += ch;
+            }
+            if (buf.trim()) roleParts.push(buf.trim());
+
+            const liText = li.textContent;
+            const trackPosMatch = liText.match(/\(\s*tracks?\s*:?\s*([\d,\s]+)\)/i);
+            const trackPositions = trackPosMatch
+                ? trackPosMatch[1].split(',').map(s => s.trim()).filter(Boolean).join(', ')
+                : null;
+
+            for (const nameEl of nameEls) {
+                const displayedName = nameEl.textContent.trim();
+                if (!displayedName) continue;
+
+                const parentSpan = nameEl.parentElement;
+                const hasAnv = parentSpan && [...parentSpan.childNodes].some(
+                    n => n.nodeType === Node.TEXT_NODE && n.textContent.includes('*')
+                );
+
+                let name = displayedName;
+                let anv = null;
+                if (hasAnv) {
+                    const href = nameEl.getAttribute('href') || '';
+                    const hrefMatch = href.match(/\/artist\/\d+-(.+)/);
+                    if (hrefMatch) {
+                        const canonical = hrefMatch[1].replace(/-/g, ' ').trim();
+                        if (canonical && canonical.toLowerCase() !== displayedName.toLowerCase()) {
+                            name = canonical;
+                            anv  = displayedName;
+                        }
+                    }
+                }
+                credits.push({ name, anv, roles: roleParts, trackPositions });
+            }
+        }
+
+        if (credits.length === 0) throw new Error('No credits found in the credits section of this page.');
+
+        return { releaseId, url, pageTitle, artist, credits };
+    }
+
     function openWebImporter() {
         const existing = document.getElementById('dh-web-importer-overlay');
         if (existing) { existing.style.display = 'flex'; existing.querySelector('#dh-wi-url')?.focus(); return; }
@@ -7721,19 +8382,23 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
         `;
         overlay.innerHTML = `
             <div class="dh-wi-header" style="display:flex; align-items:center; justify-content:space-between; padding:5px 8px 6px; border-bottom:1px solid rgba(0,0,0,0.09); flex-shrink:0; gap:6px;">
-                <div style="display:flex; align-items:baseline; gap:6px; min-width:0;">
-                    <strong style="font-size:13px; white-space:nowrap; user-select:none; letter-spacing:0.01em;">🌐 Web Store Import</strong>
-                    <span title="Supported Stores:&#10;7digital&#10;Apple Music&#10;Bandcamp&#10;Beatport&#10;Bleep&#10;Boomkat&#10;eClassical&#10;HDtracks&#10;HighResAudio&#10;Juno Download&#10;Kompakt&#10;Mora&#10;NativeDSD&#10;OTOTOY&#10;Presto Music&#10;ProStudioMasters&#10;Qobuz&#10;Traxsource" style="font-size:10px; color:#888; cursor:default; white-space:nowrap; user-select:none;">Supported Stores</span>
+                <div id="dh-wi-mode-wrap" style="display:flex; align-items:center; gap:5px; min-width:0;">
+                    <span style="font-size:13px; user-select:none;">🌐</span>
+                    <span style="font-size:12px; font-weight:600; padding:0 2px; white-space:nowrap; user-select:none;">Web Import</span>
+                    <span id="dh-wi-supported-stores" title="Supported Stores:&#10;7digital&#10;Apple Music&#10;Bandcamp&#10;Beatport&#10;Bleep&#10;Boomkat&#10;eClassical&#10;HDtracks&#10;HighResAudio&#10;Juno Download&#10;Kompakt&#10;Mora&#10;NativeDSD&#10;OTOTOY&#10;Presto Music&#10;ProStudioMasters&#10;Qobuz&#10;Traxsource" style="font-size:10px; color:#888; cursor:default; white-space:nowrap; user-select:none;">Supported Stores</span>
                 </div>
                 <button id="dh-wi-close" style="background:none; border:none; cursor:pointer; font-size:13px; padding:1px 4px; line-height:1; flex-shrink:0; opacity:0.65;">✕</button>
             </div>
             <div style="padding:8px 10px 4px; flex-shrink:0;">
-                <input type="text" id="dh-wi-url" placeholder="Paste store URL (Bandcamp, Beatport, Qobuz, Juno Download…)" style="width:100%; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:5px 7px; box-sizing:border-box; outline:none;">
+                <input type="text" id="dh-wi-url" placeholder="Paste store URL (Bandcamp, Beatport, Qobuz, etc.) or Discogs URL for credits import" style="width:100%; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:5px 7px; box-sizing:border-box; outline:none;">
             </div>
             <div id="dh-wi-preview" style="flex:1; overflow-y:auto; margin:0 10px 6px; padding:6px 8px; background:#f8f9fa; border:1px solid #e0e0e0; border-radius:4px; font-size:11px; display:none; min-height:60px; box-sizing:border-box;"></div>
             <div class="dh-wi-footer" style="display:flex; gap:6px; padding:7px 10px 8px; border-top:1px solid rgba(0,0,0,0.07); flex-shrink:0;">
                 <button id="dh-wi-fetch"  style="flex:2; height:30px; background:#1a6fbf; color:#fff; border:none; border-radius:5px; cursor:pointer; font-size:12px; font-weight:600;">Fetch</button>
-                <button id="dh-wi-apply"  style="flex:2; height:30px; background:#28a745; color:#fff; border:none; border-radius:5px; cursor:pointer; font-size:12px; font-weight:600; opacity:0.45;" disabled>Apply</button>
+                <div id="dh-wi-apply-wrap" style="flex:2; display:flex; height:30px; opacity:0.45; pointer-events:none;">
+                    <button id="dh-wi-apply"  style="flex:1; height:30px; background:#28a745; color:#fff; border:none; border-radius:5px 0 0 5px; cursor:pointer; font-size:12px; font-weight:600; padding:0 8px;">Apply</button>
+                    <button id="dh-wi-apply-arrow" style="width:22px; height:30px; background:#28a745; color:#fff; border:none; border-left:1px solid rgba(255,255,255,0.25); border-radius:0 5px 5px 0; cursor:pointer; font-size:9px; padding:0; flex-shrink:0;">▾</button>
+                </div>
                 <button id="dh-wi-cancel" style="flex:1; height:30px; background:#f1f3f5; color:#111; border:1px solid #ccc; border-radius:5px; cursor:pointer; font-size:12px;">Cancel</button>
             </div>
         `;
@@ -7744,17 +8409,121 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
         const previewEl   = overlay.querySelector('#dh-wi-preview');
         const fetchBtn    = overlay.querySelector('#dh-wi-fetch');
         const applyBtn    = overlay.querySelector('#dh-wi-apply');
+        const applyArrow  = overlay.querySelector('#dh-wi-apply-arrow');
+        const applyWrap   = overlay.querySelector('#dh-wi-apply-wrap');
         const cancelBtn   = overlay.querySelector('#dh-wi-cancel');
         const closeBtn    = overlay.querySelector('#dh-wi-close');
 
+        const applyMenu = document.createElement('div');
+        applyMenu.style.cssText = 'display:none; position:fixed; z-index:10200; border-radius:5px; overflow:hidden; box-shadow:0 3px 10px rgba(0,0,0,0.25); font-family:Arial,sans-serif;';
+        document.body.appendChild(applyMenu);
+
+        const _buildApplyMenu = () => {
+            const greenBg = '#28a745';
+            const greenHover = '#1e7e34';
+
+            applyMenu.style.boxShadow = '0 3px 10px rgba(0,0,0,0.25)';
+            applyMenu.style.background = greenBg;
+            applyMenu.style.border = 'none';
+            applyMenu.style.borderRadius = '5px';
+            applyMenu.style.width = applyWrap.offsetWidth + 'px';
+
+            applyMenu.innerHTML = '';
+
+            const isDiscogsImport = /discogs\.com\/release\/\d+|discogs\.com\/.*\/release\/\d+|^\d{5,}$/.test(urlInput.value.trim());
+
+            const menuItems = [
+                {
+                    label: 'Without Capitalization Rules',
+                    title: 'Apply without normalizing capitalization',
+                    disabled: false,
+                    onClick: () => { _noCapMode = true; if (_isDiscogsUrl(urlInput.value)) _discogsApply(); else _storeApply(); }
+                },
+                {
+                    label: 'Credits Only',
+                    title: 'Import only credits, skipping all other fields',
+                    disabled: isDiscogsImport,
+                    onClick: () => { _creditsOnlyMode = true; if (_isDiscogsUrl(urlInput.value)) _discogsApply(); else _storeApply(); }
+                },
+            ];
+
+            menuItems.forEach((def, idx) => {
+                const isFirst = idx === 0;
+                const isLast  = idx === menuItems.length - 1;
+                const item = document.createElement('div');
+                item.title = def.title;
+                const disabledBg = 'rgba(40,167,69,0.45)';
+                item.style.cssText = `
+                    height: 30px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: ${def.disabled ? 'not-allowed' : 'pointer'};
+                    font-size: 11px;
+                    font-weight: bold;
+                    color: ${def.disabled ? 'rgba(255,255,255,0.45)' : '#fff'};
+                    background: ${def.disabled ? disabledBg : greenBg};
+                    white-space: nowrap;
+                    width: 100%;
+                    box-sizing: border-box;
+                    border-radius: ${isFirst ? '5px 5px 0 0' : isLast ? '0 0 5px 5px' : '0'};
+                    padding: 0 10px;
+                    transition: background 0.1s;
+                `;
+                item.textContent = def.label;
+                if (!def.disabled) {
+                    item.addEventListener('mouseenter', () => { item.style.background = greenHover; });
+                    item.addEventListener('mouseleave', () => { item.style.background = greenBg; });
+                }
+                item.addEventListener('click', () => { if (def.disabled) return; applyMenu.style.display = 'none'; def.onClick(); });
+
+                if (!isFirst) {
+                    const sep = document.createElement('div');
+                    sep.style.cssText = 'height:1px; background:rgba(255,255,255,0.2); width:100%;';
+                    applyMenu.appendChild(sep);
+                }
+                applyMenu.appendChild(item);
+            });
+        };
+
+        applyArrow.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (applyMenu.style.display !== 'none') { applyMenu.style.display = 'none'; return; }
+
+            _buildApplyMenu();
+
+            const r = applyWrap.getBoundingClientRect();
+            applyMenu.style.display = 'block';
+
+            requestAnimationFrame(() => {
+                applyMenu.style.top  = (r.bottom + 3) + 'px';
+                applyMenu.style.left = r.left + 'px';
+                applyMenu.style.width = applyWrap.offsetWidth + 'px';
+            });
+        });
+        document.addEventListener('click', (e) => {
+            if (applyMenu.style.display !== 'none' && !applyArrow.contains(e.target) && !applyMenu.contains(e.target))
+                applyMenu.style.display = 'none';
+        });
+        document.addEventListener('dh-theme-change', () => { if (applyMenu.style.display !== 'none') _buildApplyMenu(); });
+
+        let _noCapMode = false;
+        let _creditsOnlyMode = false;
+        const _noCapFields = { albumArtists: false, albumTitle: false, label: false, vaArtists: false, trackTitles: false, joiners: false, creditNames: false, trackCredits: false };
+
+        const supportedSpan = overlay.querySelector('#dh-wi-supported-stores');
         urlInput.addEventListener('input', () => {
             const val = urlInput.value.trim();
+            const isDiscogs = _isDiscogsUrl(val);
+            if (supportedSpan) supportedSpan.style.display = isDiscogs ? 'none' : '';
             const name = val ? detectStoreName(val) : '';
         });
 
         urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') fetchBtn.click(); });
 
-        fetchBtn.onclick = async () => {
+        let _discogsData = null;
+
+        const _storeFetch = async () => {
             const url = urlInput.value.trim();
             if (!url) return;
             let u;
@@ -7763,32 +8532,34 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
             fetchBtn.textContent = 'Fetching…';
             previewEl.style.display = 'block';
             previewEl.innerHTML = '<span style="color:#888;">Loading…</span>';
-            applyBtn.disabled = true;
-            applyBtn.style.opacity = '0.45';
+            applyBtn.disabled = true; applyWrap.style.opacity = '0.45'; applyWrap.style.pointerEvents = 'none';
             try {
                 fetchedData = await wiFetchReleaseData(url);
                 if (!fetchedData) throw new Error('No data returned');
                 const esc = s => (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-                const PLACEHOLDER = 'https://ptpimg.me/7667wy.png';
+                const PLACEHOLDER = 'https://i.imgur.com/MilSzBg.png';
                 const panelImgUrl = fetchedData.previewImageUrl || fetchedData.imageUrl || '';
                 const imgHtml = panelImgUrl
                     ? `<img id="dh-wi-cover-img" src="${PLACEHOLDER}" style="width:56px;height:56px;object-fit:cover;border-radius:3px;flex-shrink:0;border:1px solid rgba(0,0,0,0.08);pointer-events:none;user-select:none;">`
                     : '';
                 const _previewIsVA = wiDetectVA(fetchedData);
-                const trackRows = fetchedData.tracks.map(t => { const ta = _previewIsVA ? (t.artists?.join(', ') || t.trackArtist || '') : ''; return `<div style="padding:1px 0;border-bottom:1px solid rgba(0,0,0,0.05);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><span style="color:#888;min-width:9px;display:inline-block;">${esc(t.position)}</span> ${ta ? esc(ta) + ' – ' : ''}${esc(t.title)}${t.duration ? '<span style="color:#aaa;"> ' + esc(t.duration) + '</span>' : ''}</div>`; }).join('');
-                previewEl.innerHTML = `
-                    <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:6px;">
-                        ${imgHtml}
-                        <div style="min-width:0;overflow:hidden;">
-                            <div style="font-weight:600;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(fetchedData.artist)}${fetchedData.artist && fetchedData.title ? ' – ' : ''}${esc(fetchedData.title)}</div>
-                            <div style="color:#888;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${[fetchedData.label, fetchedData.catno, wiNormalizeDate(fetchedData.date)?.slice(0,4)].filter(Boolean).join(' · ')}</div>
-                            <div style="color:#888;font-size:10px;">${fetchedData.tracks.length} track${fetchedData.tracks.length !== 1 ? 's' : ''} · ${esc(fetchedData.storeName)}</div>
+                const trackRows = fetchedData.tracks.map(t => { const ta = _previewIsVA ? (t.artists?.join(', ') || t.trackArtist || '') : ''; return `<div style="padding:1px 0;border-bottom:1px solid rgba(0,0,0,0.05);white-space:nowrap;"><span style="color:#888;min-width:9px;display:inline-block;">${esc(t.position)}</span> ${ta ? esc(ta) + ' – ' : ''}${esc(t.title)}${t.duration ? '<span style="color:#aaa;"> ' + esc(t.duration) + '</span>' : ''}</div>`; }).join('');
+                if (fetchedData.tracks.length === 0) {
+                    previewEl.innerHTML = `<span style="color:#dc3545;">${wiAntiBotError(urlInput.value.trim()).replace(/\n/g, '<br>')}</span>`;
+                } else {
+                    previewEl.innerHTML = `
+                        <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:6px;">
+                            ${imgHtml}
+                            <div style="min-width:0;overflow:hidden;">
+                                <div style="font-weight:600;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(fetchedData.artist)}${fetchedData.artist && fetchedData.title ? ' – ' : ''}${esc(fetchedData.title)}</div>
+                                <div style="color:#888;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${[fetchedData.label, fetchedData.catno, wiNormalizeDate(fetchedData.date) + (fetchedData.publishDate ? '; ' + fetchedData.publishDate + ' (Published On)' : '')].filter(Boolean).join(' · ')}</div>
+                                <div style="color:#888;font-size:10px;">${fetchedData.tracks.length} track${fetchedData.tracks.length !== 1 ? 's' : ''} · ${esc(fetchedData.storeName)}</div>
+                            </div>
                         </div>
-                    </div>
-                    ${trackRows ? `<div style="max-height:160px;overflow-y:auto;font-size:10px;">${trackRows}</div>` : '<div style="color:#888;font-size:10px;">No tracklist available</div>'}
-                `;
-                applyBtn.disabled = false;
-                applyBtn.style.opacity = '1';
+                        <div style="max-height:160px;overflow:auto;font-size:10px;">${trackRows}</div>
+                    `;
+                    applyBtn.disabled = false; applyWrap.style.opacity = '1'; applyWrap.style.pointerEvents = 'auto';
+                }
                 if (panelImgUrl) {
                     const coverImg = previewEl.querySelector('#dh-wi-cover-img');
                     if (coverImg) {
@@ -7815,32 +8586,123 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                 }
             } catch(err) {
                 fetchedData = null;
-                previewEl.innerHTML = `<span style="color:#dc3545;">Error: ${err.message}</span>`;
+                previewEl.innerHTML = `<span style="color:#dc3545;">${err.message.replace(/\n/g, '<br>')}</span>`;
             }
             fetchBtn.disabled = false;
             fetchBtn.textContent = 'Fetch';
         };
 
-        applyBtn.onclick = async () => {
+        const _storeApply = async () => {
             if (!fetchedData) return;
             overlay.style.display = 'none';
             resetHideTimer();
             await setInfoProcessing();
             const _outerShield = wiActivateShield(fetchedData.storeName || '');
+            const _savedCap = _noCapMode ? state.capitalizeFields : null;
+            if (_noCapMode) state.capitalizeFields = { ..._noCapFields };
             try {
-                if (state.actionHistory.some(a => a.type === 'webImport')) {
-                    log('Previous import detected — running smart cleanup…', 'info');
-                    await wiSmartCleanupForReimport(fetchedData);
-                    await new Promise(r => setTimeout(r, 300));
+                if (_creditsOnlyMode) {
+                    if (fetchedData.credits && fetchedData.credits.length > 0) {
+                        const addedCreditRemoveBtns = [];
+                        const wiFields = [];
+                        if (fetchedData.creditsSource === 'about') log('No credits section — credits imported from About notes', 'info');
+                        await wiApplyReleaseCredits(fetchedData.credits, wiFields, addedCreditRemoveBtns);
+                        addActionToHistory({ type: 'webImport', fields: wiFields, tracklistAction: null, preImageReactIds: new Set(), addedArtistRemoveBtns: [], addedCreditRemoveBtns });
+                        const n = addedCreditRemoveBtns.length;
+                        log(`Done! Imported ${n} credit${n !== 1 ? 's' : ''} from ${fetchedData.storeName}`, 'success');
+                        setInfoSingleLine(`Done! Imported ${n} credit${n !== 1 ? 's' : ''}`, true);
+                    } else {
+                        log('No credits found', 'info');
+                        setInfoSingleLine('No credits found', false);
+                    }
+                    _outerShield.restoreAll();
+                } else {
+                    if (fetchedData.tags && fetchedData.tags.length > 0) log(`Bandcamp tags: ${fetchedData.tags.join(', ')}`, 'info');
+                    if (state.actionHistory.some(a => a.type === 'webImport')) {
+                        log('Previous import detected — running smart cleanup…', 'info');
+                        await wiSmartCleanupForReimport(fetchedData);
+                        await new Promise(r => setTimeout(r, 300));
+                    }
+                    await wiApplyRelease(fetchedData, urlInput.value.trim(), _outerShield);
                 }
-                await wiApplyRelease(fetchedData, urlInput.value.trim(), _outerShield);
             } catch(e) { log('Apply error: ' + e.message, 'error'); _outerShield.restoreAll(); }
+            finally { if (_savedCap) state.capitalizeFields = _savedCap; _noCapMode = false; _creditsOnlyMode = false; }
             await clearInfoProcessing();
         };
+
+        const _discogsFetch = async () => {
+            const raw = urlInput.value.trim();
+            if (!raw) return;
+            fetchBtn.disabled = true;
+            fetchBtn.textContent = 'Fetching…';
+            previewEl.style.display = 'block';
+            previewEl.innerHTML = '<span style="color:#888;">Loading…</span>';
+            applyBtn.disabled = true; applyWrap.style.opacity = '0.45'; applyWrap.style.pointerEvents = 'none';
+            _discogsData = null;
+            try {
+                _discogsData = await wiParseDiscogsCredits(raw);
+                const esc = s => (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                const creditRows = _discogsData.credits.map(c =>
+                    `<div style="padding:2px 0;border-bottom:1px solid rgba(0,0,0,0.05);white-space:nowrap;">` +
+                    `<span style="color:#888;">${esc(c.roles.join(', '))}</span> — ${esc(c.name)}` +
+                    (c.anv ? ` <span style="color:#888;font-style:italic;">(ANV: ${esc(c.anv)})</span>` : '') +
+                    `</div>`
+                ).join('');
+                previewEl.innerHTML =
+                    `<div style="font-weight:600;font-size:12px;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">` +
+                    `${esc(_discogsData.artist)}${_discogsData.artist ? ' – ' : ''}${esc(_discogsData.pageTitle)}</div>` +
+                    `<div style="color:#888;font-size:10px;margin-bottom:5px;">${_discogsData.credits.length} credit${_discogsData.credits.length !== 1 ? 's' : ''} · Discogs #${esc(_discogsData.releaseId)}</div>` +
+                    `<div style="max-height:160px;overflow:auto;font-size:10px;">${creditRows}</div>`;
+                applyBtn.disabled = false; applyWrap.style.opacity = '1'; applyWrap.style.pointerEvents = 'auto';
+            } catch(err) {
+                _discogsData = null;
+                previewEl.innerHTML = `<span style="color:#dc3545;">${err.message.replace(/\n/g, '<br>')}</span>`;
+            }
+            fetchBtn.disabled = false;
+            fetchBtn.textContent = 'Fetch';
+        };
+
+        const _discogsApply = async () => {
+            if (!_discogsData || !_discogsData.credits.length) return;
+            overlay.style.display = 'none';
+            resetHideTimer();
+            await setInfoProcessing();
+            const _shield = wiActivateShield('Discogs');
+            const _savedCap = _noCapMode ? state.capitalizeFields : null;
+            if (_noCapMode) state.capitalizeFields = { ..._noCapFields };
+            try {
+                const addedCreditRemoveBtns = [];
+                const wiFields = [];
+                await wiApplyReleaseCredits(_discogsData.credits, wiFields, addedCreditRemoveBtns, true);
+                addActionToHistory({
+                    type: 'discogsCreditsImport',
+                    addedCreditRemoveBtns,
+                    sourceUrl: _discogsData.url,
+                    releaseId: _discogsData.releaseId,
+                });
+                const n = addedCreditRemoveBtns.length;
+                log(`Done! Imported ${n} credit${n !== 1 ? 's' : ''} from Discogs #${_discogsData.releaseId}`, 'success');
+                setInfoSingleLine(`Done! Imported ${n} credit${n !== 1 ? 's' : ''} from Discogs`, true);
+            } catch(e) {
+                log('Discogs credits apply error: ' + e.message, 'error');
+            } finally {
+                _shield.restoreAll();
+                if (_savedCap) state.capitalizeFields = _savedCap;
+                _noCapMode = false;
+                _creditsOnlyMode = false;
+            }
+            await clearInfoProcessing();
+        };
+
+        const _isDiscogsUrl = (val) => /discogs\.com\/release\/\d+|discogs\.com\/.*\/release\/\d+|^\d{5,}$/.test(val.trim());
+
+        fetchBtn.onclick = () => { if (_isDiscogsUrl(urlInput.value)) _discogsFetch(); else _storeFetch(); };
+        applyBtn.onclick = () => { if (_isDiscogsUrl(urlInput.value)) _discogsApply(); else _storeApply(); };
 
         const close = () => { overlay.style.display = 'none'; };
         cancelBtn.onclick = close;
         closeBtn.onclick  = close;
+
         overlay.addEventListener('mousemove', resetHideTimer);
         overlay.addEventListener('click',     resetHideTimer);
         overlay.addEventListener('keydown',   resetHideTimer);
@@ -7995,7 +8857,11 @@ etc" style="width:100%; height:${textareaHeight}px; font-size:12px; font-family:
                 <div style="display:flex; gap:5px; margin-bottom:5px;">
                     <button id="web-import"                   class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center;">🌐</button>
                     <button id="tracklist-import"             class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center;">📝</button>
-                    <button id="capitalize-titles"            class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center;">🔠</button>
+                    <div id="capitalize-all-wrap" style="position:relative; flex:1 1 0; min-width:0;">
+                        <button id="capitalize-all" class="dh-btn dh-icon-btn" style="width:100% !important; height:100%; flex:1 1 0; min-width:34px; justify-content:center;">🔠</button>
+                        <div id="capitalize-all-menu" style="display:none; position:absolute; top:100%; left:0; z-index:9999; background:#fff; border:1px solid #ccc; border-radius:4px; padding:4px 9px 4px 4px; box-shadow:0 2px 8px rgba(0,0,0,0.35); margin-top:2px; width:max-content;">
+                        </div>
+                    </div>
                     <button id="save-all-fields"              class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center;">💾</button>
                     <button id="additional-tools-toggle"      class="dh-btn dh-icon-btn" style="min-width:34px;" title="Additional tools">▶</button>
                 </div>
@@ -8003,18 +8869,14 @@ etc" style="width:100%; height:${textareaHeight}px; font-size:12px; font-family:
                 <div id="additional-tools-dropdown" style="display:none; flex-wrap:wrap; gap:5px; margin-bottom:5px;">
                     <button id="extract-track-numbers" class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center;">🔢</button>
                     <button id="scan-and-extract"       class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center;">🕛</button>
-                    <div id="capitalize-all-wrap" style="position:relative; flex:1 1 0; min-width:0;">
-                        <button id="capitalize-all" class="dh-btn dh-icon-btn" style="width:100% !important; height:100%; flex:1 1 0; min-width:34px; justify-content:center;">🔠</button>
-                        <div id="capitalize-all-menu" style="display:none; position:absolute; top:100%; left:0; z-index:9999; background:#fff; border:1px solid #ccc; border-radius:4px; padding:4px 9px 4px 4px; box-shadow:0 2px 8px rgba(0,0,0,0.35); margin-top:2px; width:max-content;">
-                        </div>
-                    </div>
+                    <button id="strip-whitespace"       class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center;">⇥⇤</button>
                     <button id="clean-titles"           class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center;">✂️</button>
                     <button id="brackets-to-parens"     class="dh-btn dh-icon-btn" style="min-width:34px;">[ ]</button>
                 </div>
 
                 <hr class="dh-divider">
 
-                <button id="extract-artists"   class="dh-btn" style="width:100%;">👤 Extract Main Artists</button>
+                <button id="extract-artists"   class="dh-btn" style="width:100%;">👤 Extract Artists</button>
                 <button id="extract-featuring" class="dh-btn" style="width:100%;">👥 Extract Feat Artists</button>
                 <button id="extract-remixers"  class="dh-btn" style="width:100%;">🎶 Extract Remixers</button>
 
@@ -8142,13 +9004,25 @@ etc" style="width:100%; height:${textareaHeight}px; font-size:12px; font-family:
             mainBtn.style.justifyContent = 'flex-start';
             mainBtn.style.gap = '6px';
 
+            const swapBtn = document.createElement('span');
+            swapBtn.id = 'swap-artist-title';
+            swapBtn.setAttribute('role', 'button');
+            swapBtn.setAttribute('tabindex', '0');
+            swapBtn.textContent = '⇄';
+            swapBtn.title = 'Swap artist ↔ title for all tracks';
+            swapBtn.style.cssText = `flex:0 0 auto; margin:0; margin-left:auto; padding:0;
+                cursor:pointer; display:inline-flex; align-items:center; justify-content:center; user-select:none;`;
+            swapBtn.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); swapArtistTitle(); });
+            swapBtn.addEventListener('keydown', (ev) => { if (ev.key === ' ' || ev.key === 'Enter') { ev.preventDefault(); swapBtn.click(); } });
+            mainBtn.appendChild(swapBtn);
+
             const removeMain = document.createElement('span');
             removeMain.id = 'remove-main-from-title';
             removeMain.setAttribute('role', 'button');
             removeMain.setAttribute('tabindex', '0');
             removeMain.textContent = '✂️';
             removeMain.title = 'Remove main artists from titles';
-            removeMain.style.cssText = `flex:0 0 auto; margin:0; margin-left:auto; padding:0; width:30px; height:30px;
+            removeMain.style.cssText = `flex:0 0 auto; margin:0; padding:0; width:30px; height:30px;
                 border-radius:5px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; user-select:none;`;
             removeMain.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); removeMainArtistsFromTitle(); });
             removeMain.addEventListener('keydown', (ev) => { if (ev.key === ' ' || ev.key === 'Enter') { ev.preventDefault(); removeMain.click(); } });
@@ -8212,10 +9086,10 @@ etc" style="width:100%; height:${textareaHeight}px; font-size:12px; font-family:
             ['save-all-fields',      'Save / edit all open credit fields',                              saveAllFields],
             ['scan-and-extract',     'Extract durations from titles',                                   scanAndExtract],
             ['extract-track-numbers','Extract track positions from titles',                             extractTrackPositions],
-            ['capitalize-titles',    'Capitalize track titles only',                                    capitalizeTitles],
-            ['capitalize-all',       'Capitalize artists, joiners, titles and credits',                 null],
+            ['strip-whitespace',     'Strip leading/trailing whitespace from all fields',               stripWhitespace],
+            ['capitalize-all',       'Capitalize artists, label/company, joiners, titles and credits',                 null],
             ['tracklist-import',     'Import tracklist from plain text',                                openTracklistImporter],
-            ['web-import',           'Import metadata from web store',                                  openWebImporter],
+            ['web-import',           'Import metadata from a web store or credits from Discogs',        openWebImporter],
             ['extract-artists',      null,                                                               extractArtists],
             ['extract-featuring',    null,                                                               extractFeaturing],
             ['extract-remixers',     null,                                                               extractRemixers],
@@ -8233,46 +9107,110 @@ etc" style="width:100%; height:${textareaHeight}px; font-size:12px; font-family:
 
         (function() {
             const _capFieldDefs = [
-                { key: 'albumArtists', label: 'Album Artist(s)', sel: () => {
+                { key: 'albumArtists', label: 'Album Artists',
+                  sel: () => {
                     const trackRowEls = new Set(getTrackInputRows());
                     return Array.from(document.querySelectorAll('input[data-type="artist-name"], #artist-name-input'))
                         .filter(el => !Array.from(trackRowEls).some(row => row.contains(el)));
-                }},
+                  },
+                  editableItems: () => {
+                    const trackRowEls = new Set(getTrackInputRows());
+                    return Array.from(document.querySelectorAll('li.editable_item'))
+                        .filter(item => !Array.from(trackRowEls).some(row => row.contains(item))
+                                     && !item.querySelector('span.credit_role'));
+                  }
+                },
                 { key: 'albumTitle',   label: 'Album Title',     sel: () => [document.getElementById('release-title-input')].filter(Boolean) },
-                { key: 'joiners',      label: 'Joiners',         sel: () => Array.from(document.querySelectorAll('input[placeholder="Join"], input[aria-label="Join"]')) },
-                { key: 'vaArtists',    label: 'Track Artists',   sel: () => Array.from(document.querySelectorAll('input[data-type="artist-name"], input.credit-artist-name-input')) },
-                { key: 'trackTitles',  label: 'Track Titles',    sel: () => Array.from(document.querySelectorAll('input[data-type="track-title"], input[id*="track-title"]')) },
-                { key: 'trackCredits', label: 'Track Credits',   sel: () => {
+                { key: 'label',        label: 'Label/Company',   sel: () => Array.from(document.querySelectorAll('input[id^="label-name-input"]')) },
+                { key: 'joiners',      label: 'Joiners',
+                  sel: () => Array.from(document.querySelectorAll('input[placeholder="Join"], input[aria-label="Join"]')),
+                  openContainersFn: () => getJoinerContainersNeedingWork()
+                },
+                { key: 'vaArtists',    label: 'Track Artists',
+                  sel: () => {
                     const inputs = [];
                     for (const row of getTrackInputRows()) {
-                        inputs.push(...row.querySelectorAll('input.credit-artist-name-input, input[data-type="artist-name-credits"]'));
+                        inputs.push(...row.querySelectorAll('td.subform_track_artists input[data-type="artist-name"], td.subform_track_artists input.credit-artist-name-input'));
                     }
                     return inputs;
-                }},
-                { key: 'creditNames',  label: 'Album Credits',   sel: () => {
+                  },
+                  editableItems: () => {
+                    const items = [];
+                    for (const row of getTrackInputRows())
+                        items.push(...row.querySelectorAll('td.subform_track_artists li.editable_item'));
+                    return items;
+                  }
+                },
+                { key: 'trackTitles',  label: 'Track Titles',    sel: () => Array.from(document.querySelectorAll('input[data-type="track-title"], input[id*="track-title"]')) },
+                { key: 'trackCredits', label: 'Track Credits',
+                  sel: () => {
+                    const inputs = [];
+                    for (const row of getTrackInputRows()) {
+                        inputs.push(...row.querySelectorAll('td.subform_track_title input.credit-artist-name-input, td.subform_track_title input[data-type="artist-name-credits"]'));
+                    }
+                    return inputs;
+                  },
+                  editableItems: () => {
+                    const items = [];
+                    for (const row of getTrackInputRows())
+                        items.push(...row.querySelectorAll('td.subform_track_title li.editable_item'));
+                    return items;
+                  }
+                },
+                { key: 'creditNames',  label: 'Album Credits',
+                  sel: () => {
                     const trackRowEls = new Set(getTrackInputRows());
                     return Array.from(document.querySelectorAll('input.credit-artist-name-input, input[data-type="artist-name-credits"]'))
                         .filter(el => !Array.from(trackRowEls).some(row => row.contains(el)));
-                }},
+                  },
+                  editableItems: () => {
+                    const trackRowEls = new Set(getTrackInputRows());
+                    return Array.from(document.querySelectorAll('li.editable_item'))
+                        .filter(item => !Array.from(trackRowEls).some(row => row.contains(item))
+                                     && !!item.querySelector('span.credit_role'));
+                  }
+                },
             ];
             const _menu = document.getElementById('capitalize-all-menu');
             const _btn  = document.getElementById('capitalize-all');
             if (!_menu || !_btn) return;
 
-            const _capOne = async (selFn) => {
+            const ARTIST_CREDIT_KEYS = new Set(['albumArtists', 'vaArtists', 'trackCredits', 'creditNames']);
+            const _capOne = async (selFn, label, editableItemsFn = null, openContainersFn = null) => {
                 await setInfoProcessing();
-                await wiOpenSavedLinks();
+                if (editableItemsFn) {
+                    const editableItems = editableItemsFn();
+                    await openSavedLinksIfNeeded(editableItems);
+                } else {
+                }
+                if (openContainersFn) {
+                    await openContainersIfSaved(openContainersFn());
+                }
                 const fields = typeof selFn === 'function' ? selFn() : selFn;
+                const trackRows = getTrackInputRows();
+                const trackRowEls = new Set(trackRows);
+                const albumArtistEls = new Set(
+                    Array.from(document.querySelectorAll('input[data-type="artist-name"], #artist-name-input'))
+                        .filter(el => !Array.from(trackRowEls).some(row => row.contains(el)))
+                );
+                log(`Capitalizing ${label || 'fields'}...`, 'info');
                 const changes = []; let processed = 0;
                 for (const el of fields) {
                     if (!el?.isConnected) continue;
                     const orig = (el.value || '').trim();
                     const cand = orig ? capitalizeTitleString(orig) : orig;
-                    if (cand && cand !== orig) { setReactValue(el, cand); changes.push({ titleInput: el, oldTitle: orig, newTitle: cand }); processed++; }
+                    if (cand && cand !== orig) {
+                        setReactValue(el, cand);
+                        changes.push({ titleInput: el, oldTitle: orig, newTitle: cand });
+                        log(`${getFieldLabel(el, trackRows, albumArtistEls)}: "${orig}" → "${cand}"`, 'success');
+                        processed++;
+                    }
                 }
                 if (changes.length) addActionToHistory({ type: 'capitalization', changes });
                 await clearInfoProcessing();
-                setInfoSingleLine(processed > 0 ? `Done! Capitalized ${processed} field${processed !== 1 ? 's' : ''}` : 'Already capitalized', processed > 0);
+                const msg = processed > 0 ? `Done! Capitalized ${processed} field${processed !== 1 ? 's' : ''}` : 'Already capitalized';
+                setInfoSingleLine(msg, processed > 0);
+                log(msg, processed > 0 ? 'success' : 'info');
             };
 
             const _isDark = () => localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
@@ -8284,13 +9222,50 @@ etc" style="width:100%; height:${textareaHeight}px; font-size:12px; font-family:
                 const btnBase = 'display:block; width:100%; text-align:left; font-size:11px; padding:4px 8px; border:none; border-radius:3px; cursor:pointer; white-space:nowrap;';
                 const btnStyle = btnBase + (dark ? 'background:#1f2224; color:#ddd;' : 'background:transparent; color:#111;');
                 const btnHover = dark ? '#2a2d30' : '#f0f0f0';
-                for (const { label, sel } of _capFieldDefs) {
+                const _allBtn = document.createElement('button');
+                _allBtn.textContent = 'Everything';
+                _allBtn.title = 'Capitalizes all fields (individual fields can be toggled in config)';
+                _allBtn.style.cssText = btnBase + (dark ? 'background:#1f2224; color:#aad4ff; font-weight:600;' : 'background:transparent; color:#0057b8; font-weight:600;');
+                _allBtn.addEventListener('mouseover', () => _allBtn.style.background = btnHover);
+                _allBtn.addEventListener('mouseout',  () => _allBtn.style.background = dark ? '#1f2224' : 'transparent');
+                _allBtn.addEventListener('click', (e) => {
+                    e.stopPropagation(); _menu.style.display = 'none';
+                    const enabledDefs = _capFieldDefs.filter(({ key }) => state.capitalizeBtnFields[key] !== false);
+                    const seenItems = new Set();
+                    const collectEditableItems = () => {
+                        const items = [];
+                        for (const def of enabledDefs) {
+                            if (!def.editableItems) continue;
+                            for (const item of def.editableItems()) {
+                                if (!seenItems.has(item)) { seenItems.add(item); items.push(item); }
+                            }
+                        }
+                        return items;
+                    };
+                    const collectOpenContainers = enabledDefs.some(d => d.openContainersFn)
+                        ? () => enabledDefs.flatMap(d => d.openContainersFn ? d.openContainersFn() : [])
+                        : null;
+                    const collectAll = () => {
+                        const seen = new Set();
+                        return enabledDefs
+                            .flatMap(({ sel }) => (typeof sel === 'function' ? sel() : sel))
+                            .filter(el => { if (!el || seen.has(el)) return false; seen.add(el); return true; });
+                    };
+                    _capOne(collectAll, 'everything', collectEditableItems, collectOpenContainers);
+                });
+                _menu.appendChild(_allBtn);
+
+                const _div = document.createElement('hr');
+                _div.style.cssText = 'margin:3px 0; border:none; border-top:1px solid ' + (dark ? '#444' : '#ddd') + ';';
+                _menu.appendChild(_div);
+
+                for (const { key, label, sel, editableItems, openContainersFn } of _capFieldDefs) {
                     const b = document.createElement('button');
                     b.textContent = label;
                     b.style.cssText = btnStyle;
                     b.addEventListener('mouseover', () => b.style.background = btnHover);
                     b.addEventListener('mouseout',  () => b.style.background = dark ? '#1f2224' : 'transparent');
-                    b.addEventListener('click', (e) => { e.stopPropagation(); _menu.style.display = 'none'; _capOne(sel); });
+                    b.addEventListener('click', (e) => { e.stopPropagation(); _menu.style.display = 'none'; _capOne(sel, label.toLowerCase(), editableItems || null, openContainersFn || null); });
                     _menu.appendChild(b);
                 }
             };
