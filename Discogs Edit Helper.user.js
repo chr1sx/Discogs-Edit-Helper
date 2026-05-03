@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      1.5.1
+// @version      1.5.2
 // @description  Imports metadata from web stores and plain-text tracklists, extracts info from titles and assigns data to the appropriate fields
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
