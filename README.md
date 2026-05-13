@@ -25,7 +25,7 @@ Supported stores: *7digital, Apple Music, Bandcamp, Beatport, Bleep, Boomkat, eC
 - **🔢 Position Extraction** - Extracts and assigns track positions (e.g., “01”, “A1”) to position fields
 - **🕛 Duration Extraction** - Extracts and assigns track durations (e.g., “3:45”) to duration fields
 - **✂️ Clean Titles** - Removes redundant bracket content from titles (e.g., “(Original Mix)”, “(Bonus Track)”)
-- **👤 Main Artist Extraction** - Extracts and assigns track artists from the “Artist - Title” format
+- **👤 Main Artist Extraction** - Extracts and assigns track level artists from the “Artist - Title” format
 - **👥 Feat Artist Extraction** - Extracts and assigns featuring artists (e.g., “featuring”, “feat.”, etc.) to credits
 - **🎶 Remixer Extraction** - Extracts and assigns remixers (e.g., “remix”, “rmx”, etc.) to credits
 - **↩️ Undo Support** - Revert any action with a single click
