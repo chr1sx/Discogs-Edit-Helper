@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      1.5.2
+// @version      1.6
 // @description  Imports metadata from web stores and plain-text tracklists, extracts info from titles and assigns data to the appropriate fields
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
@@ -35,7 +35,7 @@
         REMIX_BY_PATTERNS: ['remixed by', 'remix by', 'rmx by', 'rebuild by', 'rebuilt by', 'reworked by', 'rework by', 'edited by', 'edit by', 'mixed by', 'mix by', 'version by', 'dub by'],
         REMIX_PATTERNS_OPTIONAL: ['dub', 'edit', 'rework', 'mix', 'version'],
         CAPITALIZE_KEEP_UPPER: ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'DJ', 'EP', 'FM', 'MC', 'PM', 'HD', 'VIP'],
-        CAPITALIZE_KEEP_LOWER: ['da', 'de', 'del', 'des', 'di', 'du', 'la', 'van', 'von'],
+        CAPITALIZE_KEEP_LOWER: ['da', 'de', 'del', 'des', 'di', 'la', 'van', 'von'],
         CLEAN_TITLE_PATTERNS: ['original mix', 'explicit', 'digital bonus track', 'digital bonus', 'bonus track', 'bonus']
     };
     const CONFIG_RAW = {
@@ -52,7 +52,7 @@
         REMIX_BY_PATTERNS:        ['remixed by', 'remix by', 'rmx by', 'rebuild by', 'rebuilt by', 'reworked by', 'rework by', 'edited by', 'edit by', 'mixed by', 'mix by', 'version by', 'dub by'],
         REMIX_PATTERNS_OPTIONAL:  ['dub', 'edit', 'rework', 'mix', 'version'],
         CAPITALIZE_KEEP_UPPER:    ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'DJ', 'EP', 'FM', 'MC', 'PM', 'HD', 'VIP'],
-        CAPITALIZE_KEEP_LOWER:    ['da', 'de', 'del', 'des', 'di', 'du', 'la', 'van', 'von'],
+        CAPITALIZE_KEEP_LOWER:    ['da', 'de', 'del', 'des', 'di', 'la', 'van', 'von'],
         CLEAN_TITLE_PATTERNS:     ['original mix', 'explicit', 'digital bonus track', 'digital bonus', 'bonus track', 'bonus'],
     };
 
@@ -95,7 +95,9 @@
         removeMainFromTitle: true,
         removeFeatFromTitle: false,
         remixOptionalEnabled: false,
-        importerText: ''
+        importerText: '',
+        importerMissingArtistMode: false,
+        importerMissingDurationMode: false
     };
 
     function expandPattern(pattern, context = 'default') {
@@ -734,7 +736,9 @@
         let lastSep = undefined;
         for (let i = 0; i < rawTokens.length; i++) {
             const tok = rawTokens[i];
-            const isSep = captureRe.test(tok) && !tok.match(/^[A-Za-z]{2,}$/);
+            const tokNorm = tok.trim().toLowerCase().replace(/\.$/, '');
+            const isConfiguredSep = CONFIG.ARTIST_SPLITTER_PATTERNS.some(p => p.toLowerCase() === tokNorm);
+            const isSep = captureRe.test(tok) && (!tok.match(/^[A-Za-z]{2,}$/) || isConfiguredSep);
             if (isSep) { lastSep = tok; expectName = true; }
             else if (expectName) {
                 if (tok) result.push({ name: tok, joinBefore: result.length > 0 ? lastSep : undefined });
@@ -1686,12 +1690,17 @@
             }
         }
         let firstMatchDone = false;
-        return token.replace(/([\p{L}\p{N}\u0027\u2018\u2019\u201B\u02BB\u02BC\u00B4`]+)/gu, (core) => {
-            if (firstMatchDone) {
-                return core.toLowerCase();
+        let lastNonWordChar = '';
+        return token.replace(/([\p{L}\p{N}\u0027\u2018\u2019\u201B\u02BB\u02BC\u00B4`]+)|([^\p{L}\p{N}\u0027\u2018\u2019\u201B\u02BB\u02BC\u00B4`]+)/gu, (match, word, nonWord) => {
+            if (nonWord !== undefined) {
+                lastNonWordChar = nonWord;
+                return nonWord;
             }
-            firstMatchDone = true;
-            return capitalizeWord(core, isFirst);
+            const treatAsFirst = !firstMatchDone || /&/.test(lastNonWordChar);
+            lastNonWordChar = '';
+            if (!firstMatchDone) firstMatchDone = true;
+            if (treatAsFirst) return capitalizeWord(word, isFirst);
+            return word.toLowerCase();
         });
     }
 
@@ -1781,11 +1790,10 @@
                     const isFirst = !firstWordDone;
                     firstWordDone = true;
                     let transformed;
-                    if (core.includes('-') || core.includes('/')) {
-                        const sep = core.includes('-') ? '-' : '/';
-                        transformed = core.split(sep).map((seg, idx) =>
-                            seg ? capitalizeSegmentSegmentwise(seg, idx === 0 ? isFirst : true) : ''
-                        ).join(sep);
+                    if (/[-\/\\;=+#~|_@]/.test(core)) {
+                        transformed = core.split(/([-\/\\;=+#~|_@])/).map((seg, idx) =>
+                            /[-\/\\;=+#~|_@]/.test(seg) ? seg : seg ? capitalizeSegmentSegmentwise(seg, idx === 0 ? isFirst : true) : ''
+                        ).join('');
                     } else {
                         transformed = capitalizeSegmentSegmentwise(core, isFirst);
                     }
@@ -2839,7 +2847,7 @@
         return;
     }
 
-    if (lastAction.type === 'webImport' || lastAction.type === 'tracklistImport') {
+    if (lastAction.type === 'webImport' || lastAction.type === 'tracklistImport' || lastAction.type === 'missingArtistImport' || lastAction.type === 'missingDurationImport') {
         if (lastAction.type === 'webImport') {
             await wiClearAllStyles();
             for (const { el, oldVal, oldChecked, isCb } of (lastAction.fields || [])) {
@@ -3302,12 +3310,12 @@
         `).join('');
 
         overlay.innerHTML = `
-            <div class="dh-cfg-header" style="display:flex; align-items:center; justify-content:space-between; padding:5px 8px 6px; border-bottom:1px solid rgba(0,0,0,0.09); flex-shrink:0; gap:6px;">
-                <div style="display:flex; align-items:baseline; gap:6px; min-width:0;">
-                    <strong style="font-size:13px; user-select:none; cursor:default; white-space:nowrap; letter-spacing:0.01em;">⚙️ Config</strong>
+            <div class="dh-cfg-header" style="display:flex; align-items:center; justify-content:space-between; padding:5px 8px 7px; border-bottom:1px solid rgba(0,0,0,0.09); flex-shrink:0; gap:6px;">
+                <div style="display:flex; align-items:center; gap:6px; min-width:0;">
+                    <strong style="font-size:13px; font-weight:600; color:#111; user-select:none; -webkit-user-select:none; cursor:default; white-space:nowrap; letter-spacing:0.01em; flex-shrink:0;"><span style="font-weight:normal; margin-right:4px;">⚙️</span>Config</strong>
                     <span class="dh-cfg-hint" style="font-size:10px; color:#555; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; user-select:none; -webkit-user-select:none; pointer-events:none;">Patterns are semicolon-separated, changes take effect on save.</span>
                 </div>
-                <button id="dh-config-close" title="Close" style="background:none; border:none; cursor:pointer; font-size:13px; padding:1px 4px; line-height:1; flex-shrink:0; opacity:0.65;">✕</button>
+                <button id="dh-config-close" title="Close" style="background:none; border:none; cursor:pointer; font-size:13px; padding:1px 4px; line-height:1; flex-shrink:0; opacity:0.65; color:#555;">✕</button>
             </div>
             <div class="dh-cfg-top-row" style="display:flex; align-items:center; gap:10px; padding:5px 9px 5px; border-bottom:1px solid rgba(0,0,0,0.07); flex-shrink:0; flex-wrap:wrap;">
                 <label style="display:flex; align-items:center; gap:5px; font-size:11px; cursor:pointer; user-select:none; white-space:nowrap;"
@@ -3362,10 +3370,10 @@
             <div class="dh-cfg-scroll" style="padding:7px 9px 4px; overflow-y:auto; flex:1;">
                 ${fieldsHtml}
             </div>
-            <div class="dh-cfg-footer" style="display:flex; gap:6px; padding:6px 9px 8px; flex-shrink:0; border-top:1px solid rgba(0,0,0,0.07);">
-                <button id="dh-config-save"    style="flex:2; height:30px; background:#28a745; color:#fff; border:none; border-radius:5px; cursor:pointer; font-size:12px; font-weight:600;">Save</button>
-                <button id="dh-config-reset"   style="flex:1; height:30px; background:#f1f3f5; color:#c00; border:1px solid #e4e6e8; border-radius:5px; cursor:pointer; font-size:11px;">Reset defaults</button>
-                <button id="dh-config-cancel"  style="flex:1; height:30px; background:#f1f3f5; color:#111; border:1px solid #ccc; border-radius:5px; cursor:pointer; font-size:12px;">Cancel</button>
+            <div class="dh-cfg-footer" style="display:flex; align-items:center; gap:6px; padding:6px 9px 8px; flex-shrink:0; border-top:1px solid rgba(0,0,0,0.07);">
+                <button id="dh-config-save"    style="flex:2; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600; box-sizing:border-box;">Save</button>
+                <button id="dh-config-reset"   style="flex:1; height:34px; background:#f1f3f5; color:#c00; border:1px solid #e4e6e8; border-radius:5px; cursor:pointer; font-size:13px; box-sizing:border-box;">Reset defaults</button>
+                <button id="dh-config-cancel"  style="flex:1; height:34px; background:#f1f3f5; color:#111; border:1px solid #ccc; border-radius:5px; cursor:pointer; font-size:13px; box-sizing:border-box;">Cancel</button>
             </div>
         `;
 
@@ -3608,6 +3616,11 @@
             if (hdr) hdr.style.borderBottomColor = 'rgba(255,255,255,0.07)';
             const cancelBtn = overlay.querySelector('#dh-importer-cancel');
             if (cancelBtn) { cancelBtn.style.background = '#1f2224'; cancelBtn.style.color = '#ddd'; cancelBtn.style.borderColor = '#333'; }
+            overlay.querySelectorAll('#dh-missing-artist-toggle, #dh-missing-duration-toggle').forEach(btn => {
+                const isActive = (btn.id === 'dh-missing-artist-toggle' && state.importerMissingArtistMode)
+                              || (btn.id === 'dh-missing-duration-toggle' && state.importerMissingDurationMode);
+                if (!isActive) { btn.style.borderColor = '#555'; btn.style.color = '#bbb'; }
+            });
         } else {
             overlay.style.background  = '#fff';
             overlay.style.color       = '#111';
@@ -3615,7 +3628,7 @@
             const ta = overlay.querySelector('#dh-importer-textarea');
             if (ta) { ta.style.background = '#fff'; ta.style.color = '#222'; ta.style.border = '1px solid #ccc'; }
             const closeBtn = overlay.querySelector('#dh-importer-close');
-            if (closeBtn) closeBtn.style.color = '#111';
+            if (closeBtn) closeBtn.style.color = '#555';
             const strong = overlay.querySelector('strong');
             if (strong) strong.style.color = '#111';
             const hint = overlay.querySelector('span[style*="font-size:10px"]');
@@ -3624,6 +3637,11 @@
             if (hdr) hdr.style.borderBottomColor = 'rgba(0,0,0,0.09)';
             const cancelBtn = overlay.querySelector('#dh-importer-cancel');
             if (cancelBtn) { cancelBtn.style.background = '#f1f3f5'; cancelBtn.style.color = '#111'; cancelBtn.style.borderColor = '#ccc'; }
+            overlay.querySelectorAll('#dh-missing-artist-toggle, #dh-missing-duration-toggle').forEach(btn => {
+                const isActive = (btn.id === 'dh-missing-artist-toggle' && state.importerMissingArtistMode)
+                              || (btn.id === 'dh-missing-duration-toggle' && state.importerMissingDurationMode);
+                if (!isActive) { btn.style.borderColor = '#ccc'; btn.style.color = ''; }
+            });
         }
     }
 
@@ -3637,7 +3655,7 @@
                 inp.style.background  = '#1a1c1f';
                 inp.style.color       = '#ddd';
                 inp.style.border      = '1px solid #333';
-                inp.style.outline     = 'none';
+                inp.style.outline     = '';
             });
             overlay.querySelectorAll('.dh-cfg-desc').forEach(el => el.style.color = '#777');
             overlay.querySelectorAll('.dh-cfg-label').forEach(el => el.style.color = '#999');
@@ -3685,7 +3703,7 @@
             const ftr = overlay.querySelector('.dh-cfg-footer');
             if (ftr) ftr.style.borderTopColor = 'rgba(0,0,0,0.07)';
             const closeBtn = overlay.querySelector('#dh-config-close');
-            if (closeBtn) closeBtn.style.color = '#111';
+            if (closeBtn) closeBtn.style.color = '#555';
             const strong = overlay.querySelector('strong');
             if (strong) strong.style.color = '#111';
             const cancelBtn = overlay.querySelector('#dh-config-cancel');
@@ -3750,7 +3768,7 @@
             if (logContainer) { logContainer.style.background = '#f8f9fa'; logContainer.style.color = '#6b6b6b'; }
             if (themeBtn)   { themeBtn.textContent = '☾'; themeBtn.style.color = '#111'; }
             if (collapseBtn) collapseBtn.style.color = '#111';
-            if (closeBtn)    closeBtn.style.color = '#111';
+            if (closeBtn)    closeBtn.style.color = '#555';
             if (configBtn)   configBtn.style.color = '#111';
             if (headerTitle) { headerTitle.style.color = '#111'; headerTitle.style.whiteSpace = 'nowrap'; headerTitle.style.overflow = 'hidden'; headerTitle.style.textOverflow = 'ellipsis'; }
             if (featToggle)  { featToggle.style.background = state.removeFeatFromTitle ? activeBlueLight : inactiveBgLight; featToggle.style.color = state.removeFeatFromTitle ? '#fff' : '#111'; featToggle.style.border = `0.5px solid ${state.removeFeatFromTitle ? '#bfcfe8' : borderColLight}`; }
@@ -3885,11 +3903,22 @@
             #remove-feat-from-title:active, #swap-artist-title:active, #toggle-feat-remove:active,
             #toggle-remix-optional:active, #toggle-main-remove:active { transform: scale(0.9); }
             #toggle-feat-remove:focus, #toggle-remix-optional:focus, #toggle-main-remove:focus {
-                outline: 2px solid rgba(30,102,214,0.3); outline-offset: 1px;
+                outline: 2px solid rgba(30,102,214,0.3);
             }
-            #dh-config-overlay input[type="text"]:focus {
-                outline: 2px solid rgba(30,102,214,0.35);
-                border-color: #6aabf7 !important;
+            #dh-config-overlay input[type="text"]:focus,
+            #dh-wi-url:focus,
+            #dh-importer-textarea:focus {
+                outline: none !important;
+                box-shadow:
+                    0 0 0 1px rgba(30,102,214,0.50),
+                    0 0 0 2px rgba(30,102,214,0.24),
+                    0 0 0 3px rgba(30,102,214,0.16),
+                    0 0 0 4px rgba(30,102,214,0.09),
+                    0 0 0 5px rgba(30,102,214,0.05),
+                    0 0 0 6px rgba(30,102,214,0.03) !important;
+            }
+            #dh-config-overlay input[type="text"], #dh-wi-url, #dh-importer-textarea {
+                box-shadow: none !important;
             }
             #dh-config-overlay .dh-cfg-scroll > div {
                 border: none !important;
@@ -4062,6 +4091,244 @@
         log(`Removed ${removeLinks.length} of ${trackRowsToRemove.length} track row(s)`, removeLinks.length > 0 ? 'success' : 'warning');
     }
 
+    async function applyMissingArtists(text) {
+        const rawLines = text.split('\n');
+        const nonBlank = rawLines.map(l => l.trim()).filter(Boolean);
+        if (!nonBlank.length) { log('No artist data entered', 'warning'); return; }
+        const trackRows = getTrackInputRows();
+        if (!trackRows.length) { log('No track rows found', 'warning'); return; }
+        await setInfoProcessing();
+
+        const durationRe = /[\[(]?\b(\d{1,2}:\d{2}:\d{2}|\d{1,2}:\d{2})\b[\])]?\s*$/;
+        const multiCdRe  = /^[\[(]?0*(\d+)-0*(\d+)[\]).]?[.\-\s]+/;
+        const posRe      = /^[\[(]?([A-Za-z]{0,2}\d+[A-Za-z]?)[\]).]?[.\-\s]+/;
+        const titleSepRe = /^(.+?)\s+[-\u2013\u2014]\s+(.+)$/;
+
+        function extractPosAndArtist(line) {
+            let remaining = line.trim();
+            if (!remaining) return null;
+            let position = '';
+            const multiMatch = remaining.match(multiCdRe);
+            if (multiMatch) {
+                position = trimLeadingZeros(multiMatch[1] + '-' + multiMatch[2]);
+                remaining = remaining.slice(multiMatch[0].length).trim();
+            } else {
+                const posMatch = remaining.match(posRe);
+                if (posMatch) { position = trimLeadingZeros(posMatch[1]); remaining = remaining.slice(posMatch[0].length).trim(); }
+            }
+            if (!remaining) return null;
+            const durMatch = remaining.match(durationRe);
+            if (durMatch) remaining = remaining.slice(0, remaining.length - durMatch[0].length).replace(/[-\u2013\u2014\s]+$/, '').trim();
+            if (!remaining) return null;
+            const titleSep = remaining.match(titleSepRe);
+            const artist = titleSep ? titleSep[1].trim() : remaining.trim();
+            if (!artist) return null;
+            return { position: position.toLowerCase(), artist };
+        }
+
+        const parsedNonBlank = nonBlank.map(extractPosAndArtist).filter(Boolean);
+        const anyHavePos     = parsedNonBlank.some(e => e.position);
+        const isSingleArtist = nonBlank.length === 1 && !anyHavePos;
+        const isLineByLine   = !isSingleArtist && !anyHavePos;
+        const assignments    = anyHavePos ? parsedNonBlank.filter(e => e.position) : [];
+
+        let filled = 0;
+        const changes = [];
+        const matchedPositions = new Set();
+        if (!isSingleArtist && !isLineByLine) {
+            const filledPositions = trackRows.filter(r => r.querySelector('input.track-number-input')?.value?.trim()).length;
+            if (filledPositions === 0) {
+                await clearInfoProcessing();
+                log('No track positions found — fill in positions first, or enter a single artist name to fill all tracks', 'warning');
+                setInfoSingleLine('No track positions found', false);
+                return;
+            }
+        }
+        const getExistingArtists = (row) => {
+            const artistTd = row.querySelector('td.subform_track_artists');
+            if (!artistTd) return [];
+            const names = [];
+            for (const item of artistTd.querySelectorAll('li.editable_item')) {
+                const input = item.querySelector('input[data-type="artist-name"], input.credit-artist-name-input');
+                if (input?.value?.trim()) { names.push(input.value.trim().toLowerCase()); continue; }
+                const link = item.querySelector('a.rollover_link, span.rollover_link');
+                if (link?.textContent?.trim()) names.push(link.textContent.trim().toLowerCase());
+            }
+            return names;
+        };
+        const applyArtistParts = async (row, rawArtist) => {
+            const entries = wiSplitArtistForImport(rawArtist);
+            const parts = entries.length > 0 ? entries : [{ name: rawArtist }];
+            const created = await createArtistInputs(row, parts.length);
+            const addedFields = [];
+            for (let ai = 0; ai < parts.length; ai++) {
+                if (!created[ai]?.artistInput) continue;
+                setReactValue(created[ai].artistInput, parts[ai].name);
+                if (ai > 0 && parts[ai].joinBefore) {
+                    const joinInputs = Array.from(row.querySelectorAll('input[placeholder="Join"], input[aria-label="Join"]'));
+                    const joinInput = joinInputs[ai - 1] || getJoinInputForArtistRow(row, created[ai].artistInput, created[ai].artistContainer, ai - 1);
+                    if (joinInput) setReactValue(joinInput, parts[ai].joinBefore);
+                }
+                addedFields.push({ artistContainer: created[ai].artistContainer, removeButton: created[ai].removeButton });
+            }
+            return addedFields;
+        };
+        if (isLineByLine) {
+            for (let i = 0; i < rawLines.length; i++) {
+                const artist = rawLines[i].trim();
+                if (!artist) continue;
+                const row = trackRows[i];
+                if (!row) continue;
+                const existing = getExistingArtists(row);
+                if (existing.includes(artist.toLowerCase())) continue;
+                const addedFields = await applyArtistParts(row, artist);
+                if (addedFields.length) {
+                    filled++;
+                    const pos = row.querySelector('input.track-number-input')?.value?.trim();
+                    matchedPositions.add(pos || `row ${i + 1}`);
+                    changes.push({ addedArtistFields: addedFields });
+                }
+            }
+        } else {
+            for (const row of trackRows) {
+                const posInput = row.querySelector('input.track-number-input');
+                const artistTd = row.querySelector('td.subform_track_artists');
+                const pos = posInput?.value?.trim().toLowerCase();
+                let artist = null;
+                if (isSingleArtist) {
+                    if (artistTd?.querySelectorAll('li.editable_item').length > 0) continue;
+                    artist = parsedNonBlank[0]?.artist || nonBlank[0];
+                } else if (pos) {
+                    const match = assignments.find(a => a.position === pos);
+                    if (match) artist = match.artist;
+                }
+                if (!artist) continue;
+                const existing = getExistingArtists(row);
+                if (!isSingleArtist && existing.includes(artist.toLowerCase())) continue;
+                const addedFields = await applyArtistParts(row, artist);
+                if (addedFields.length) {
+                    filled++;
+                    changes.push({ addedArtistFields: addedFields });
+                    if (pos) matchedPositions.add(pos);
+                }
+            }
+        }
+        if (changes.length > 0) addActionToHistory({ type: 'missingArtistImport', changes });
+        await clearInfoProcessing();
+        const s = filled !== 1 ? 's' : '';
+        const posList = [...matchedPositions].join(', ');
+        if (isLineByLine) {
+            if (filled > 0) log(`Done! Filled ${filled} track artist${s}: ${posList}`, 'success');
+            else log('No artists filled — check that line count matches track count', 'warning');
+            setInfoSingleLine(filled > 0 ? `Done! Filled ${filled} track artist${s}` : 'No artists filled', filled > 0);
+        } else if (!isSingleArtist) {
+            const unmatched = assignments.filter(a => !matchedPositions.has(a.position));
+            if (filled > 0) log(`Done! Filled ${filled} track artist${s}: ${posList}`, 'success');
+            if (unmatched.length > 0) {
+                const unmatchedList = unmatched.map(a => a.position).join(', ');
+                log(`Could not fill ${unmatched.length} track${unmatched.length !== 1 ? 's' : ''} (no position set): ${unmatchedList}`, 'warning');
+            }
+            if (filled === 0) setInfoSingleLine('No matching positions found', false);
+            else setInfoSingleLine(`Done! Filled ${filled} track artist${s}`, true);
+        } else {
+            if (filled > 0) log(`Done! Filled ${filled} track artist${s}: ${posList}`, 'success');
+            else log('No artists filled', 'warning');
+            setInfoSingleLine(filled > 0 ? `Done! Filled ${filled} track artist${s}` : 'No artists filled', filled > 0);
+        }
+    }
+
+    async function applyMissingDurations(text) {
+        const DUR_SEL = 'td.subform_track_duration input, input[aria-label*="duration" i]';
+        const rawLines = text.split('\n');
+        const nonBlank = rawLines.map(l => l.trim()).filter(Boolean);
+        if (!nonBlank.length) { log('No duration data entered', 'warning'); return; }
+        const trackRows = getTrackInputRows();
+        if (!trackRows.length) { log('No track rows found', 'warning'); return; }
+        await setInfoProcessing();
+
+        const durationRe = /[\[(]?\b(\d{1,2}:\d{2}:\d{2}|\d{1,2}:\d{2})\b[\])]?\s*$/;
+        const multiCdRe  = /^[\[(]?0*(\d+)-0*(\d+)[\]).]?[.\-\s]+/;
+        const posRe      = /^[\[(]?([A-Za-z]{0,2}\d+[A-Za-z]?)[\]).]?[.\-\s]+/;
+        function extractPosAndDur(line) {
+            let remaining = line.trim();
+            if (!remaining) return null;
+            let position = '';
+            const multiMatch = remaining.match(multiCdRe);
+            if (multiMatch) {
+                position = trimLeadingZeros(multiMatch[1] + '-' + multiMatch[2]);
+                remaining = remaining.slice(multiMatch[0].length).trim();
+            } else {
+                const posMatch = remaining.match(posRe);
+                if (posMatch) { position = trimLeadingZeros(posMatch[1]); remaining = remaining.slice(posMatch[0].length).trim(); }
+            }
+            const durMatch = remaining.match(durationRe);
+            if (durMatch) return { position: position.toLowerCase(), duration: trimLeadingZeros(durMatch[1]) };
+            return null;
+        }
+
+        const parsedNonBlank = nonBlank.map(extractPosAndDur).filter(Boolean);
+        const anyHavePos   = parsedNonBlank.some(e => e.position);
+        const isLineByLine = !anyHavePos;
+        const assignments  = anyHavePos ? parsedNonBlank.filter(e => e.position) : [];
+
+        if (!isLineByLine) {
+            const filledPositions = trackRows.filter(r => r.querySelector('input.track-number-input')?.value?.trim()).length;
+            if (filledPositions === 0) {
+                await clearInfoProcessing();
+                log('No track positions found — fill in positions first', 'warning');
+                setInfoSingleLine('No track positions found', false);
+                return;
+            }
+        }
+        let filled = 0;
+        const changes = [];
+        const matchedPositions = new Set();
+        if (isLineByLine) {
+            for (let i = 0; i < rawLines.length; i++) {
+                const parsed = extractPosAndDur(rawLines[i]);
+                if (!parsed) continue;
+                const row = trackRows[i];
+                if (!row) continue;
+                const durInput = row.querySelector(DUR_SEL);
+                if (!durInput) continue;
+                const oldDuration = durInput.value || '';
+                setReactValue(durInput, parsed.duration);
+                filled++;
+                const pos = row.querySelector('input.track-number-input')?.value?.trim();
+                matchedPositions.add(pos || `row ${i + 1}`);
+                changes.push({ durationInput: durInput, oldDuration });
+            }
+        } else {
+            for (const row of trackRows) {
+                const posInput = row.querySelector('input.track-number-input');
+                const pos = posInput?.value?.trim().toLowerCase();
+                if (!pos) continue;
+                const match = assignments.find(a => a.position === pos);
+                if (!match) continue;
+                const durInput = row.querySelector(DUR_SEL);
+                if (!durInput) continue;
+                const oldDuration = durInput.value || '';
+                setReactValue(durInput, match.duration);
+                filled++;
+                matchedPositions.add(pos);
+                changes.push({ durationInput: durInput, oldDuration });
+            }
+        }
+        if (changes.length > 0) addActionToHistory({ type: 'missingDurationImport', changes });
+        await clearInfoProcessing();
+        const s = filled !== 1 ? 's' : '';
+        if (!isLineByLine) {
+            const unmatched = assignments.filter(a => !matchedPositions.has(a.position));
+            if (filled > 0) log(`Done! Filled ${filled} duration${s}: ${[...matchedPositions].join(', ')}`, 'success');
+            if (unmatched.length > 0) log(`Could not fill ${unmatched.length} track${unmatched.length !== 1 ? 's' : ''} (no position set): ${unmatched.map(a => a.position).join(', ')}`, 'warning');
+            setInfoSingleLine(filled > 0 ? `Done! Filled ${filled} duration${s}` : 'No matching positions found', filled > 0);
+        } else {
+            if (filled > 0) log(`Done! Filled ${filled} duration${s}: ${[...matchedPositions].join(', ')}`, 'success');
+            else log('No durations filled — check that line count matches track count', 'warning');
+            setInfoSingleLine(filled > 0 ? `Done! Filled ${filled} duration${s}` : 'No durations filled', filled > 0);
+        }
+    }
+
     async function applyTracklist(parsed, isVA = false, silent = false) {
         if (!parsed.length) { log('No tracks parsed from text', 'warning'); return; }
         await setInfoProcessing();
@@ -4119,9 +4386,14 @@
             }
 
             const artistEntries = entry.artistsWithJoins || (entry.artists || []).map(n => ({ name: n }));
-            if (isVA && artistEntries.length > 0) {
-                const created = await createArtistInputs(row, artistEntries.length);
-                artistEntries.forEach((e2, idx) => {
+            const expandedEntries = artistEntries.flatMap(e2 => {
+                if (e2.joinBefore) return [e2];
+                const split = wiSplitArtistForImport(e2.name);
+                return split.length > 1 ? split : [e2];
+            });
+            if (isVA && expandedEntries.length > 0) {
+                const created = await createArtistInputs(row, expandedEntries.length);
+                expandedEntries.forEach((e2, idx) => {
                     if (!created[idx]) return;
                     setReactValue(created[idx].artistInput, e2.name);
                     if (idx > 0 && e2.joinBefore) {
@@ -4240,13 +4512,25 @@
             if (typeof GM_xmlhttpRequest !== 'undefined') {
                 const urlObj = new URL(url);
                 const domain = urlObj.hostname.replace('www.', '');
-                const is7Digital = urlObj.hostname.includes('7digital.com');
-                const isBoomkat = urlObj.hostname.includes('boomkat.com');
-                const isJuno = urlObj.hostname.includes('junodownload.com');
-                const isTraxsource = urlObj.hostname.includes('traxsource.com');
-                const isDiscogs = urlObj.hostname.includes('discogs.com');
-                const isQobuz = urlObj.hostname.includes('qobuz.com');
-                const isPresto = urlObj.hostname.includes('prestomusic.com');
+                const is7Digital      = urlObj.hostname.includes('7digital.com');
+                const isBoomkat       = urlObj.hostname.includes('boomkat.com');
+                const isJuno          = urlObj.hostname.includes('junodownload.com');
+                const isTraxsource    = urlObj.hostname.includes('traxsource.com');
+                const isBeatport      = urlObj.hostname.includes('beatport.com');
+                const isBandcamp      = urlObj.hostname.includes('bandcamp.com');
+                const isAppleMusic    = urlObj.hostname.includes('music.apple.com');
+                const isBleep         = urlObj.hostname.includes('bleep.com');
+                const isEClassical    = urlObj.hostname.includes('eclassical.com');
+                const isHDtracks      = urlObj.hostname.includes('hdtracks.com');
+                const isHighResAudio  = urlObj.hostname.includes('highresaudio.com');
+                const isKompakt       = urlObj.hostname.includes('kompakt.fm');
+                const isMora          = urlObj.hostname.includes('mora.jp');
+                const isNativeDSD     = urlObj.hostname.includes('nativedsd.com');
+                const isOtotoy        = urlObj.hostname.includes('ototoy.jp');
+                const isProStudio     = urlObj.hostname.includes('prostudiomasters.com');
+                const isDiscogs       = urlObj.hostname.includes('discogs.com');
+                const isQobuz         = urlObj.hostname.includes('qobuz.com');
+                const isPresto        = urlObj.hostname.includes('prestomusic.com');
 
                 const headers = {
                     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
@@ -4307,7 +4591,11 @@
                                 return;
                             }
                             if (response.status === 403) {
-                                if (isJuno || isBoomkat || isTraxsource) {
+                                if (isJuno || isBoomkat || isTraxsource || isBeatport ||
+                                    is7Digital || isBandcamp || isAppleMusic || isBleep ||
+                                    isEClassical || isHDtracks || isHighResAudio || isKompakt ||
+                                    isMora || isNativeDSD || isOtotoy || isProStudio ||
+                                    isQobuz || isPresto) {
                                     reject(new Error(wiAntiBotError(url)));
                                     return;
                                 }
@@ -5018,6 +5306,14 @@
         return segments.map(p => p.replace(/^[,\s]+|[,\s]+$/g, '')).filter(Boolean);
     }
     const COMPOUND_ROLE_EXPANSIONS = new Map([
+        ['analog manipulation',        [{ official: 'Other', bracket: 'Analog Manipulation' }]],
+        ['analogue manipulation',      [{ official: 'Other', bracket: 'Analog Manipulation' }]],
+        ['digital manipulation',       [{ official: 'Other', bracket: 'Digital Manipulation' }]],
+        ['manipulation',               [{ official: 'Other', bracket: 'Manipulation' }]],
+        ['manipulated',               [{ official: 'Other', bracket: 'Manipulated' }]],
+        ['original photo',             [{ official: 'Photography By', bracket: 'Original Photo' }]],
+        ['original photograph',        [{ official: 'Photography By', bracket: 'Original Photo' }]],
+        ['original photography',       [{ official: 'Photography By', bracket: 'Original Photo' }]],
         ['cover layout',              ['Cover', 'Layout']],
         ['cover design',              ['Cover', 'Design']],
         ['cover layout design',       ['Cover', 'Layout', 'Design']],
@@ -5109,6 +5405,7 @@
     }
     function normalizeCreditRole(raw) {
         let s = raw.trim();
+        s = s.replace(/^:\s*/, '');
         s = s.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '').trim();
         s = s.replace(/^['"\u2018\u2019\u201c\u201d][^'"\u2018\u2019\u201c\u201d]*['"\u2018\u2019\u201c\u201d]\s*/g, '');
         s = s.replace(/\s+on\s+['"\u2018\u2019\u201c\u201d][^'"\u2018\u2019\u201c\u201d]*['"\u2018\u2019\u201c\u201d]/gi, '');
@@ -5202,7 +5499,8 @@
             || (official === 'Instruments' && /^all\s+instruments?(?:\s+by)?$/i.test(s));
         const strippedPrefix = sStripped !== s;
         const _origPrefixM = s.match(/^(original(?:ly)?)\s+/i);
-        const hadOriginalPrefix    = !!_origPrefixM || hadOriginalSuffix;
+        const hadOriginalPrefix    = !!_origPrefixM || hadOriginalSuffix
+            || (strippedPrefix && /\boriginal\b/i.test(s.slice(0, s.length - sStripped.length)));
         const _origWord = (_origPrefixM?.[1] || _origSuffixM?.[1] || 'Original');
         const _origBracket = _origWord.charAt(0).toUpperCase() + _origWord.slice(1).toLowerCase();
         const hadAdditionalPrefix  = /^additional\s+/i.test(s);
@@ -5504,7 +5802,7 @@
             });
 
             const splitNameClauses = (namePart) => {
-                const _roleWordRe2 = /\b(?:lyrics?|vocals?|voices?|music|mix(?:ed|ing)?|master(?:ed|ing)?|produc(?:ed|tion|ing)?|record(?:ed|ing)?|engineer(?:ed|ing)?|arrang(?:ed|ing|ement)?|programm(?:ed|ing)?|additional|backing|lead|performed|composed|written|artwork|design|photogr|illustr|remix(?:ed)?|editing)\b/i;
+                const _roleWordRe2 = /\b(?:lyrics?|vocals?|voices?|music|mix(?:ed|ing)?|master(?:ed|ing)?|produc(?:ed|tion|ing)?|record(?:ed|ing)?|engineer(?:ed|ing)?|arrang(?:ed|ing|ement)?|programm(?:ed|ing)?|additional|backing|lead|performed|composed|written|artwork|design|photogr\w*|illustr\w*|remix(?:ed)?|editing|manipulat\w*)\b/i;
 
                 let bestSplitPos = -1, bestSplitAfter = null;
 
@@ -5527,6 +5825,20 @@
                                     bestSplitPos   = _i;
                                     bestSplitAfter = _after;
                                     break;
+                                }
+                            }
+                        }
+                    } else if (/[-\u2013\u2014]/.test(_ch) && _depth === 0) {
+                        const _afterDash = namePart.slice(_i + 1).replace(/^\s*/, '');
+                        const _byM = _afterDash.match(/\bby\b/i);
+                        if (_byM && _byM.index > 0) {
+                            const _pure = _afterDash.slice(0, _byM.index).trim();
+                            if (_roleWordRe2.test(_pure)) {
+                                const _capWords = (_pure.match(/\b([A-Z][a-zA-ZÀ-ÿ]{1,})\b/g) || []);
+                                const _nonRoleCaps = _capWords.filter(w => !_roleWordRe2.test(w));
+                                if (!_nonRoleCaps.length && (bestSplitPos < 0 || _i < bestSplitPos)) {
+                                    bestSplitPos   = _i;
+                                    bestSplitAfter = _afterDash;
                                 }
                             }
                         }
@@ -5632,6 +5944,8 @@
                 if (_titleColonM) {
                     const _titleNoParen = _titleColonM[1].trim().replace(/\s*\([^)]*\)/g, '').trim();
                     if (!parseRoles(_titleNoParen).length) {
+                        currentRoles = _titleColonM[2];
+                    } else if (parseRoles(_titleColonM[2].trim()).length) {
                         currentRoles = _titleColonM[2];
                     }
                 }
@@ -7619,6 +7933,8 @@
         const previewEl = overlay.querySelector('#dh-wi-preview');
         const urlInput  = overlay.querySelector('#dh-wi-url');
         const cancelBtn = overlay.querySelector('#dh-wi-cancel');
+        const closeBtn  = overlay.querySelector('#dh-wi-close');
+        const titleEl   = overlay.querySelector('.dh-wi-header strong');
         const header    = overlay.querySelector('.dh-wi-header');
         const footer    = overlay.querySelector('.dh-wi-footer');
         if (isDark) {
@@ -7630,6 +7946,8 @@
             if (urlInput)  { urlInput.style.background = '#1a1c1f'; urlInput.style.color = '#ddd'; urlInput.style.borderColor = '#333'; }
             if (previewEl) { previewEl.style.background = '#1a1c1f'; previewEl.style.borderColor = '#333'; }
             if (cancelBtn) { cancelBtn.style.background = '#1f2224'; cancelBtn.style.color = '#ddd'; cancelBtn.style.borderColor = '#333'; }
+            if (closeBtn)  closeBtn.style.color = '#ddd';
+            if (titleEl)   titleEl.style.color  = '#eee';
         } else {
             overlay.style.background  = '#fff';
             overlay.style.color       = '#111';
@@ -7639,6 +7957,8 @@
             if (urlInput)  { urlInput.style.background = '#fff'; urlInput.style.color = '#222'; urlInput.style.borderColor = '#ccc'; }
             if (previewEl) { previewEl.style.background = '#f8f9fa'; previewEl.style.borderColor = '#e0e0e0'; }
             if (cancelBtn) { cancelBtn.style.background = '#f1f3f5'; cancelBtn.style.color = '#111'; cancelBtn.style.borderColor = '#ccc'; }
+            if (closeBtn)  closeBtn.style.color = '#555';
+            if (titleEl)   titleEl.style.color  = '#111';
         }
     }
 
@@ -8217,12 +8537,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                     const urlLine = 'Metadata imported with Discogs Edit Helper.\nRelease URL: ' + sourceUrl;
                     const existing = snEl.value.replace(/Metadata imported with Discogs Edit Helper\.\n?Release URL:.*$/m, '').trimEnd();
                     const newVal = existing ? existing + '\n' + urlLine : urlLine;
-                    const _isExt = !!(typeof chrome !== 'undefined' && chrome.runtime?.id) || !!(typeof browser !== 'undefined' && browser.runtime?.id);
-                    if (_isExt) {
-                        dehBridgePostMessage('set_textarea', { selector: '#release-submission-notes-textarea', value: newVal });
-                    } else {
-                        wiSetTextareaValue(snEl, newVal);
-                    }
+                    wiSetTextareaValue(snEl, newVal);
                     log('Submission Notes: release URL added', 'success');
                 } else {
                     log('Submission Notes: textarea not found', 'warning');
@@ -8381,25 +8696,24 @@ wiIsAntiBotPage(html)) {
             box-sizing: border-box;
         `;
         overlay.innerHTML = `
-            <div class="dh-wi-header" style="display:flex; align-items:center; justify-content:space-between; padding:5px 8px 6px; border-bottom:1px solid rgba(0,0,0,0.09); flex-shrink:0; gap:6px;">
-                <div id="dh-wi-mode-wrap" style="display:flex; align-items:center; gap:5px; min-width:0;">
-                    <span style="font-size:13px; user-select:none;">🌐</span>
-                    <span style="font-size:12px; font-weight:600; padding:0 2px; white-space:nowrap; user-select:none;">Web Import</span>
-                    <span id="dh-wi-supported-stores" title="Supported Stores:&#10;7digital&#10;Apple Music&#10;Bandcamp&#10;Beatport&#10;Bleep&#10;Boomkat&#10;eClassical&#10;HDtracks&#10;HighResAudio&#10;Juno Download&#10;Kompakt&#10;Mora&#10;NativeDSD&#10;OTOTOY&#10;Presto Music&#10;ProStudioMasters&#10;Qobuz&#10;Traxsource" style="font-size:10px; color:#888; cursor:default; white-space:nowrap; user-select:none;">Supported Stores</span>
+            <div class="dh-wi-header" style="display:flex; align-items:center; justify-content:space-between; padding:5px 8px 7px; border-bottom:1px solid rgba(0,0,0,0.09); flex-shrink:0; gap:6px;">
+                <div id="dh-wi-mode-wrap" style="display:flex; align-items:center; gap:6px; min-width:0;">
+                    <strong style="font-size:13px; font-weight:600; color:#111; user-select:none; -webkit-user-select:none; cursor:default; white-space:nowrap; letter-spacing:0.01em; flex-shrink:0;"><span style="font-weight:normal; margin-right:4px;">🌐</span>Web Import</strong>
+                    <span id="dh-wi-supported-stores" title="Supported Stores:&#10;7digital&#10;Apple Music&#10;Bandcamp&#10;Beatport&#10;Bleep&#10;Boomkat&#10;eClassical&#10;HDtracks&#10;HighResAudio&#10;Juno Download&#10;Kompakt&#10;Mora&#10;NativeDSD&#10;OTOTOY&#10;Presto Music&#10;ProStudioMasters&#10;Qobuz&#10;Traxsource" style="font-size:10px; color:#888; cursor:default; white-space:nowrap; user-select:none; flex-shrink:0;">Supported Stores</span>
                 </div>
-                <button id="dh-wi-close" style="background:none; border:none; cursor:pointer; font-size:13px; padding:1px 4px; line-height:1; flex-shrink:0; opacity:0.65;">✕</button>
+                <button id="dh-wi-close" style="background:none; border:none; cursor:pointer; font-size:13px; padding:1px 4px; line-height:1; flex-shrink:0; opacity:0.65; color:#555;">✕</button>
             </div>
-            <div style="padding:8px 10px 4px; flex-shrink:0;">
-                <input type="text" id="dh-wi-url" placeholder="Paste store URL (Bandcamp, Beatport, Qobuz, etc.) or Discogs URL for credits import" style="width:100%; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:5px 7px; box-sizing:border-box; outline:none;">
+            <div style="padding:6px 10px 6px; flex-shrink:0;">
+                <input type="text" id="dh-wi-url" placeholder="Paste store URL (Bandcamp, Beatport, Qobuz, etc.) or Discogs URL for credits import" style="width:100%; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:5px 7px; box-sizing:border-box; box-shadow:none;">
             </div>
             <div id="dh-wi-preview" style="flex:1; overflow-y:auto; margin:0 10px 6px; padding:6px 8px; background:#f8f9fa; border:1px solid #e0e0e0; border-radius:4px; font-size:11px; display:none; min-height:60px; box-sizing:border-box;"></div>
-            <div class="dh-wi-footer" style="display:flex; gap:6px; padding:7px 10px 8px; border-top:1px solid rgba(0,0,0,0.07); flex-shrink:0;">
-                <button id="dh-wi-fetch"  style="flex:2; height:30px; background:#1a6fbf; color:#fff; border:none; border-radius:5px; cursor:pointer; font-size:12px; font-weight:600;">Fetch</button>
-                <div id="dh-wi-apply-wrap" style="flex:2; display:flex; height:30px; opacity:0.45; pointer-events:none;">
-                    <button id="dh-wi-apply"  style="flex:1; height:30px; background:#28a745; color:#fff; border:none; border-radius:5px 0 0 5px; cursor:pointer; font-size:12px; font-weight:600; padding:0 8px;">Apply</button>
-                    <button id="dh-wi-apply-arrow" style="width:22px; height:30px; background:#28a745; color:#fff; border:none; border-left:1px solid rgba(255,255,255,0.25); border-radius:0 5px 5px 0; cursor:pointer; font-size:9px; padding:0; flex-shrink:0;">▾</button>
+            <div class="dh-wi-footer" style="display:flex; align-items:center; gap:6px; padding:7px 10px 8px; border-top:1px solid rgba(0,0,0,0.07); flex-shrink:0;">
+                <button id="dh-wi-fetch"  style="flex:2; height:34px; background:#1a6fbf; color:#fff; border:1px solid transparent; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600; box-sizing:border-box;">Fetch</button>
+                <div id="dh-wi-apply-wrap" style="flex:2; display:flex; height:34px; opacity:0.45; pointer-events:none;">
+                    <button id="dh-wi-apply"  style="flex:1; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-radius:5px 0 0 5px; cursor:pointer; font-size:13px; font-weight:600; padding:0 8px; box-sizing:border-box;">Apply</button>
+                    <button id="dh-wi-apply-arrow" style="width:24px; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-left:1px solid rgba(255,255,255,0.25); border-radius:0 5px 5px 0; cursor:pointer; font-size:10px; padding:0; flex-shrink:0; box-sizing:border-box;"><span style="pointer-events:none; user-select:none;">▾</span></button>
                 </div>
-                <button id="dh-wi-cancel" style="flex:1; height:30px; background:#f1f3f5; color:#111; border:1px solid #ccc; border-radius:5px; cursor:pointer; font-size:12px;">Cancel</button>
+                <button id="dh-wi-cancel" style="flex:1; height:34px; background:#f1f3f5; color:#111; border:1px solid #ccc; border-radius:5px; cursor:pointer; font-size:13px; box-sizing:border-box;">Cancel</button>
             </div>
         `;
         document.body.appendChild(overlay);
@@ -8438,6 +8752,12 @@ wiIsAntiBotPage(html)) {
                     title: 'Apply without normalizing capitalization',
                     disabled: false,
                     onClick: () => { _noCapMode = true; if (_isDiscogsUrl(urlInput.value)) _discogsApply(); else _storeApply(); }
+                },
+                {
+                    label: 'Durations Only',
+                    title: 'Import only track durations, skipping all other fields',
+                    disabled: isDiscogsImport,
+                    onClick: () => { _durationsOnlyMode = true; if (_isDiscogsUrl(urlInput.value)) _discogsApply(); else _storeApply(); }
                 },
                 {
                     label: 'Credits Only',
@@ -8509,6 +8829,7 @@ wiIsAntiBotPage(html)) {
 
         let _noCapMode = false;
         let _creditsOnlyMode = false;
+        let _durationsOnlyMode = false;
         const _noCapFields = { albumArtists: false, albumTitle: false, label: false, vaArtists: false, trackTitles: false, joiners: false, creditNames: false, trackCredits: false };
 
         const supportedSpan = overlay.querySelector('#dh-wi-supported-stores');
@@ -8543,7 +8864,7 @@ wiIsAntiBotPage(html)) {
                     ? `<img id="dh-wi-cover-img" src="${PLACEHOLDER}" style="width:56px;height:56px;object-fit:cover;border-radius:3px;flex-shrink:0;border:1px solid rgba(0,0,0,0.08);pointer-events:none;user-select:none;">`
                     : '';
                 const _previewIsVA = wiDetectVA(fetchedData);
-                const trackRows = fetchedData.tracks.map(t => { const ta = _previewIsVA ? (t.artists?.join(', ') || t.trackArtist || '') : ''; return `<div style="padding:1px 0;border-bottom:1px solid rgba(0,0,0,0.05);white-space:nowrap;"><span style="color:#888;min-width:9px;display:inline-block;">${esc(t.position)}</span> ${ta ? esc(ta) + ' – ' : ''}${esc(t.title)}${t.duration ? '<span style="color:#aaa;"> ' + esc(t.duration) + '</span>' : ''}</div>`; }).join('');
+                const trackRows = fetchedData.tracks.map(t => { const ta = _previewIsVA ? (t.artists?.join(', ') || t.trackArtist || '') : ''; return `<div style="padding:0 0 1px;border-bottom:1px solid rgba(0,0,0,0.04);white-space:nowrap;"><span style="color:#888;min-width:9px;display:inline-block;">${esc(t.position)}</span> ${ta ? esc(ta) + ' – ' : ''}${esc(t.title)}${t.duration ? '<span style="color:#aaa;"> ' + esc(t.duration) + '</span>' : ''}</div>`; }).join('');
                 if (fetchedData.tracks.length === 0) {
                     previewEl.innerHTML = `<span style="color:#dc3545;">${wiAntiBotError(urlInput.value.trim()).replace(/\n/g, '<br>')}</span>`;
                 } else {
@@ -8556,7 +8877,7 @@ wiIsAntiBotPage(html)) {
                                 <div style="color:#888;font-size:10px;">${fetchedData.tracks.length} track${fetchedData.tracks.length !== 1 ? 's' : ''} · ${esc(fetchedData.storeName)}</div>
                             </div>
                         </div>
-                        <div style="max-height:160px;overflow:auto;font-size:10px;">${trackRows}</div>
+                        <div style="max-height:160px;overflow:auto;font-size:10px;"><div style="display:inline-block;min-width:100%;box-sizing:border-box;">${trackRows}</div></div>
                     `;
                     applyBtn.disabled = false; applyWrap.style.opacity = '1'; applyWrap.style.pointerEvents = 'auto';
                 }
@@ -8616,6 +8937,43 @@ wiIsAntiBotPage(html)) {
                         setInfoSingleLine('No credits found', false);
                     }
                     _outerShield.restoreAll();
+                } else if (_durationsOnlyMode) {
+                    const DUR_SEL = 'td.subform_track_duration input, input[aria-label*="duration" i]';
+                    const tracksWithDur = (fetchedData.tracks || []).filter(t => t.duration);
+                    if (!tracksWithDur.length) {
+                        log('No durations found in fetched data', 'info');
+                        setInfoSingleLine('No durations found', false);
+                        _outerShield.restoreAll();
+                    } else {
+                        const trackRows = getTrackInputRows();
+                        let filled = 0;
+                        const changes = [];
+                        const matchedPositions = new Set();
+                        for (const row of trackRows) {
+                            const posInput = row.querySelector('input.track-number-input');
+                            const pos = posInput?.value?.trim().toLowerCase();
+                            if (!pos) continue;
+                            const match = tracksWithDur.find(t => trimLeadingZeros(t.position || '').toLowerCase() === pos);
+                            if (!match) continue;
+                            const durInput = row.querySelector(DUR_SEL);
+                            if (!durInput) continue;
+                            const oldDuration = durInput.value || '';
+                            setReactValue(durInput, trimLeadingZeros(match.duration));
+                            filled++;
+                            matchedPositions.add(pos);
+                            changes.push({ durationInput: durInput, oldDuration });
+                        }
+                        if (changes.length > 0) addActionToHistory({ type: 'missingDurationImport', changes });
+                        const s = filled !== 1 ? 's' : '';
+                        if (filled > 0) {
+                            log(`Done! Imported ${filled} duration${s}: ${[...matchedPositions].join(', ')} from ${fetchedData.storeName}`, 'success');
+                            setInfoSingleLine(`Done! Imported ${filled} duration${s}`, true);
+                        } else {
+                            log('No matching track positions found', 'warning');
+                            setInfoSingleLine('No matching positions found', false);
+                        }
+                        _outerShield.restoreAll();
+                    }
                 } else {
                     if (fetchedData.tags && fetchedData.tags.length > 0) log(`Bandcamp tags: ${fetchedData.tags.join(', ')}`, 'info');
                     if (state.actionHistory.some(a => a.type === 'webImport')) {
@@ -8626,7 +8984,7 @@ wiIsAntiBotPage(html)) {
                     await wiApplyRelease(fetchedData, urlInput.value.trim(), _outerShield);
                 }
             } catch(e) { log('Apply error: ' + e.message, 'error'); _outerShield.restoreAll(); }
-            finally { if (_savedCap) state.capitalizeFields = _savedCap; _noCapMode = false; _creditsOnlyMode = false; }
+            finally { if (_savedCap) state.capitalizeFields = _savedCap; _noCapMode = false; _creditsOnlyMode = false; _durationsOnlyMode = false; }
             await clearInfoProcessing();
         };
 
@@ -8690,6 +9048,7 @@ wiIsAntiBotPage(html)) {
                 if (_savedCap) state.capitalizeFields = _savedCap;
                 _noCapMode = false;
                 _creditsOnlyMode = false;
+                _durationsOnlyMode = false;
             }
             await clearInfoProcessing();
         };
@@ -8737,32 +9096,56 @@ wiIsAntiBotPage(html)) {
         `;
         overlay.innerHTML = `
             <div style="display:flex; align-items:center; justify-content:space-between; padding:5px 8px 6px; border-bottom:1px solid rgba(0,0,0,0.09); gap:6px;">
-                <div style="display:flex; align-items:baseline; gap:6px; min-width:0;">
-                    <strong style="font-size:13px; user-select:none; -webkit-user-select:none; cursor:default; white-space:nowrap; letter-spacing:0.01em;">📝 Tracklist Import</strong>
-                    <span style="font-size:10px; color:#555; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; user-select:none; -webkit-user-select:none; pointer-events:none;">Positions and durations will be auto-detected.</span>
+                <strong style="font-size:13px; font-weight:600; color:#111; user-select:none; -webkit-user-select:none; cursor:default; white-space:nowrap; letter-spacing:0.01em; flex-shrink:0;"><span style="font-weight:normal; margin-right:4px;">📝</span>Tracklist Import</strong>
+                <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+                    <button id="dh-missing-artist-toggle" title="Missing Artists Mode: fill in track-level artists only" style="background:none; border:1px solid #ccc; border-radius:4px; cursor:pointer; font-size:11px; padding:2px 6px; line-height:1.4; white-space:nowrap; opacity:0.75;">👤 Missing Artists</button>
+                    <button id="dh-missing-duration-toggle" title="Missing Durations Mode: fill in durations only" style="background:none; border:1px solid #ccc; border-radius:4px; cursor:pointer; font-size:11px; padding:2px 6px; line-height:1.4; white-space:nowrap; opacity:0.75;">⏱ Missing Durations</button>
+                    <button id="dh-importer-close" title="Close" style="background:none; border:none; cursor:pointer; font-size:13px; padding:1px 4px; line-height:1; flex-shrink:0; opacity:0.65; color:#555;">✕</button>
                 </div>
-                <button id="dh-importer-close" title="Close" style="background:none; border:none; cursor:pointer; font-size:13px; padding:1px 4px; line-height:1; flex-shrink:0; opacity:0.65;">✕</button>
             </div>
             <div style="padding:7px 7px 0;">
-                <textarea id="dh-importer-textarea" placeholder="Recommended tracklist formatting patterns:
-1 - Artist - Track Title 03:45
-02. Artist — Track Title 40:01
-03) Artist - Track Title 3:18
-[A4] - Track Title [0:04:15]
-(B5) Track Title (00:07:38)
-1-6 - Track Title 01:17:19
-Track Title 10:06:21
-etc" style="width:100%; height:${textareaHeight}px; font-size:12px; font-family:monospace; border:1px solid #ccc; border-radius:4px; padding:6px; box-sizing:border-box; resize:vertical;"></textarea>
+                <textarea id="dh-importer-textarea" placeholder="" style="width:100%; height:${textareaHeight}px; font-size:12px; font-family:monospace; border:1px solid #ccc; border-radius:4px; padding:6px; box-sizing:border-box; resize:vertical;"></textarea>
             </div>
-            <div style="display:flex; gap:6px; padding:7px 7px 7px;">
-                <button id="dh-importer-confirm" style="flex:1; height:32px; background:#28a745; color:#fff; border:none; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600;">Confirm</button>
-                <button id="dh-importer-cancel" style="flex:1; height:32px; background:#f1f3f5; color:#111; border:1px solid #ccc; border-radius:5px; cursor:pointer; font-size:13px;">Cancel</button>
+            <div style="display:flex; align-items:center; gap:6px; padding:7px 7px 7px;">
+                <button id="dh-importer-confirm" style="flex:1; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600; box-sizing:border-box;">Apply</button>
+                <button id="dh-importer-cancel" style="flex:1; height:34px; background:#f1f3f5; color:#111; border:1px solid #ccc; border-radius:5px; cursor:pointer; font-size:13px; box-sizing:border-box;">Cancel</button>
             </div>
         `;
         document.body.appendChild(overlay);
         _applyThemeToImporterOverlay(overlay, localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark');
         const textarea = document.getElementById('dh-importer-textarea');
         textarea.value = state.importerText;
+        const NORMAL_PLACEHOLDER = `Positions and durations will be auto-detected.\nRecommended tracklist formatting patterns:\n1 - Artist - Track Title 03:45\n02. Artist — Track Title 40:01\n03) Artist - Track Title 3:18\n[A4] - Track Title [0:04:15]\n(B5) Track Title (00:07:38)\n1-6 - Track Title 01:17:19\nTrack Title 10:06:21\netc`;
+        const MISSING_ARTIST_PLACEHOLDER = `Four modes — auto-detected:\n1) Single artist (fills all tracks where artist is missing):\nArtist\n2) From tracklist (matches by position):\n1 - Artist - Track Title 3:45\n3) Per-position (position + artist, matches by position):\n1 Artist\n4) Line-by-line (each line = track row, blank line = skip):\nArtist One\nArtist Two`;
+        const MISSING_DURATION_PLACEHOLDER = `Three modes — auto-detected:\n1) From tracklist (matches by position):\n1 - Track Title 3:45\n2) Per-position (position + duration, matches by position):\n1 3:45\n3) Line-by-line (each line = track row, blank line = skip):\n3:45\n\n4:20`;
+        function updateToggleStyle() {
+            const isDark = localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
+            const btnA = document.getElementById('dh-missing-artist-toggle');
+            const btnD = document.getElementById('dh-missing-duration-toggle');
+            const applyBtn = (btn, active) => {
+                if (!btn) return;
+                btn.style.opacity     = active ? '1' : '0.75';
+                btn.style.background  = active ? '#0d6efd' : 'none';
+                btn.style.color       = active ? '#fff' : (isDark ? '#bbb' : '');
+                btn.style.borderColor = active ? '#0d6efd' : (isDark ? '#555' : '#ccc');
+            };
+            applyBtn(btnA, state.importerMissingArtistMode);
+            applyBtn(btnD, state.importerMissingDurationMode);
+            if (state.importerMissingArtistMode)       textarea.placeholder = MISSING_ARTIST_PLACEHOLDER;
+            else if (state.importerMissingDurationMode) textarea.placeholder = MISSING_DURATION_PLACEHOLDER;
+            else                                        textarea.placeholder = NORMAL_PLACEHOLDER;
+        }
+        updateToggleStyle();
+        document.getElementById('dh-missing-artist-toggle').onclick = () => {
+            state.importerMissingArtistMode   = !state.importerMissingArtistMode;
+            if (state.importerMissingArtistMode) state.importerMissingDurationMode = false;
+            updateToggleStyle();
+        };
+        document.getElementById('dh-missing-duration-toggle').onclick = () => {
+            state.importerMissingDurationMode   = !state.importerMissingDurationMode;
+            if (state.importerMissingDurationMode) state.importerMissingArtistMode = false;
+            updateToggleStyle();
+        };
         function normalizeTracklistText(raw) {
             const lines = raw.split('\n').map(l => l.replace(/\t/g, ' ').trim()).filter(l => l.length > 0);
             const out = [];
@@ -8810,10 +9193,18 @@ etc" style="width:100%; height:${textareaHeight}px; font-size:12px; font-family:
         document.getElementById('dh-importer-confirm').onclick = async () => {
             state.importerText = textarea.value;
             overlay.style.display = 'none';
-            const parsed = parseTracklist(state.importerText);
-            if (!parsed.length) { log('Nothing to import — no tracks detected', 'warning'); setInfoSingleLine('Nothing to import', false); return; }
-            log(`Importing ${parsed.length} ${parsed.length === 1 ? 'track' : 'tracks'}...`);
-            await applyTracklist(parsed);
+            if (state.importerMissingArtistMode) {
+                if (!state.importerText.trim()) { log('Nothing to import — no artist data entered', 'warning'); return; }
+                await applyMissingArtists(state.importerText);
+            } else if (state.importerMissingDurationMode) {
+                if (!state.importerText.trim()) { log('Nothing to import — no duration data entered', 'warning'); return; }
+                await applyMissingDurations(state.importerText);
+            } else {
+                const parsed = parseTracklist(state.importerText);
+                if (!parsed.length) { log('Nothing to import — no tracks detected', 'warning'); setInfoSingleLine('Nothing to import', false); return; }
+                log(`Importing ${parsed.length} ${parsed.length === 1 ? 'track' : 'tracks'}...`);
+                await applyTracklist(parsed);
+            }
         };
         overlay.addEventListener('mousemove', resetHideTimer);
         overlay.addEventListener('click', resetHideTimer);
@@ -9366,18 +9757,6 @@ etc" style="width:100%; height:${textareaHeight}px; font-size:12px; font-family:
             state.isCollapsed = true;
         }
     }
-
-    (function injectBridge() {
-        const runtimeId = (typeof chrome !== 'undefined' && chrome.runtime?.id)
-            || (typeof browser !== 'undefined' && browser.runtime?.id);
-        if (!runtimeId) return;
-        const api = (typeof browser !== 'undefined') ? browser : chrome;
-        const bridgeUrl = api.runtime.getURL('page_bridge.js');
-        const s = document.createElement('script');
-        s.src = bridgeUrl;
-        document.documentElement.appendChild(s);
-        s.remove();
-    })();
 
     setTimeout(() => {
         initializeState();
