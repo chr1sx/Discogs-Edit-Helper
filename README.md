@@ -18,8 +18,8 @@ extracts info from titles and assigns data to the appropriate fields*
 
 ## Features
 
-- **🌐 Web Store Import** - Imports metadata from a web store, supported stores:  
-*7digital, Apple Music, Bandcamp, Beatport, Bleep, Boomkat, eClassical, HDtracks, HighResAudio,*  
+- **🌐 Web Store Import** - Fetch and populate release metadata and artwork from major digital platforms by pasting a URL.
+**Supported stores:** *7digital, Apple Music, Bandcamp, Beatport, Bleep, Boomkat, eClassical, HDtracks, HighResAudio,*  
 *Juno Download, Kompakt, Mora, NativeDSD, OTOTOY, Presto Music, ProStudioMasters, Qobuz, Traxsource.*
 - **📝 Tracklist Import** - Paste a tracklist in plain text and automatically populate positions, titles, and durations
 - **🔠 Capitalization** - Capitalizes artists, joiners and titles (including Unicode / non-Latin)
