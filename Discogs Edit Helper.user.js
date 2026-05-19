@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      1.6.1
+// @version      1.6.2
 // @description  Imports metadata from web stores and plain-text tracklists, extracts info from titles and assigns data to the appropriate fields
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
@@ -9206,7 +9206,7 @@ wiIsAntiBotPage(html)) {
                 <strong style="font-size:13px; font-weight:600; color:#111; user-select:none; -webkit-user-select:none; cursor:default; white-space:nowrap; letter-spacing:0.01em; flex-shrink:0;"><span style="font-weight:normal; margin-right:4px;">📝</span>Tracklist Import</strong>
                 <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
                     <button id="dh-missing-artist-toggle" title="Missing Artists Mode: fill in track-level artists only" style="background:none; border:1px solid #ccc; border-radius:4px; cursor:pointer; font-size:11px; padding:2px 6px; line-height:1.4; white-space:nowrap; opacity:0.75;">👤 Missing Artists</button>
-                    <button id="dh-missing-duration-toggle" title="Missing Durations Mode: fill in durations only" style="background:none; border:1px solid #ccc; border-radius:4px; cursor:pointer; font-size:11px; padding:2px 6px; line-height:1.4; white-space:nowrap; opacity:0.75;">⏱ Missing Durations</button>
+                    <button id="dh-missing-duration-toggle" title="Missing Durations Mode: fill in durations only" style="background:none; border:1px solid #ccc; border-radius:4px; cursor:pointer; font-size:11px; padding:2px 6px; line-height:1.4; white-space:nowrap; opacity:0.75;">🕛 Missing Durations</button>
                     <button id="dh-importer-close" title="Close" style="background:none; border:none; cursor:pointer; font-size:13px; padding:1px 4px; line-height:1; flex-shrink:0; opacity:0.65; color:#555;">✕</button>
                 </div>
             </div>
