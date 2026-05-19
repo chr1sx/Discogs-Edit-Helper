@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      1.6
+// @version      1.6.1
 // @description  Imports metadata from web stores and plain-text tracklists, extracts info from titles and assigns data to the appropriate fields
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
@@ -1864,6 +1864,87 @@
         }
     }
 
+    async function cleanTitlesCustom(pattern) {
+        await setInfoProcessing();
+        const trackRows = await getTrackRowsOrBail();
+        if (!trackRows) return;
+        const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const re = new RegExp('(?<![\\w\u00C0-\u024F])' + escaped + '(?![\\w\u00C0-\u024F])', 'gi');
+        const changes = [];
+        let processed = 0;
+        for (let i = 0; i < trackRows.length; i++) {
+            const row = trackRows[i];
+            const titleInput = row.querySelector('input[data-type="track-title"], input[id*="track-title"]');
+            if (!titleInput) continue;
+            const original = (titleInput.value || '').trim();
+            if (!original) continue;
+            const cleaned = original.replace(re, '').replace(/\s{2,}/g, ' ').trim();
+            if (cleaned !== original) {
+                setReactValue(titleInput, cleaned);
+                changes.push({ titleInput, oldTitle: original, newTitle: cleaned });
+                processed++;
+            }
+        }
+        if (changes.length > 0) addActionToHistory({ type: 'cleanTitles', changes });
+        await clearInfoProcessing();
+        const plural = processed !== 1 ? 's' : '';
+        if (processed > 0) { setInfoSingleLine(`Done! Cleaned ${processed} title${plural}`, true); log(`Done! Cleaned ${processed} title${plural}`, 'success'); }
+        else { setInfoSingleLine('No matches found', false); log('No matches found', 'info'); }
+    }
+
+    function openCleanTitlesCustomOverlay() {
+        const existing = document.getElementById('dh-ct-custom-overlay');
+        if (existing) { existing.querySelector('#dh-ct-custom-input')?.focus(); return; }
+        const panel = document.getElementById('helper-panel');
+        const panelRect = panel ? panel.getBoundingClientRect() : { top: 165, right: window.innerWidth - 20, width: 255 };
+        const isDark = localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
+        const overlay = document.createElement('div');
+        overlay.id = 'dh-ct-custom-overlay';
+        overlay.style.cssText = [
+            'position:fixed',
+            `top:${panelRect.top - 1}px`,
+            `right:${window.innerWidth - panelRect.right}px`,
+            `width:${panelRect.width + 100}px`,
+            `background:${isDark ? '#17191c' : '#fff'}`,
+            `border:1px solid ${isDark ? '#333' : '#ccc'}`,
+            'border-radius:8px',
+            'box-shadow:0 4px 12px rgba(0,0,0,0.08)',
+            'z-index:10001',
+            'display:flex',
+            'flex-direction:column',
+            'font-family:Arial,sans-serif',
+            'box-sizing:border-box',
+        ].join(';');
+        overlay.innerHTML = [
+            `<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 8px 7px;border-bottom:1px solid ${isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.09)'};flex-shrink:0;">`,
+            `<strong style="font-size:13px;font-weight:600;color:${isDark ? '#ddd' : '#111'};user-select:none;-webkit-user-select:none;cursor:default;white-space:nowrap;letter-spacing:0.01em;"><span style="font-weight:normal;margin-right:4px;">✂️</span>Custom Text Removal</strong>`,
+            `<button id="dh-ct-close" style="background:none;border:none;cursor:pointer;font-size:13px;padding:1px 4px;opacity:0.65;color:${isDark ? '#aaa' : '#555'};">✕</button>`,
+            '</div>',
+            '<div style="padding:6px 10px 7px;flex-shrink:0;">',
+            `<input type="text" id="dh-ct-custom-input" placeholder="Enter text to remove from track titles (including outside brackets)" style="width:100%;font-size:11px;border:1px solid ${isDark ? '#333' : '#ccc'};border-radius:4px;padding:5px 7px;box-sizing:border-box;background:${isDark ? '#1a1c1f' : '#fff'};color:${isDark ? '#ddd' : '#222'};">`,
+            '</div>',
+            `<div style="display:flex;align-items:center;gap:6px;padding:7px 10px 8px;border-top:1px solid ${isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)'};flex-shrink:0;">`,
+            '<button id="dh-ct-apply" style="flex:1;background:#28a745;color:#fff;border:1px solid transparent;border-radius:5px;padding:0;height:34px;box-sizing:border-box;font-size:12px;cursor:pointer;font-weight:600;">Apply</button>',
+            `<button id="dh-ct-cancel" style="flex:1;background:${isDark ? '#2a2c2f' : '#f0f0f0'};color:${isDark ? '#ccc' : '#444'};border:1px solid ${isDark ? '#444' : '#ccc'};border-radius:5px;padding:0;height:34px;box-sizing:border-box;font-size:12px;cursor:pointer;">Cancel</button>`,
+            '</div>',
+        ].join('');
+        document.body.appendChild(overlay);
+        const close = () => overlay.remove();
+        overlay.querySelector('#dh-ct-close').onclick  = close;
+        overlay.querySelector('#dh-ct-cancel').onclick = close;
+        overlay.querySelector('#dh-ct-apply').onclick  = () => {
+            const val = (overlay.querySelector('#dh-ct-custom-input')?.value || '').trim();
+            if (!val) return;
+            close();
+            cleanTitlesCustom(val);
+        };
+        overlay.querySelector('#dh-ct-custom-input').addEventListener('keydown', e => {
+            if (e.key === 'Enter')  overlay.querySelector('#dh-ct-apply').click();
+            if (e.key === 'Escape') close();
+        });
+        overlay.querySelector('#dh-ct-custom-input').focus();
+    }
+
     async function bracketsToParen() {
         await setInfoProcessing();
         log('Converting brackets to parentheses...', 'info');
@@ -3370,7 +3451,7 @@
             <div class="dh-cfg-scroll" style="padding:7px 9px 4px; overflow-y:auto; flex:1;">
                 ${fieldsHtml}
             </div>
-            <div class="dh-cfg-footer" style="display:flex; align-items:center; gap:6px; padding:6px 9px 8px; flex-shrink:0; border-top:1px solid rgba(0,0,0,0.07);">
+            <div class="dh-cfg-footer" style="display:flex; align-items:center; gap:6px; padding:7px 10px 8px; flex-shrink:0; border-top:1px solid rgba(0,0,0,0.07);">
                 <button id="dh-config-save"    style="flex:2; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600; box-sizing:border-box;">Save</button>
                 <button id="dh-config-reset"   style="flex:1; height:34px; background:#f1f3f5; color:#c00; border:1px solid #e4e6e8; border-radius:5px; cursor:pointer; font-size:13px; box-sizing:border-box;">Reset defaults</button>
                 <button id="dh-config-cancel"  style="flex:1; height:34px; background:#f1f3f5; color:#111; border:1px solid #ccc; border-radius:5px; cursor:pointer; font-size:13px; box-sizing:border-box;">Cancel</button>
@@ -3458,6 +3539,11 @@
                 const wrapped = CONFIG.CLEAN_TITLE_PATTERNS.join(', ');
                 cleanBtn.title = wrapTitle('Clean titles from redundant bracket contents:\n' + wrapped);
             }
+            const _ctStdEl = document.getElementById('clean-titles-std');
+            if (_ctStdEl) {
+                const wrapped = CONFIG.CLEAN_TITLE_PATTERNS.join(', ');
+                _ctStdEl.title = wrapTitle('Clean titles from redundant bracket contents:\n' + wrapped);
+            }
 
             log('Config saved', 'success');
             setInfoSingleLine('Config saved!', true);
@@ -3539,6 +3625,7 @@
                 const open = _capDropdown.style.display !== 'none';
                 _capDropdown.style.display = open ? 'none' : 'flex';
                 _capToggle.textContent = open ? 'Capitalize \u25BC' : 'Capitalize \u25B2';
+                if (!open && _impDropdown) { _impDropdown.style.display = 'none'; _impToggle.textContent = 'Import \u25BC'; }
                 const isDark = localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
                 _capDropdown.style.background  = isDark ? '#1f2224' : '#fff';
                 _capDropdown.style.borderColor = isDark ? '#444' : '#ccc';
@@ -3574,6 +3661,7 @@
                 const open = _impDropdown.style.display !== 'none';
                 _impDropdown.style.display = open ? 'none' : 'flex';
                 _impToggle.textContent = open ? 'Import \u25BC' : 'Import \u25B2';
+                if (!open && _capDropdown) { _capDropdown.style.display = 'none'; _capToggle.textContent = 'Capitalize \u25BC'; }
                 const isDark = localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
                 _impDropdown.style.background  = isDark ? '#1f2224' : '#fff';
                 _impDropdown.style.borderColor = isDark ? '#444' : '#ccc';
@@ -3907,6 +3995,7 @@
             }
             #dh-config-overlay input[type="text"]:focus,
             #dh-wi-url:focus,
+            #dh-ct-custom-input:focus,
             #dh-importer-textarea:focus {
                 outline: none !important;
                 box-shadow:
@@ -3917,7 +4006,7 @@
                     0 0 0 5px rgba(30,102,214,0.05),
                     0 0 0 6px rgba(30,102,214,0.03) !important;
             }
-            #dh-config-overlay input[type="text"], #dh-wi-url, #dh-importer-textarea {
+            #dh-config-overlay input[type="text"], #dh-wi-url, #dh-ct-custom-input, #dh-importer-textarea {
                 box-shadow: none !important;
             }
             #dh-config-overlay .dh-cfg-scroll > div {
@@ -4376,13 +4465,9 @@
             const artistTd = row.querySelector('td.subform_track_artists');
             if (artistTd) {
                 const existingArtistItems = Array.from(artistTd.querySelectorAll('li.editable_item'));
-                for (const item of existingArtistItems) {
-                    const removeBtn = findRemoveButtonIn(item);
-                    if (removeBtn?.isConnected) {
-                        removeBtn.click();
-                        await new Promise(r => requestAnimationFrame(r));
-                    }
-                }
+                const removeBtns = existingArtistItems.map(item => findRemoveButtonIn(item)).filter(b => b?.isConnected);
+                for (const btn of removeBtns) btn.click();
+                if (removeBtns.length > 0) await new Promise(r => requestAnimationFrame(r));
             }
 
             const artistEntries = entry.artistsWithJoins || (entry.artists || []).map(n => ({ name: n }));
@@ -8149,7 +8234,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
     el.blur();
 }
 
-    function wiActivateShield(storeName = '') {
+    function wiActivateShield(storeName = '', shieldTimeout = 30000) {
         const origScrollTo       = window.scrollTo.bind(window);
         const origScrollIntoView = Element.prototype.scrollIntoView;
         const origPushState      = history.pushState.bind(history);
@@ -8160,8 +8245,13 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
         try { history.pushState    = (...args) => { _pendingStateChange = { fn: origPushState,    args }; }; } catch(e) {}
         try { history.replaceState = (...args) => { _pendingStateChange = { fn: origReplaceState, args }; }; } catch(e) {}
 
-        let processingOverlay = document.getElementById('dh-import-processing-loader');
-        let shield            = document.getElementById('dh-import-shield-style');
+        const _staleOverlay = document.getElementById('dh-import-processing-loader');
+        if (_staleOverlay) _staleOverlay.remove();
+        const _staleShield = document.getElementById('dh-import-shield-style');
+        if (_staleShield) _staleShield.remove();
+
+        let processingOverlay = null;
+        let shield            = null;
 
         if (!processingOverlay) {
             processingOverlay = document.createElement('div');
@@ -8181,7 +8271,8 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                 <div style="font-size: 24px; margin-bottom: 20px;">Applying Metadata...</div>
                 <div style="font-size: 14px; opacity: 0.7;">${storeName ? 'Importing from ' + storeName + ' to Discogs' : 'Working...'}</div>
                 <div style="font-size: 12px; opacity: 0.5; margin-top: 10px;">Keep this page active during the process</div>
-                <div style="margin-top: 30px; width: 50px; height: 50px; border: 5px solid rgba(0,0,0,0.1); border-top-color: #28a745; border-radius: 50%; animation: dh-spin 1s linear infinite;"></div>
+                <div id="dh-shield-eta" style="font-size: 12px; opacity: 0.42; margin-top: 8px; min-height: 16px;"></div>
+                <div style="margin-top: 22px; width: 50px; height: 50px; border: 5px solid rgba(0,0,0,0.1); border-top-color: #28a745; border-radius: 50%; animation: dh-spin 1s linear infinite;"></div>
                 <style>@keyframes dh-spin { to { transform: rotate(360deg); } }</style>
             `;
             processingOverlay.setAttribute('tabindex', '-1');
@@ -8206,11 +8297,13 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
         let _done = false;
         let _countdownInterval = null;
         let _timeoutHandle = null;
+        const _etaHandle = null;
 
         const restoreAll = () => {
             _done = true;
             clearTimeout(_timeoutHandle);
             clearInterval(_countdownInterval);
+            clearTimeout(_etaHandle);
             try { window.removeEventListener('keydown', _escHandler, true); } catch(e) {}
             try { window.scrollTo = origScrollTo; } catch(e) {}
             try { Element.prototype.scrollIntoView = origScrollIntoView; } catch(e) {}
@@ -8257,7 +8350,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                     restoreAll();
                 }
             }, 1000);
-        }, 30000);
+        }, shieldTimeout);
 
         return { processingOverlay, shield, origScrollTo, origScrollIntoView, restoreAll,
                  get cancelled() { return _cancelled; },
@@ -8512,7 +8605,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                     });
                     return { ...t, artistsWithJoins: flatEntries };
                 });
-                await withTimeout(applyTracklist(tracksPresplit, isVA, true), 20000, 'Tracklist');
+                await withTimeout(applyTracklist(tracksPresplit, isVA, true), Math.max(20000, tracksPresplit.length * 300), 'Tracklist');
                 addActionToHistory = origAdd;
                 log(`Tracklist: ${tracks.length} track${tracks.length !== 1 ? 's' : ''} applied`, 'success');
             }
@@ -8703,7 +8796,7 @@ wiIsAntiBotPage(html)) {
                 </div>
                 <button id="dh-wi-close" style="background:none; border:none; cursor:pointer; font-size:13px; padding:1px 4px; line-height:1; flex-shrink:0; opacity:0.65; color:#555;">✕</button>
             </div>
-            <div style="padding:6px 10px 6px; flex-shrink:0;">
+            <div style="padding:6px 10px 7px; flex-shrink:0;">
                 <input type="text" id="dh-wi-url" placeholder="Paste store URL (Bandcamp, Beatport, Qobuz, etc.) or Discogs URL for credits import" style="width:100%; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:5px 7px; box-sizing:border-box; box-shadow:none;">
             </div>
             <div id="dh-wi-preview" style="flex:1; overflow-y:auto; margin:0 10px 6px; padding:6px 8px; background:#f8f9fa; border:1px solid #e0e0e0; border-radius:4px; font-size:11px; display:none; min-height:60px; box-sizing:border-box;"></div>
@@ -8918,7 +9011,21 @@ wiIsAntiBotPage(html)) {
             overlay.style.display = 'none';
             resetHideTimer();
             await setInfoProcessing();
-            const _outerShield = wiActivateShield(fetchedData.storeName || '');
+            const _isReimport = state.actionHistory.some(a => a.type === 'webImport');
+            const _existingTrackCount = _isReimport ? getTrackInputRows().length : 0;
+            const _shieldTimeout = Math.max(30000,
+                (fetchedData.tracks?.length || 0) * 250 +
+                _existingTrackCount * 200 +
+                15000
+            );
+            const _noOpShield = { restoreAll: () => {}, processingOverlay: null };
+            const _outerShield = _durationsOnlyMode
+                ? _noOpShield
+                : wiActivateShield(fetchedData.storeName || '', _shieldTimeout);
+            if (!_durationsOnlyMode && !_creditsOnlyMode && (fetchedData.tracks?.length || 0) > 100) {
+                const _etaEl = document.getElementById('dh-shield-eta');
+                if (_etaEl) _etaEl.textContent = 'That\'s a lot of metadata! This might take a while…';
+            }
             const _savedCap = _noCapMode ? state.capitalizeFields : null;
             if (_noCapMode) state.capitalizeFields = { ..._noCapFields };
             try {
@@ -9103,10 +9210,10 @@ wiIsAntiBotPage(html)) {
                     <button id="dh-importer-close" title="Close" style="background:none; border:none; cursor:pointer; font-size:13px; padding:1px 4px; line-height:1; flex-shrink:0; opacity:0.65; color:#555;">✕</button>
                 </div>
             </div>
-            <div style="padding:7px 7px 0;">
+            <div style="padding:7px 10px 7px;">
                 <textarea id="dh-importer-textarea" placeholder="" style="width:100%; height:${textareaHeight}px; font-size:12px; font-family:monospace; border:1px solid #ccc; border-radius:4px; padding:6px; box-sizing:border-box; resize:vertical;"></textarea>
             </div>
-            <div style="display:flex; align-items:center; gap:6px; padding:7px 7px 7px;">
+            <div style="display:flex; align-items:center; gap:6px; padding:7px 10px 8px; border-top:1px solid rgba(0,0,0,0.07);">
                 <button id="dh-importer-confirm" style="flex:1; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600; box-sizing:border-box;">Apply</button>
                 <button id="dh-importer-cancel" style="flex:1; height:34px; background:#f1f3f5; color:#111; border:1px solid #ccc; border-radius:5px; cursor:pointer; font-size:13px; box-sizing:border-box;">Cancel</button>
             </div>
@@ -9250,7 +9357,7 @@ wiIsAntiBotPage(html)) {
                     <button id="tracklist-import"             class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center;">📝</button>
                     <div id="capitalize-all-wrap" style="position:relative; flex:1 1 0; min-width:0;">
                         <button id="capitalize-all" class="dh-btn dh-icon-btn" style="width:100% !important; height:100%; flex:1 1 0; min-width:34px; justify-content:center;">🔠</button>
-                        <div id="capitalize-all-menu" style="display:none; position:absolute; top:100%; left:0; z-index:9999; background:#fff; border:1px solid #ccc; border-radius:4px; padding:4px 9px 4px 4px; box-shadow:0 2px 8px rgba(0,0,0,0.35); margin-top:2px; width:max-content;">
+                        <div id="capitalize-all-menu" style="display:none; position:absolute; top:100%; left:0; z-index:9999; background:#fff; border:1px solid #ccc; border-radius:4px; padding:4px 4px 4px 4px; box-shadow:0 2px 8px rgba(0,0,0,0.35); margin-top:2px; width:max-content;">
                         </div>
                     </div>
                     <button id="save-all-fields"              class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center;">💾</button>
@@ -9261,7 +9368,11 @@ wiIsAntiBotPage(html)) {
                     <button id="extract-track-numbers" class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center;">🔢</button>
                     <button id="scan-and-extract"       class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center;">🕛</button>
                     <button id="strip-whitespace"       class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center;">⇥⇤</button>
-                    <button id="clean-titles"           class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center;">✂️</button>
+                    <button id="clean-titles" class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center; position:relative;" title="Clean titles">✂️</button>
+                    <div id="clean-titles-menu" style="display:none; position:absolute; z-index:9999; background:#fff; border:1px solid #ccc; border-radius:4px; padding:4px 4px 4px 4px; box-shadow:0 2px 8px rgba(0,0,0,0.35); flex-direction:column; gap:2px; width:max-content; margin-top:2px;">
+                        <button id="clean-titles-std" style="display:block; width:100%; text-align:left; font-size:11px; padding:4px 8px; border:none; border-radius:3px; cursor:pointer; white-space:nowrap; background:transparent; color:#111;">Standard Removal</button>
+                        <button id="clean-titles-cst" style="display:block; width:100%; text-align:left; font-size:11px; padding:4px 8px; border:none; border-radius:3px; cursor:pointer; white-space:nowrap; background:transparent; color:#111;">Custom Removal</button>
+                    </div>
                     <button id="brackets-to-parens"     class="dh-btn dh-icon-btn" style="min-width:34px;">[ ]</button>
                 </div>
 
@@ -9486,7 +9597,6 @@ wiIsAntiBotPage(html)) {
             ['extract-remixers',     null,                                                               extractRemixers],
             ['revert-last',          'Revert last action',                                              revertLastAction],
             ['revert-all',           'Revert all actions',                                              revertAllActions],
-            ['clean-titles',         wrapTitle('Clean titles from redundant bracket contents:\n' + CONFIG.CLEAN_TITLE_PATTERNS.join(', ')), cleanTitles],
             ['brackets-to-parens',   'Convert [ ] brackets to ( ) parentheses in titles',              bracketsToParen],
         ].forEach(([id, title, handler]) => {
             const el = document.getElementById(id);
@@ -9495,6 +9605,67 @@ wiIsAntiBotPage(html)) {
             if (handler) el.onclick = handler;
         });
         document.getElementById('extract-artists').title = wrapTitle('Separator patterns: ' + CONFIG.ARTIST_SPLITTER_PATTERNS.join(', ') + '\nIncl. feat separators: ' + CONFIG.FEATURING_PATTERNS.join(', '));
+
+        (() => {
+            const _ctBtn  = document.getElementById('clean-titles');
+            const _ctMenu = document.getElementById('clean-titles-menu');
+            const _ctStd  = document.getElementById('clean-titles-std');
+            const _ctCst  = document.getElementById('clean-titles-cst');
+            if (!_ctBtn || !_ctMenu) return;
+
+            const _ctDark   = () => localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
+            const _btnHover = (b) => {
+                b.addEventListener('mouseover', () => b.style.background = _ctDark() ? '#2a2d30' : '#f0f0f0');
+                b.addEventListener('mouseout',  () => b.style.background = 'transparent');
+            };
+            if (_ctStd) {
+                _ctStd.title   = wrapTitle('Clean titles from redundant bracket contents:\n' + CONFIG.CLEAN_TITLE_PATTERNS.join(', '));
+                _ctStd.onclick = (e) => { e.stopPropagation(); _ctMenu.style.display = 'none'; cleanTitles(); };
+                _btnHover(_ctStd);
+            }
+            if (_ctCst) {
+                _ctCst.title   = 'Remove any custom text from all track titles';
+                _ctCst.onclick = (e) => { e.stopPropagation(); _ctMenu.style.display = 'none'; openCleanTitlesCustomOverlay(); };
+                _btnHover(_ctCst);
+            }
+
+            const _ctApplyTheme = (isDark) => {
+                _ctMenu.style.background  = isDark ? '#1f2224' : '#fff';
+                _ctMenu.style.borderColor = isDark ? '#333' : '#ccc';
+                if (_ctStd) { _ctStd.style.color = isDark ? '#ddd' : '#111'; }
+                if (_ctCst) { _ctCst.style.color = isDark ? '#ddd' : '#111'; }
+            };
+            _ctApplyTheme(_ctDark());
+            document.addEventListener('dh-theme-change', (e) => _ctApplyTheme(e.detail?.dark));
+
+            document.addEventListener('click', (e) => {
+                if (_ctMenu.style.display === 'none') return;
+                if (!_ctMenu.contains(e.target) && e.target !== _ctBtn) {
+                    _ctMenu.style.display = 'none';
+                }
+            });
+            _ctBtn.onclick = (e) => {
+                e.stopPropagation();
+                if (_ctMenu.style.display !== 'none') {
+                    _ctMenu.style.display = 'none';
+                    return;
+                }
+                const r = _ctBtn.getBoundingClientRect();
+                _ctMenu.style.top      = r.bottom + 'px';
+                _ctMenu.style.left     = '';
+                _ctMenu.style.right    = (window.innerWidth - r.right - 7) + 'px';
+                _ctMenu.style.position = 'fixed';
+                _ctMenu.style.display  = 'flex';
+                _ctApplyTheme(_ctDark());
+                const _capm = document.getElementById('capitalize-all-menu');
+                if (_capm) _capm.style.display = 'none';
+            };
+
+            const _ctUpdateTooltip = () => {
+                if (_ctStd) _ctStd.title = wrapTitle('Clean titles from redundant bracket contents:\n' + CONFIG.CLEAN_TITLE_PATTERNS.join(', '));
+            };
+            document.addEventListener('dh-settings-saved', _ctUpdateTooltip);
+        })();
 
         (function() {
             const _capFieldDefs = [
@@ -9665,7 +9836,11 @@ wiIsAntiBotPage(html)) {
                 e.stopPropagation();
                 const open = _menu.style.display === 'none';
                 _menu.style.display = open ? 'block' : 'none';
-                if (open) _buildMenu();
+                if (open) {
+                    _buildMenu();
+                    const _ctm = document.getElementById('clean-titles-menu');
+                    if (_ctm) _ctm.style.display = 'none';
+                }
             });
 
             document.addEventListener('click', (e) => {
