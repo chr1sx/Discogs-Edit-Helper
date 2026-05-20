@@ -51,10 +51,10 @@ Supported stores: *7digital, Apple Music, Bandcamp, Beatport, Bleep, Boomkat, eC
 ---
 
 ## Usage
-1. Navigate to an edit page on Discogs ([example page](https://www.discogs.com/release/add)).  
+1. Navigate to an [edit](https://www.discogs.com/release/edit/36059965) or [submit](https://www.discogs.com/release/add) page on Discogs.
 2. The helper panel appears automatically on the right side of the page.  
-3. Use the extraction buttons to process your tracks.  
-4. Complete the edit as usual.
+3. Use the features to process your edit.
+4. Complete as usual.
 
 ---
 
