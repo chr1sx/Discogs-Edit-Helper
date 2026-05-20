@@ -66,7 +66,7 @@ This userscript is available under the [MIT License](LICENSE).
 
 ## Screenshots
 
-<div align="left">
+<div align="center">
 <img src="https://github.com/chr1sx/Discogs-Edit-Helper/blob/main/Images/screenshot1.png?raw=true" width="250" alt="Screenshot"> <img src="https://github.com/chr1sx/Discogs-Edit-Helper/blob/main/Images/screenshot2.png?raw=true" width="250" alt="Screenshot"> <img src="https://github.com/chr1sx/Discogs-Edit-Helper/blob/main/Images/screenshot3.png?raw=true" width="250" alt="Screenshot">
 <img src="https://github.com/chr1sx/Discogs-Edit-Helper/blob/main/Images/screenshot4.png?raw=true" width="250" alt="Screenshot"> <img src="https://github.com/chr1sx/Discogs-Edit-Helper/blob/main/Images/screenshot6.png?raw=true" width="250" alt="Screenshot"> <img src="https://github.com/chr1sx/Discogs-Edit-Helper/blob/main/Images/screenshot5.png?raw=true" width="250" alt="Screenshot">
 </div>
