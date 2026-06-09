@@ -1,11 +1,13 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      1.6.2
+// @version      1.7
 // @description  Imports metadata from web stores and plain-text tracklists, extracts info from titles and assigns data to the appropriate fields
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
+// @match        https://www.discogs.com/*/release/edit/*
 // @match        https://www.discogs.com/release/add
+// @match        https://www.discogs.com/*/release/add
 // @grant        GM_xmlhttpRequest
 // @grant        GM_cookie.list
 // @grant        unsafeWindow
@@ -948,17 +950,17 @@
 
     function getJoinInputForArtistRow(row, artistInput, artistContainer, idx) {
         if (!artistContainer) return null;
-        let joinInput = artistContainer.querySelector('input[placeholder="Join"], input[aria-label="Join"]');
+        let joinInput = artistContainer.querySelector('input[size="10"]');
         if (joinInput) return joinInput;
         let nextSib = artistContainer.nextElementSibling;
         let attempts = 0;
         while (nextSib && attempts < 10) {
             attempts++;
-            const jInput = nextSib.querySelector('input[placeholder="Join"], input[aria-label="Join"]');
+            const jInput = nextSib.querySelector('input[size="10"]');
             if (jInput) return jInput;
             nextSib = nextSib.nextElementSibling;
         }
-        const allJoins = Array.from(row.querySelectorAll('input[placeholder="Join"], input[aria-label="Join"]'));
+        const allJoins = Array.from(row.querySelectorAll('input[size="10"]'));
         if (idx >= 0 && idx < allJoins.length) return allJoins[idx];
         return null;
     }
@@ -1246,7 +1248,7 @@
                 if (idx > 0 && idx - 1 < separators.length) {
                     const sepRaw = separators[idx - 1] || '';
                     const joinValue = sepRaw.trim();
-                    let joinInputs = Array.from(row.querySelectorAll('input[placeholder="Join"], input[aria-label="Join"]'));
+                    let joinInputs = Array.from(row.querySelectorAll('input[size="10"]'));
 
                     const joinInputIndex = numAlreadyEntered + idx - 1;
                     let joinInput = joinInputs[joinInputIndex];
@@ -1678,6 +1680,10 @@
         if (!isFirst && CONFIG.CAPITALIZE_KEEP_LOWER.some(w => w.toLowerCase() === lc)) {
             return lc;
         }
+        const numPrefixM = core.match(/^(\d+)([\p{L}])(.*)/u);
+        if (numPrefixM) {
+            return numPrefixM[1] + numPrefixM[2].toUpperCase() + numPrefixM[3].toLowerCase();
+        }
         return core.charAt(0).toUpperCase() + core.slice(1).toLowerCase();
     }
 
@@ -2056,7 +2062,7 @@
             'input[id^="catalog-number-input"]',
             'input[id^="free-text-input"]',
             '#release-date',
-            'input[placeholder="Join"], input[aria-label="Join"]',
+            'input[size="10"]',
             'input[data-type="track-title"], input[id*="track-title"]',
             'input.track-number-input',
             'td.subform_track_duration input, input[aria-label*="duration" i]',
@@ -2206,7 +2212,7 @@
 
     function getJoinerContainersNeedingWork() {
         const panel = document.getElementById('helper-panel');
-        const joinSel = 'input[placeholder="Join"], input[aria-label="Join"]';
+        const joinSel = 'input[size="10"]';
         const needsCap = (s) => s && capitalizeTitleString(s.trim()) !== s.trim();
         const result = [];
         const seen = new Set();
@@ -2333,7 +2339,7 @@
         }
 
         if (cf.joiners) {
-            document.querySelectorAll('input[placeholder="Join"], input[aria-label="Join"]').forEach(el => {
+            document.querySelectorAll('input[size="10"]').forEach(el => {
                 if (!Array.from(trackRowEls).some(row => row.contains(el)))
                     processed += applyField(el, changes, 'Album Artist Joiner');
             });
@@ -2355,7 +2361,7 @@
             }
 
             if (cf.joiners) {
-                row.querySelectorAll('input[placeholder="Join"], input[aria-label="Join"]').forEach(el => {
+                row.querySelectorAll('input[size="10"]').forEach(el => {
                     processed += applyField(el, changes, `Track ${n}: Joiner`);
                 });
             }
@@ -3033,7 +3039,7 @@
                 }
                 await new Promise(r => setTimeout(r, 500));
             }
-            const qtyEl = document.querySelector('[aria-label="Quantity of format"]');
+            const qtyEl = document.querySelector('li[data-path^="/format/"] input[size="2"]');
             if (qtyEl && qtyEl.value !== '1') setReactValue(qtyEl, '1');
         }
 
@@ -3248,7 +3254,7 @@
             }
             await new Promise(r => setTimeout(r, 500));
         }
-        const qtyEl = document.querySelector('[aria-label="Quantity of format"]');
+        const qtyEl = document.querySelector('li[data-path^="/format/"] input[size="2"]');
         if (qtyEl && qtyEl.value !== '1') setReactValue(qtyEl, '1');
     }
 
@@ -4094,14 +4100,14 @@
 
     async function addTracksBatch(count) {
         if (count <= 0) return true;
-        const addSelect = document.querySelector('select[aria-label="Select the number of tracks to add"]');
+        const addSelect = document.querySelector('tfoot select');
         const addButton = addSelect && addSelect.nextElementSibling;
         if (!addSelect || !addButton) { log('Could not find Add Tracks controls', 'error'); return false; }
 
         const hideStyle = document.createElement('style');
         hideStyle.textContent = [
-            'select[aria-label="Select the number of tracks to add"] { visibility: hidden !important; }',
-            'select[aria-label="Select the number of tracks to add\"] + button { visibility: hidden !important; }',
+            'tfoot select { visibility: hidden !important; }',
+            'tfoot select + button { visibility: hidden !important; }',
         ].join(' ');
         document.head.appendChild(hideStyle);
 
@@ -4151,8 +4157,7 @@
                 const menu = row.querySelector('ul.action_menu') ||
                     Array.from(document.querySelectorAll('ul.action_menu')).pop();
                 if (!menu) continue;
-                const link = Array.from(menu.querySelectorAll('a[role="menuitem"]'))
-                    .find(a => a.textContent.replace(/\s+/g, ' ').trim().toLowerCase().startsWith('remove track'));
+                const link = menu.querySelector('a[role="menuitem"]');
                 if (link) removeLinks.push(link);
                 else menuToggle.click();
             } catch(e) {
@@ -4254,7 +4259,7 @@
                 if (!created[ai]?.artistInput) continue;
                 setReactValue(created[ai].artistInput, parts[ai].name);
                 if (ai > 0 && parts[ai].joinBefore) {
-                    const joinInputs = Array.from(row.querySelectorAll('input[placeholder="Join"], input[aria-label="Join"]'));
+                    const joinInputs = Array.from(row.querySelectorAll('input[size="10"]'));
                     const joinInput = joinInputs[ai - 1] || getJoinInputForArtistRow(row, created[ai].artistInput, created[ai].artistContainer, ai - 1);
                     if (joinInput) setReactValue(joinInput, parts[ai].joinBefore);
                 }
@@ -4482,7 +4487,7 @@
                     if (!created[idx]) return;
                     setReactValue(created[idx].artistInput, e2.name);
                     if (idx > 0 && e2.joinBefore) {
-                        const joinInputs = Array.from(row.querySelectorAll('input[placeholder="Join"], input[aria-label="Join"]'));
+                        const joinInputs = Array.from(row.querySelectorAll('input[size="10"]'));
                         const joinInput = joinInputs[idx - 1] || getJoinInputForArtistRow(row, created[idx].artistInput, created[idx].artistContainer, idx - 1);
                         if (joinInput) setReactValue(joinInput, e2.joinBefore);
                     }
@@ -4530,6 +4535,7 @@
         '7digital.com':         '7digital',
         'beatport.com':         'Beatport',
         'traxsource.com':       'Traxsource',
+        'volumo.com':           'Volumo',
         'music.apple.com':      'Apple Music',
         'ototoy.jp':            'OTOTOY',
         'mora.jp':              'Mora',
@@ -5669,19 +5675,36 @@
             const tail = exceptM[1];
             const extra = [];
             const knownRoleKw = 'written|vocalized|vocalize|composed|lyrics|music|arranged|produced|mastered|mixed|performed|sung|played|recorded|engineered|edited|programmed|designed|illustrated|photographed|artwork|remixed';
-            const trackNumM = tail.match(/^\s+(?:tracks?\s+)?(\d+(?:\s*[-,]\s*\d+)*)\s+/i);
-            const trackPrefix = trackNumM ? trackNumM[1].trim() + ' ' : '';
-            const roleBody = trackNumM ? tail.slice(trackNumM[0].length) : tail;
             const rolePosRe = new RegExp(`\\b(${knownRoleKw})\\s+by\\s+`, 'gi');
             const stopRe = new RegExp(`\\s*/\\s*|\\s+(?:${knownRoleKw})\\s+by\\s`, 'i');
-            let m;
-            while ((m = rolePosRe.exec(roleBody)) !== null) {
-                const afterBy = roleBody.slice(m.index + m[0].length);
-                const stopIdx = afterBy.search(stopRe);
-                const nameStr = (stopIdx === -1 ? afterBy : afterBy.slice(0, stopIdx)).trim().replace(/[.,;]+$/, '');
-                if (nameStr) extra.push(`${trackPrefix}${m[1].toLowerCase()} by ${nameStr}`);
-            }
             const beforeExcept = l.slice(0, l.search(/\bexcept\b/i)).trim().replace(/[.,;]+$/, '').trim();
+            const inheritedRoleM = beforeExcept.match(new RegExp(`\\b(${knownRoleKw})\\s+by\\b`, 'i'));
+            const inheritedRole = inheritedRoleM ? inheritedRoleM[1].toLowerCase() : null;
+            const exceptClauses = tail.split(/\s*(?:,\s*and|\s+and|,)\s+(?=(?:tracks?\s+)?\d)/i);
+            for (const clause of exceptClauses) {
+                const trackNumM = clause.match(/^\s*(?:tracks?\s+)?(\d+(?:\s*[-,]\s*\d+)*)\s+/i);
+                const trackPrefix = trackNumM ? trackNumM[1].trim() + ' ' : '';
+                const roleBody = trackNumM ? clause.slice(trackNumM[0].length) : clause.trim();
+                let foundRole = false;
+                let m;
+                rolePosRe.lastIndex = 0;
+                while ((m = rolePosRe.exec(roleBody)) !== null) {
+                    const afterBy = roleBody.slice(m.index + m[0].length);
+                    const stopIdx = afterBy.search(stopRe);
+                    const nameStr = (stopIdx === -1 ? afterBy : afterBy.slice(0, stopIdx)).trim().replace(/[.,;]+$/, '');
+                    if (nameStr) { extra.push(`${trackPrefix}${m[1].toLowerCase()} by ${nameStr}`); foundRole = true; }
+                }
+                if (!foundRole && inheritedRole) {
+                    const bareByM = roleBody.match(/^by\s+(.+)/i);
+                    if (bareByM) {
+                        const nameStr = bareByM[1].trim().replace(/[.,;]+$/, '');
+                        if (nameStr) extra.push(`${trackPrefix}${inheritedRole} by ${nameStr}`);
+                    } else if (roleBody.trim()) {
+                        const nameStr = roleBody.replace(/^by\s+/i, '').trim().replace(/[.,;]+$/, '');
+                        if (nameStr) extra.push(`${trackPrefix}${inheritedRole} by ${nameStr}`);
+                    }
+                }
+            }
             return [...(beforeExcept ? [beforeExcept] : []), ...extra];
         });
         for (let line of lines) {
@@ -6261,9 +6284,9 @@
     async function wiApplyReleaseCredits(credits, wiFields, addedCreditRemoveBtns, appendOnly = false) {
         if (!credits || credits.length === 0) return;
 
-        const getAddCreditBtn = () => document.getElementById('add-credit');
+        const getAddCreditBtn = () => document.querySelector('[data-path="/extraartists"] > button.button-small');
         const getCreditItems  = () => {
-            const addBtn = document.getElementById('add-credit');
+            const addBtn = document.querySelector('[data-path="/extraartists"] > button.button-small');
             if (!addBtn) return [];
             const container = addBtn.closest('ul, ol, div') || addBtn.parentElement?.parentElement;
             if (container) {
@@ -6755,6 +6778,112 @@
 
     return { artist, ...(artists ? { artists } : {}), title, label, catno, date, tracks, imageUrl, ...(tags.length ? { tags } : {}), storeName: 'Traxsource' };
 }
+
+    async function wiParseVolumo(url) {
+        const html = await wiCrossFetch(url);
+        const doc  = wiParseHTML(html);
+
+        const title = doc.querySelector('h1[title]')?.getAttribute('title')?.trim()
+            || doc.querySelector('h1')?.textContent?.trim()
+            || '';
+
+        const infoSpan = doc.querySelector('[class*="AlbumHeader_info"]');
+        const label    = infoSpan?.querySelector('a[href*="/label/"]')?.textContent?.trim()
+            || doc.querySelector('a[href*="/label/"]')?.textContent?.trim()
+            || '';
+        let catno = null, date = '';
+        if (infoSpan) {
+            const catnoCandid = infoSpan.querySelector('[title="Catalog number"]');
+            if (catnoCandid) catno = catnoCandid.textContent.trim() || null;
+            const origDate = infoSpan.querySelector('[class*="AlbumReleaseDate"][title="Original release date"]')
+                ?? infoSpan.querySelector('[title="Original release date"] [class*="AlbumReleaseDate"]')
+                ?? infoSpan.querySelector('[title="Original release date"]');
+            const pubDate  = infoSpan.querySelector('[title="Publish date"]');
+            date = wiNormalizeDate((origDate ?? pubDate)?.textContent?.trim() || '');
+        }
+
+        const firstArtistEl = doc.querySelector('[data-test-id="artists"]');
+        const artistLinks   = Array.from(firstArtistEl?.querySelectorAll('a[href*="/artist/"]') ?? [])
+            .map(a => a.textContent.trim()).filter(Boolean);
+        const artistsArr = artistLinks.length > 0
+            ? artistLinks
+            : (firstArtistEl?.textContent?.trim()
+                ? firstArtistEl.textContent.trim().split(/\s*[,•]\s*/).map(s => s.trim()).filter(Boolean)
+                : []);
+        const pageTitle    = doc.querySelector('title')?.textContent?.trim() || '';
+        const fallback     = pageTitle.match(/^(.+?)\s*[-\u2013\u2014]\s*.+?\s+by\s+/)?.[1]?.trim() || '';
+        const artist       = artistsArr.join(', ') || fallback;
+        const artists      = artistsArr.length > 1 ? artistsArr : undefined;
+
+        const genreEl  = doc.querySelector('[data-test-id="genres"]');
+        const rawTags  = Array.from(genreEl?.querySelectorAll('a') ?? [])
+            .map(a => a.textContent.trim()).filter(Boolean);
+        if (rawTags.length === 0 && genreEl) {
+            genreEl.textContent.split(/[•,]/).map(s => s.trim()).filter(Boolean).forEach(t => rawTags.push(t));
+        }
+        const tags = [...new Set(rawTags.flatMap(t => t.split(/\s*\/\s*/).map(s => s.trim()).filter(Boolean)))];
+
+        const relatedSection = doc.querySelector('[data-test-id="related-releases"]');
+        const seen = new Set();
+        const tracks = [];
+        let pos = 1;
+
+        for (const btn of doc.querySelectorAll('button[aria-label]')) {
+            const lbl = btn.getAttribute('aria-label') || '';
+            if (!lbl.startsWith('Play "')) continue;
+            if (relatedSection && !(btn.compareDocumentPosition(relatedSection) & 4 /* FOLLOWING */)) break;
+
+            const m = lbl.match(/^Play "(.+)"$/);
+            if (!m) continue;
+            const fullName = m[1];
+            if (seen.has(fullName)) continue;
+            seen.add(fullName);
+
+            let durEl = null, row = btn.parentElement;
+            for (let i = 0; i < 8 && row; i++, row = row.parentElement) {
+                durEl = row.querySelector('[data-test-id="duration"]');
+                if (durEl) break;
+            }
+            const duration = wiNormalizeDuration(durEl?.textContent?.trim() || '');
+
+            const emDash  = ' \u2014 ';
+            const dashIdx = fullName.indexOf(emDash);
+            let trackTitle   = fullName;
+            let trackArtists;
+            if (dashIdx >= 0) {
+                const artistPart = fullName.slice(0, dashIdx);
+                trackTitle  = fullName.slice(dashIdx + emDash.length);
+                const arr = artistPart.split(', ').map(s => s.trim()).filter(Boolean);
+                if (arr.length > 0) trackArtists = arr;
+            }
+
+            tracks.push({
+                position: String(pos++),
+                title: trackTitle,
+                duration,
+                ...(trackArtists ? { artists: trackArtists } : {})
+            });
+        }
+
+        const coverImg = doc.querySelector('img[alt^="Artwork for"]');
+        let imageUrl = '';
+        if (coverImg) {
+            const srcset = coverImg.getAttribute('srcset') || '';
+            const srcsetMatch = srcset.match(/\/img\/size\/\d+x\d+\/([a-f0-9-]+)\.\w+/);
+            if (srcsetMatch) {
+                imageUrl = `https://volumo.com/img/size/600x0/${srcsetMatch[1]}.webp`;
+            } else {
+                const src = coverImg.getAttribute('src') || '';
+                if (!src.startsWith('data:')) {
+                    imageUrl = src.startsWith('http') ? src : `https://volumo.com${src}`;
+                }
+            }
+        }
+        imageUrl = imageUrl || wiGetMeta(doc, 'og:image') || '';
+
+        return { artist, ...(artists ? { artists } : {}), title, label, catno, date,
+                 tracks, imageUrl, ...(tags.length ? { tags } : {}), storeName: 'Volumo' };
+    }
 
     async function wiParseQobuz(url) {
         const idMatch = url.match(/\/album\/(?:[^\/]+\/)?([a-z0-9]+)\/?(?:[?#].*)?$/i);
@@ -7997,6 +8126,7 @@
         if (host.endsWith('bandcamp.com') || (u.hostname.split('.').length >= 3 && !u.hostname.startsWith('www.') && u.pathname.startsWith('/album/')))
             return wiParseBandcamp(url);
         if (host.endsWith('traxsource.com'))       return wiParseTraxsource(url);
+        if (host.endsWith('volumo.com'))           return wiParseVolumo(url);
         if (host.endsWith('junodownload.com'))     return wiParseJunoDownload(url);
         if (host.endsWith('qobuz.com'))            return wiParseQobuz(url);
         if (host.endsWith('prestomusic.com'))      return wiParsePrestoMusic(url);
@@ -8064,7 +8194,7 @@
         log(`${fileType} checkbox not found — select manually`, 'warning');
     }
     if (trackCount > 0) {
-        const qtyInput = document.querySelector('[aria-label="Quantity of format"]');
+        const qtyInput = document.querySelector('li[data-path^="/format/"] input[size="2"]');
         if (qtyInput) setReactValue(qtyInput, String(trackCount));
     }
 }
@@ -8491,7 +8621,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
             const snap   = (el) => { if (el) wiFields.push({ el, oldVal: el.value, oldChecked: el.type === 'checkbox' ? el.checked : undefined }); };
             const snapCb = (el) => { if (el) wiFields.push({ el, oldVal: el.value, oldChecked: el.checked, isCb: true }); };
 
-            snap(document.getElementById('artist-name-input'));
+            snap(document.querySelector('input[data-type="artist-name"]'));
             snap(document.querySelector('#release-title-input'));
             snap(document.querySelector('#label-name-input-0'));
             snap(document.querySelector('#catalog-number-input-0'));
@@ -8525,12 +8655,12 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
             }
 
             if (artistsToFill.length > 0) {
-                const firstInput = document.getElementById('artist-name-input');
+                const firstInput = document.querySelector('input[data-type="artist-name"]');
                 if (firstInput) setReactValue(firstInput, artistsToFill[0].name || artistsToFill[0]);
                 if (artistsToFill.length > 1) {
                     const extraCount = artistsToFill.length - 1;
                     for (let i = 0; i < extraCount; i++) {
-                        const addArtistBtn = Array.from(document.querySelectorAll('button')).find(el => /add\s*artist/i.test(el.textContent));
+                        const addArtistBtn = document.querySelector('[data-path="/artists"] > button.button-small');
                         if (addArtistBtn) addArtistBtn.click();
                     }
                     await withTimeout(wiWaitForCount(() => document.querySelectorAll('input[data-type="artist-name"]').length, artistsToFill.length), 10000, 'Artist fields');
@@ -8544,10 +8674,10 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                             if (row) {
                                 addedArtistRemoveBtns.push(row.querySelector('button'));
                                 if (entry.joinBefore) {
-                                    let joinInput = row.querySelector('input[placeholder="Join"], input[aria-label="Join"]');
+                                    let joinInput = row.querySelector('input[size="10"]');
                                     if (!joinInput) {
                                         const prevRow = allInputs[i - 1]?.closest('li');
-                                        if (prevRow) joinInput = prevRow.querySelector('input[placeholder="Join"], input[aria-label="Join"]');
+                                        if (prevRow) joinInput = prevRow.querySelector('input[size="10"]');
                                     }
                                     if (joinInput) setReactValue(joinInput, cf.joiners && entry.joinBefore ? capitalizeTitleString(entry.joinBefore) : entry.joinBefore);
                                 }
@@ -8565,7 +8695,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                 let lbl = capIf(cf.label, (label || '').trim());
                 if (!lbl || (artist.trim() && lbl.toLowerCase() === artist.trim().toLowerCase())) lbl = `Not On Label (${artist.trim()} Self-released)`;
                 setReactValue(labelEl, lbl);
-                log(`Label/Company: ${lbl} / Cat: ${catno || 'none'}`, 'success');
+                log(`Label: ${lbl} / Cat: ${catno || 'none'}`, 'success');
             }
             setReactValue(document.querySelector('#catalog-number-input-0'), catno || 'none');
             if (date) setReactValue(document.querySelector('#release-date'), wiNormalizeDate(date));
@@ -8619,7 +8749,21 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                     for (const [g, ss] of genreStyleMap) matched.push(`${g}: ${[...ss].join(', ')}`);
                     log(`Genres/Styles: ${matched.join(' | ')}`, 'success');
                 } else {
-                    log(`No Discogs genre/style matches found in tags`, 'info');
+                    const genreOnlyMap = new Map();
+                    for (const tag of data.tags) {
+                        const key = String(tag).toLowerCase().replace(/[^a-z0-9]/g, '');
+                        const genreMatch = Object.keys(DISCOGS_GENRE_CHECKBOX_ID).find(g =>
+                            g.toLowerCase().replace(/[^a-z0-9]/g, '') === key
+                        );
+                        if (genreMatch && !genreOnlyMap.has(genreMatch)) genreOnlyMap.set(genreMatch, new Set());
+                    }
+                    if (genreOnlyMap.size > 0) {
+                        const genreSnaps = await withTimeout(wiApplyGenresAndStyles(genreOnlyMap), 10000, 'Genres/Styles');
+                        if (genreSnaps.length > 0) wiFields.push(...genreSnaps);
+                        log(`Genres/Styles: Only genre was found: ${[...genreOnlyMap.keys()].join(', ')}`, 'info');
+                    } else {
+                        log(`No Discogs genre/style matches found in tags`, 'info');
+                    }
                 }
             }
 
@@ -8637,6 +8781,10 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                 }
             }
 
+                        for (const btn of document.querySelectorAll('button.image_delete')) {
+                try { btn.click(); } catch(e) {}
+                await new Promise(r => setTimeout(r, 300));
+            }
             await withTimeout(wiUploadImage(imageUrl, storeName), 10000, 'Image upload');
 
             const addedCreditRemoveBtns = [];
@@ -8792,14 +8940,14 @@ wiIsAntiBotPage(html)) {
             <div class="dh-wi-header" style="display:flex; align-items:center; justify-content:space-between; padding:5px 8px 7px; border-bottom:1px solid rgba(0,0,0,0.09); flex-shrink:0; gap:6px;">
                 <div id="dh-wi-mode-wrap" style="display:flex; align-items:center; gap:6px; min-width:0;">
                     <strong style="font-size:13px; font-weight:600; color:#111; user-select:none; -webkit-user-select:none; cursor:default; white-space:nowrap; letter-spacing:0.01em; flex-shrink:0;"><span style="font-weight:normal; margin-right:4px;">🌐</span>Web Import</strong>
-                    <span id="dh-wi-supported-stores" title="Supported Stores:&#10;7digital&#10;Apple Music&#10;Bandcamp&#10;Beatport&#10;Bleep&#10;Boomkat&#10;eClassical&#10;HDtracks&#10;HighResAudio&#10;Juno Download&#10;Kompakt&#10;Mora&#10;NativeDSD&#10;OTOTOY&#10;Presto Music&#10;ProStudioMasters&#10;Qobuz&#10;Traxsource" style="font-size:10px; color:#888; cursor:default; white-space:nowrap; user-select:none; flex-shrink:0;">Supported Stores</span>
+                    <span id="dh-wi-supported-stores" title="Supported Stores:&#10;7digital&#10;Apple Music&#10;Bandcamp&#10;Beatport&#10;Bleep&#10;Boomkat&#10;eClassical&#10;HDtracks&#10;HighResAudio&#10;Kompakt&#10;Mora&#10;NativeDSD&#10;OTOTOY&#10;Presto Music&#10;ProStudioMasters&#10;Qobuz&#10;Traxsource&#10;Volumo" style="font-size:10px; color:#888; cursor:default; white-space:nowrap; user-select:none; flex-shrink:0;">Supported Stores</span>
                 </div>
                 <button id="dh-wi-close" style="background:none; border:none; cursor:pointer; font-size:13px; padding:1px 4px; line-height:1; flex-shrink:0; opacity:0.65; color:#555;">✕</button>
             </div>
             <div style="padding:6px 10px 7px; flex-shrink:0;">
                 <input type="text" id="dh-wi-url" placeholder="Paste store URL (Bandcamp, Beatport, Qobuz, etc.) or Discogs URL for credits import" style="width:100%; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:5px 7px; box-sizing:border-box; box-shadow:none;">
             </div>
-            <div id="dh-wi-preview" style="flex:1; overflow-y:auto; margin:0 10px 6px; padding:6px 8px; background:#f8f9fa; border:1px solid #e0e0e0; border-radius:4px; font-size:11px; display:none; min-height:60px; box-sizing:border-box;"></div>
+            <div id="dh-wi-preview" style="flex:1; overflow-y:auto; margin:0 10px 6px; padding:8px 8px 7px 8px; background:#f8f9fa; border:1px solid #e0e0e0; border-radius:4px; font-size:11px; display:none; min-height:60px; box-sizing:border-box;"></div>
             <div class="dh-wi-footer" style="display:flex; align-items:center; gap:6px; padding:7px 10px 8px; border-top:1px solid rgba(0,0,0,0.07); flex-shrink:0;">
                 <button id="dh-wi-fetch"  style="flex:2; height:34px; background:#1a6fbf; color:#fff; border:1px solid transparent; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600; box-sizing:border-box;">Fetch</button>
                 <div id="dh-wi-apply-wrap" style="flex:2; display:flex; height:34px; opacity:0.45; pointer-events:none;">
@@ -8957,12 +9105,28 @@ wiIsAntiBotPage(html)) {
                     ? `<img id="dh-wi-cover-img" src="${PLACEHOLDER}" style="width:56px;height:56px;object-fit:cover;border-radius:3px;flex-shrink:0;border:1px solid rgba(0,0,0,0.08);pointer-events:none;user-select:none;">`
                     : '';
                 const _previewIsVA = wiDetectVA(fetchedData);
-                const trackRows = fetchedData.tracks.map(t => { const ta = _previewIsVA ? (t.artists?.join(', ') || t.trackArtist || '') : ''; return `<div style="padding:0 0 1px;border-bottom:1px solid rgba(0,0,0,0.04);white-space:nowrap;"><span style="color:#888;min-width:9px;display:inline-block;">${esc(t.position)}</span> ${ta ? esc(ta) + ' – ' : ''}${esc(t.title)}${t.duration ? '<span style="color:#aaa;"> ' + esc(t.duration) + '</span>' : ''}</div>`; }).join('');
+                const trackRows = fetchedData.tracks.map((t, idx) => {
+                    const ta = _previewIsVA ? (t.artists?.join(', ') || t.trackArtist || '') : '';
+                    const isLast = idx === fetchedData.tracks.length - 1;
+                    const borderStyle = isLast ? '' : 'border-bottom:1px solid rgba(0,0,0,0.04);';
+                    return `
+                        <div style="display:flex;align-items:center;height:18px;box-sizing:border-box;${borderStyle}white-space:nowrap;font-size:10px;">
+                            <span style="color:#888;width:16px;flex-shrink:0;user-select:none;">${esc(t.position)}</span>
+                            <span style="display:inline-flex;align-items:center;min-width:0;flex:1;">
+                                <span style="overflow:hidden;text-overflow:ellipsis;flex-shrink:1;white-space:nowrap;">
+                                    ${ta ? esc(ta) + ' – ' : ''}${esc(t.title)}
+                                </span>
+                                ${t.duration ? `<span style="color:#aaa;margin-left:6px;flex-shrink:0;">${esc(t.duration)}</span>` : ''}
+                            </span>
+                        </div>
+                    `;
+                }).join('');
                 if (fetchedData.tracks.length === 0) {
                     previewEl.innerHTML = `<span style="color:#dc3545;">${wiAntiBotError(urlInput.value.trim()).replace(/\n/g, '<br>')}</span>`;
                 } else {
+                    const overflowStyle = fetchedData.tracks.length > 9 ? 'overflow-y:auto;' : 'overflow-y:hidden;';
                     previewEl.innerHTML = `
-                        <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:6px;">
+                        <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:5px;">
                             ${imgHtml}
                             <div style="min-width:0;overflow:hidden;">
                                 <div style="font-weight:600;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(fetchedData.artist)}${fetchedData.artist && fetchedData.title ? ' – ' : ''}${esc(fetchedData.title)}</div>
@@ -8970,7 +9134,7 @@ wiIsAntiBotPage(html)) {
                                 <div style="color:#888;font-size:10px;">${fetchedData.tracks.length} track${fetchedData.tracks.length !== 1 ? 's' : ''} · ${esc(fetchedData.storeName)}</div>
                             </div>
                         </div>
-                        <div style="max-height:160px;overflow:auto;font-size:10px;"><div style="display:inline-block;min-width:100%;box-sizing:border-box;">${trackRows}</div></div>
+                        <div style="max-height:162px;${overflowStyle}"><div style="display:flex;flex-direction:column;min-width:100%;box-sizing:border-box;">${trackRows}</div></div>
                     `;
                     applyBtn.disabled = false; applyWrap.style.opacity = '1'; applyWrap.style.pointerEvents = 'auto';
                 }
@@ -9082,7 +9246,7 @@ wiIsAntiBotPage(html)) {
                         _outerShield.restoreAll();
                     }
                 } else {
-                    if (fetchedData.tags && fetchedData.tags.length > 0) log(`Bandcamp tags: ${fetchedData.tags.join(', ')}`, 'info');
+                    if (fetchedData.tags && fetchedData.tags.length > 0) log(`Found tags: ${fetchedData.tags.join(', ')}`, 'info');
                     if (state.actionHistory.some(a => a.type === 'webImport')) {
                         log('Previous import detected — running smart cleanup…', 'info');
                         await wiSmartCleanupForReimport(fetchedData);
@@ -9107,17 +9271,30 @@ wiIsAntiBotPage(html)) {
             try {
                 _discogsData = await wiParseDiscogsCredits(raw);
                 const esc = s => (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-                const creditRows = _discogsData.credits.map(c =>
-                    `<div style="padding:2px 0;border-bottom:1px solid rgba(0,0,0,0.05);white-space:nowrap;">` +
-                    `<span style="color:#888;">${esc(c.roles.join(', '))}</span> — ${esc(c.name)}` +
-                    (c.anv ? ` <span style="color:#888;font-style:italic;">(ANV: ${esc(c.anv)})</span>` : '') +
-                    `</div>`
-                ).join('');
-                previewEl.innerHTML =
-                    `<div style="font-weight:600;font-size:12px;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">` +
-                    `${esc(_discogsData.artist)}${_discogsData.artist ? ' – ' : ''}${esc(_discogsData.pageTitle)}</div>` +
-                    `<div style="color:#888;font-size:10px;margin-bottom:5px;">${_discogsData.credits.length} credit${_discogsData.credits.length !== 1 ? 's' : ''} · Discogs #${esc(_discogsData.releaseId)}</div>` +
-                    `<div style="max-height:160px;overflow:auto;font-size:10px;">${creditRows}</div>`;
+                const creditRows = _discogsData.credits.map((c, idx) => {
+                    const isLast = idx === _discogsData.credits.length - 1;
+                    const borderStyle = isLast ? '' : 'border-bottom:1px solid rgba(0,0,0,0.05);';
+                    return `
+                        <div style="display:flex;align-items:center;height:18px;box-sizing:border-box;${borderStyle}white-space:nowrap;font-size:10px;">
+                            <span style="display:inline-flex;align-items:center;min-width:0;flex:1;">
+                                <span style="overflow:hidden;text-overflow:ellipsis;flex-shrink:1;white-space:nowrap;">
+                                    <span style="color:#888;">${esc(c.roles.join(', '))}</span> — ${esc(c.name)}
+                                </span>
+                                ${c.anv ? `<span style="color:#888;font-style:italic;margin-left:6px;flex-shrink:0;">(ANV: ${esc(c.anv)})</span>` : ''}
+                            </span>
+                        </div>
+                    `;
+                }).join('');
+                const overflowStyle = _discogsData.credits.length > 9 ? 'overflow-y:auto;' : 'overflow-y:hidden;';
+                previewEl.innerHTML = `
+                    <div style="font-weight:600;font-size:12px;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                        ${esc(_discogsData.artist)}${_discogsData.artist ? ' – ' : ''}${esc(_discogsData.pageTitle)}
+                    </div>
+                    <div style="color:#888;font-size:10px;margin-bottom:5px;">
+                        ${_discogsData.credits.length} credit${_discogsData.credits.length !== 1 ? 's' : ''} · Discogs #${esc(_discogsData.releaseId)}
+                    </div>
+                    <div style="max-height:162px;${overflowStyle}"><div style="display:flex;flex-direction:column;min-width:100%;box-sizing:border-box;">${creditRows}</div></div>
+                `;
                 applyBtn.disabled = false; applyWrap.style.opacity = '1'; applyWrap.style.pointerEvents = 'auto';
             } catch(err) {
                 _discogsData = null;
@@ -9361,7 +9538,7 @@ wiIsAntiBotPage(html)) {
                         </div>
                     </div>
                     <button id="save-all-fields"              class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center;">💾</button>
-                    <button id="additional-tools-toggle"      class="dh-btn dh-icon-btn" style="min-width:34px;" title="Additional tools">▶</button>
+                    <button id="additional-tools-toggle"      class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center;" title="Additional tools">▶</button>
                 </div>
 
                 <div id="additional-tools-dropdown" style="display:none; flex-wrap:wrap; gap:5px; margin-bottom:5px;">
@@ -9373,7 +9550,7 @@ wiIsAntiBotPage(html)) {
                         <button id="clean-titles-std" style="display:block; width:100%; text-align:left; font-size:11px; padding:4px 8px; border:none; border-radius:3px; cursor:pointer; white-space:nowrap; background:transparent; color:#111;">Standard Removal</button>
                         <button id="clean-titles-cst" style="display:block; width:100%; text-align:left; font-size:11px; padding:4px 8px; border:none; border-radius:3px; cursor:pointer; white-space:nowrap; background:transparent; color:#111;">Custom Removal</button>
                     </div>
-                    <button id="brackets-to-parens"     class="dh-btn dh-icon-btn" style="min-width:34px;">[ ]</button>
+                    <button id="brackets-to-parens"     class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center;">[ ]</button>
                 </div>
 
                 <hr class="dh-divider">
@@ -9685,7 +9862,7 @@ wiIsAntiBotPage(html)) {
                 { key: 'albumTitle',   label: 'Album Title',     sel: () => [document.getElementById('release-title-input')].filter(Boolean) },
                 { key: 'label',        label: 'Label/Company',   sel: () => Array.from(document.querySelectorAll('input[id^="label-name-input"]')) },
                 { key: 'joiners',      label: 'Joiners',
-                  sel: () => Array.from(document.querySelectorAll('input[placeholder="Join"], input[aria-label="Join"]')),
+                  sel: () => Array.from(document.querySelectorAll('input[size="10"]')),
                   openContainersFn: () => getJoinerContainersNeedingWork()
                 },
                 { key: 'vaArtists',    label: 'Track Artists',
