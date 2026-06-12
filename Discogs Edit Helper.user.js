@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      1.7
+// @version      1.7.1
 // @description  Imports metadata from web stores and plain-text tracklists, extracts info from titles and assigns data to the appropriate fields
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
@@ -6444,15 +6444,30 @@
             fileType   = 'FLAC';
         }
 
+        const ldDurations = new Map();
+        if (ldMeta?.['@type'] === 'MusicAlbum' && ldMeta.track?.itemListElement) {
+            for (const it of ldMeta.track.itemListElement) {
+                const sec = parseISODuration(it.item?.duration || '');
+                if (sec > 0) ldDurations.set(String(it.position), sec);
+            }
+        } else if (ldMeta?.['@type'] === 'MusicRecording' && ldMeta.duration) {
+            const sec = parseISODuration(ldMeta.duration);
+            if (sec > 0) ldDurations.set('1', sec);
+        }
         const rawTracks = (tralbum.trackinfo || []).map((t, i) => {
-            let trackTitle = t.title || '';
-            if (tralbum.trackinfo.length === 1 && tralbum.current?.title) {
-                trackTitle = tralbum.current.title.trim();
+            let trackTitle = (t.title || '').trim();
+            if (tralbum.trackinfo.length === 1 && ldMeta?.['@type'] === 'MusicRecording' && ldMeta.name) {
+                trackTitle = ldMeta.name.trim();
             }
             return {
                 position:    String((tralbum.initial_track_num || 0) + (t.track_num || i + 1)),
                 title:       trackTitle,
-                duration:    t.duration ? wiFormatDuration(Math.round(t.duration)) : '',
+                duration:    (() => {
+                    const pos = String((tralbum.initial_track_num || 0) + (t.track_num || i + 1));
+                    const ldSec = ldDurations.get(pos);
+                    if (ldSec) return wiFormatDuration(ldSec);
+                    return t.duration ? wiFormatDuration(Math.round(t.duration)) : '';
+                })(),
                 trackArtist: (t.artist || '').trim(),
             };
         });
