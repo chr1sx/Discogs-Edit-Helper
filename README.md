@@ -46,7 +46,7 @@ Supported stores: *7digital, Apple Music, Bandcamp, Beatport, Bleep, Boomkat, eC
 1. Install a userscript manager for your web browser.  
 2. [Install the userscript](https://github.com/chr1sx/Discogs-Edit-Helper/raw/refs/heads/main/Discogs%20Edit%20Helper.user.js).  
 3. Your userscript manager will open and prompt you to install.  
-4. Click Install.
+4. For Tampermonkey it might also be necessary to enable “Allow user scripts” under extension options.
 
 ---
 
