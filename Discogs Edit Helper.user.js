@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      1.8
+// @version      1.8.1
 // @description  Imports metadata from web stores and plain-text tracklists, extracts info from titles and assigns data to the appropriate fields
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
@@ -7027,7 +7027,13 @@
                 ?? infoSpan.querySelector('[title="Original release date"] [class*="AlbumReleaseDate"]')
                 ?? infoSpan.querySelector('[title="Original release date"]');
             const pubDate  = infoSpan.querySelector('[title="Publish date"]');
-            date = wiNormalizeDate((origDate ?? pubDate)?.textContent?.trim() || '');
+            const altDate  = infoSpan.querySelector('[title="Volumo release date"]')
+                ?? infoSpan.querySelector('[title$="release date" i]');
+            date = wiNormalizeDate((origDate ?? pubDate ?? altDate)?.textContent?.trim() || '');
+        }
+        if (!date) {
+            const fallbackDate = doc.querySelector('[title="Volumo release date"], [title="Original release date"], [title="Publish date"], [title$="release date" i]');
+            if (fallbackDate) date = wiNormalizeDate(fallbackDate.textContent?.trim() || '');
         }
 
         const firstArtistEl = doc.querySelector('[data-test-id="artists"]');
@@ -7044,10 +7050,11 @@
         const artists      = artistsArr.length > 1 ? artistsArr : undefined;
 
         const genreEl  = doc.querySelector('[data-test-id="genres"]');
+        const stripParens = s => s.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
         const rawTags  = Array.from(genreEl?.querySelectorAll('a') ?? [])
-            .map(a => a.textContent.trim()).filter(Boolean);
+            .map(a => stripParens(a.textContent.trim())).filter(Boolean);
         if (rawTags.length === 0 && genreEl) {
-            genreEl.textContent.split(/[•,]/).map(s => s.trim()).filter(Boolean).forEach(t => rawTags.push(t));
+            stripParens(genreEl.textContent).split(/[•,]/).map(s => s.trim()).filter(Boolean).forEach(t => rawTags.push(t));
         }
         const tags = [...new Set(rawTags.flatMap(t => t.split(/\s*\/\s*/).map(s => s.trim()).filter(Boolean)))];
 
@@ -9479,7 +9486,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
             if (!artist) return [];
             if (state.splitImport) {
                 const split = wiSplitArtistForImport(artist);
-                if (split.length > 1) return split;
+                if (split.length > 1) return split.map(e => ({ ...e, joinBefore: e.joinBefore && cf.joiners ? capitalizeTitleString(e.joinBefore) : e.joinBefore }));
             }
             return [{ name: artist }];
         })();
@@ -9500,18 +9507,19 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
             artists: t.artists ? t.artists.map(a => _isVAName(a) ? 'Various' : capIf(cf.vaArtists, a)) : t.artists,
             artistsWithJoins: t.artistsWithJoins ? t.artistsWithJoins.map(e => ({ ...e, name: capIf(_isVAName(e.name) ? false : cf.vaArtists, e.name) })) : t.artistsWithJoins,
         })) : [];
+        const isVA = wiDetectVA(data);
         const tracksPresplit = buildTracksPresplit(tracksRaw);
 
         const remixersByPos  = new Map();
         const featByPos      = new Map();
-        if (state.importCredits && state.importAutoRemixers) {
+        if (state.importAutoRemixers) {
             for (const { name, trackPositions } of extractRemixersFromTracks(tracksPresplit)) {
                 const p = String(trackPositions);
                 if (!remixersByPos.has(p)) remixersByPos.set(p, []);
                 remixersByPos.get(p).push({ name, role: 'Remix' });
             }
         }
-        if (state.importCredits && state.importAutoFeat) {
+        if (state.importAutoFeat) {
             for (const { name, trackPositions } of extractFeaturingFromTracks(tracksPresplit)) {
                 const p = String(trackPositions);
                 if (!featByPos.has(p)) featByPos.set(p, []);
@@ -9542,7 +9550,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                 pos,
                 title: t.title || '',
                 duration: t.duration || '',
-                artists: t.artistsWithJoins && t.artistsWithJoins.length > 0 ? convertJoinsToDiscogsFormat(t.artistsWithJoins) : [],
+                artists: (isVA && t.artistsWithJoins && t.artistsWithJoins.length > 0) ? convertJoinsToDiscogsFormat(t.artistsWithJoins) : [],
                 extraartists: groupForApi(trackLevelCredits),
             };
         });
@@ -9554,6 +9562,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                 const capName = cf.creditNames ? capitalizeTitleString(name) : name;
                 const entry = { name: capName, role: roles.join(', ') };
                 if (anv) entry.anv = anv;
+                if (trackPositions) entry.tracks = trackPositions;
                 return entry;
             });
         })();
@@ -9692,7 +9701,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
 
             const basePayload = JSON.parse(built.full_data);
 
-            if (data.tags && data.tags.length > 0) {
+            if (data.tags && data.tags.length > 0 && state.importStyles) {
                 const gsMap = wiMatchTagsToGenresStyles(data.tags);
                 const genresArr = [];
                 const stylesArr = [];
