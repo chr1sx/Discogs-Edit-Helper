@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      1.8.1
+// @version      1.8.2
 // @description  Imports metadata from web stores and plain-text tracklists, extracts info from titles and assigns data to the appropriate fields
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
@@ -19,6 +19,8 @@
 // @downloadURL https://update.greasyfork.org/scripts/562100/Discogs%20Edit%20Helper.user.js
 // @updateURL https://update.greasyfork.org/scripts/562100/Discogs%20Edit%20Helper.meta.js
 // ==/UserScript==
+
+
 
 (function() {
     'use strict';
@@ -39,7 +41,7 @@
         REMIX_PATTERNS_OPTIONAL: ['dub', 'edit', 'rework', 'mix', 'version'],
         CAPITALIZE_KEEP_UPPER: ['II', 'III', 'IV', 'VI', 'VII', 'VIII', 'IX', 'CIA', 'DJ', 'DNA', 'EP', 'FBI', 'FM', 'HD', 'KGB', 'LSD', 'MC', 'MI6', 'NASA', 'TNT', 'UFO', 'UK', 'USA', 'USSR', 'VIP', 'VHS', 'WTF'],
         CAPITALIZE_KEEP_LOWER: ['da', 'de', 'del', 'des', 'di', 'la', 'van', 'von'],
-        CLEAN_TITLE_PATTERNS: ['original mix', 'explicit', 'digital bonus track', 'digital bonus', 'bonus track', 'bonus', '24bit', '24-bit', '24 bit', '16bit', '16-bit', '16 bit', '000 bpm']
+        CLEAN_TITLE_PATTERNS: ['original mix', 'explicit', 'previously unreleased', 'unreleased', 'digital bonus track', 'digital bonus', 'bonus track', 'bonus', '24bit', '24-bit', '24 bit', '16bit', '16-bit', '16 bit', '000 bpm']
     };
     const CONFIG_RAW = {
         INACTIVITY_TIMEOUT_MS:    60 * 1000,
@@ -51,7 +53,7 @@
         REMIX_PATTERNS_OPTIONAL:  ['dub', 'edit', 'rework', 'mix', 'version'],
         CAPITALIZE_KEEP_UPPER:    ['II', 'III', 'IV', 'VI', 'VII', 'VIII', 'IX', 'CIA', 'DJ', 'DNA', 'EP', 'FBI', 'FM', 'HD', 'KGB', 'LSD', 'MC', 'MI6', 'NASA', 'TNT', 'UFO', 'UK', 'USA', 'USSR', 'VIP', 'VHS', 'WTF'],
         CAPITALIZE_KEEP_LOWER:    ['da', 'de', 'del', 'des', 'di', 'la', 'van', 'von'],
-        CLEAN_TITLE_PATTERNS:     ['original mix', 'explicit', 'digital bonus track', 'digital bonus', 'bonus track', 'bonus', '24bit', '24-bit', '24 bit', '16bit', '16-bit', '16 bit', '000 bpm'],
+        CLEAN_TITLE_PATTERNS:     ['original mix', 'explicit', 'previously unreleased', 'unreleased', 'digital bonus track', 'digital bonus', 'bonus track', 'bonus', '24bit', '24-bit', '24 bit', '16bit', '16-bit', '16 bit', '000 bpm'],
     };
 
     const CONFIG_DEFAULTS = {
@@ -511,18 +513,53 @@
         return map;
     })();
 
+    const _GENRE_LOOKUP = (() => {
+        const map = new Map();
+        for (const genre of Object.keys(DISCOGS_GENRE_STYLES)) {
+            const key = genre.toLowerCase().replace(/[^a-z0-9]/g, '');
+            map.set(key, genre);
+        }
+        return map;
+    })();
+
     const _TAG_ALIASES = new Map([
-        ['drumandbass',      'drumnbass'],
-        ['drumbass',         'drumnbass'],
-        ['drumampbass',      'drumnbass'],
-        ['dnb',              'drumnbass'],
-        ['rhythmnnoise',     'rhythmicnoise'],
-        ['rhythmampnoise',   'rhythmicnoise'],
-        ['rhythmnoise',      'rhythmicnoise'],
-        ['rhytmicnoise',     'rhythmicnoise'],
-        ['electronicbodymusic', 'ebm'],
-        ['industrialtechno',    ['industrial', 'techno']],
-        ['industrialtekno',     ['industrial', 'techno']],
+
+        ['drumandbass',            'drumnbass'],
+        ['drumbass',               'drumnbass'],
+        ['dandb',                  'drumnbass'],
+        ['dnb',                    'drumnbass'],
+        ['rhythmnnoise',           'rhythmicnoise'],
+        ['rhytmicnoise',           'rhythmicnoise'],
+        ['electronicbodymusic',    'ebm'],
+        ['electroindustrial',      ['electro', 'industrial']],
+        ['industrialtechno',       ['industrial', 'techno']],
+        ['acidtechno',             ['acid', 'techno']],
+        ['acidtrance',             ['acid', 'trance']],
+        ['acidhouse',              ['acid', 'house']],
+        ['goa',                    'goatrance'],
+        ['psybient',               'psytrance'],
+        ['ukg',                    'ukgarage'],
+        ['progtrance',             'progressivetrance'],
+        ['hardtech',               'hardtechno'],
+        ['mintech',                'minimaltechno'],
+
+        ['altrock',                'alternativerock'],
+        ['progressiverock',        'progrock'],
+        ['melodeath',              'melodicdeathmetal'],
+        ['melodicdeath',           'melodicdeathmetal'],
+        ['techdeath',              'technicaldeathmetal'],
+        ['progmetal',              'progressivemetal'],
+        ['thrashmetal',            'thrash'],
+
+        ['hh',                     'hiphop'],
+
+        ['rnb',                    'rhythm&blues'],
+        ['randb',                  'rhythm&blues'],
+        ['rhythmandblues',         'rhythm&blues'],
+        ['newsoul',                'neosoul'],
+
+        ['jazzfusion',             'fusion'],
+        ['avantjazz',              'avant-gardejazz'],
     ]);
 
     function wiMatchTagsToGenresStyles(tags) {
@@ -531,11 +568,20 @@
             let key = String(tag).toLowerCase().replace(/[^a-z0-9]/g, '');
             const aliasVal = _TAG_ALIASES.get(key);
             const keys = aliasVal ? (Array.isArray(aliasVal) ? aliasVal : [aliasVal]) : [key];
+            let matched = false;
             for (const k of keys) {
                 const hit = _STYLE_LOOKUP.get(k);
                 if (!hit) continue;
+                matched = true;
                 if (!result.has(hit.genre)) result.set(hit.genre, new Set());
                 result.get(hit.genre).add(hit.style);
+            }
+            if (matched) continue;
+
+            for (const k of keys) {
+                const genre = _GENRE_LOOKUP.get(k);
+                if (!genre) continue;
+                if (!result.has(genre)) result.set(genre, new Set());
             }
         }
         return result;
@@ -2226,7 +2272,6 @@
             return text;
         }
 
-
         const containersToOpen = new Map();
         for (const item of editableItems) {
             if (!item.isConnected) continue;
@@ -2601,7 +2646,16 @@
                         if (lastFeat) {
                             const afterFeat = beforeRemix.substring(lastFeat.index + lastFeat[0].length).trim();
                             if (afterFeat) {
-                                if (hasSplitterToken(afterFeat)) {
+                                const innerBracket = afterFeat.match(/[\(\[]\s*(.+)$/);
+                                if (innerBracket && innerBracket[1].trim()) {
+                                    const innerContent = innerBracket[1].trim();
+                                    if (hasSplitterToken(innerContent)) {
+                                        const origParts = innerContent.split(splitterRegex).map(s => s.trim()).filter(Boolean);
+                                        remixes = cleanPartsPreserveWrapping(origParts);
+                                    } else {
+                                        remixes = cleanPartsPreserveWrapping([innerContent]);
+                                    }
+                                } else if (hasSplitterToken(afterFeat)) {
                                     const origParts = afterFeat.split(splitterRegex).map(s => s.trim()).filter(Boolean);
                                     const parts = cleanPartsPreserveWrapping(origParts);
                                     if (parts.length) remixes = [parts[parts.length - 1]];
@@ -5085,7 +5139,7 @@
     }
 
     const CREDIT_ROLE_MAP = [
-        // Writing & composition
+
         [/^compos(?:ed|ers?|ing|ition)?(?:\s+by)?$/i,                                                'Composed By'],
         [/^compositon(?:\s+by)?$/i,                                                                  'Composed By'],
         [/^composted(?:\s+by)?$/i,                                                                   'Composed By'],
@@ -5098,14 +5152,12 @@
         [/^songwrit(?:ers?|ing)(?:\s+by)?$/i,                                                        'Songwriter'],
         [/^adapt(?:ed|ation)?(?:\s+by)?$/i,                                                          'Adapted By'],
 
-        // Arrangement & direction
         [/^arrang(?:ed|ers?|ing|ement)(?:\s+by)?$/i,                                                 'Arranged By'],
         [/^arang(?:ed|ers?|ing|ement)?(?:\s+by)?$/i,                                                'Arranged By'],
         [/^arrangment(?:\s+by)?$/i,                                                                  'Arranged By'],
         [/^orchestrat(?:ed|ion|er)(?:\s+by)?$/i,                                                     'Orchestrated By'],
         [/^conduct(?:ed|or)(?:\s+by)?$/i,                                                            'Conductor'],
 
-        // Production
         [/^(?:additional[- ])?(?:produced?|producer|production)(?:\s+by)?$/i,                        'Producer'],
         [/^produser(?:\s+by)?$/i,                                                                    'Producer'],
         [/^producted(?:\s+by)?$/i,                                                                   'Producer'],
@@ -5116,7 +5168,6 @@
         [/^(?:compiled?|compiler|compilation)(?:\s+by)?$/i,                                          'Compiled By'],
         [/^(?:management|managed|manager)(?:\s+by)?$/i,                                              'Management'],
 
-        // Mastering, mixing & recording
         [/^master(?:ed|ing)?(?:\s+by)?$/i,                                                           'Mastered By'],
         [/^mastering(?:\s+by)?$/i,                                                                   'Mastered By'],
         [/^masered(?:\s+by)?$/i,                                                                     'Mastered By'],
@@ -5137,12 +5188,10 @@
         [/^sound[- ]design(?:er|ed)?$/i,                                                              'Sound Designer'],
         [/^lacquer[- ]cut(?:\s+by)?$/i,                                                              'Lacquer Cut By'],
 
-        // Performance
         [/^(?:performed?|performers?|performance)(?:\s+by)?$/i,                                      'Performer'],
         [/^band(?:[- ]?(?:members?|is))?$/i,                                                          'Band'],
         [/^(?:all\s+)?instruments?(?:\s+by)?$/i,                                                    'Instruments'],
 
-        // Vocals
         [/^(?:all\s+)?(?:vocals?|singing|vox)(?:\s+by)?$/i,                                         'Vocals'],
         [/^(?:lead[- ]?vocals?|lead[- ]?vo(?:ice|x)s?)(?:\s+by)?$/i,                                 'Lead Vocals'],
         [/^(?:backing[- ]?vocals?|background[- ]?vocals?)(?:\s+by)?$/i,                              'Backing Vocals'],
@@ -5152,14 +5201,12 @@
         [/^mc$/i,                                                                                     'MC'],
         [/^(?:human\s+)?beatbox(?:ing)?(?:\s+by)?$/i,                                               'Human Beatbox'],
 
-        // Drums & percussion
         [/^(?:lead\s+)?drums?(?:\s+by)?$/i,                                                         'Drums'],
         [/^live\s+drums?(?:\s+by)?$/i,                                                              'Drums'],
         [/^drum[- ]program(?:s|ming)?(?:\s+by)?$/i,                                                  'Drum Programming'],
         [/^drum[- ]machines?(?:\s+by)?$/i,                                                           'Drum Machine'],
         [/^percussion$/i,                                                                             'Percussion'],
 
-        // Bass & guitar
         [/^bass[- ]guitars?(?:\s+by)?$/i,                                                             'Bass Guitar'],
         [/^electric[- ]?basses?(?:\s+by)?$/i,                                                         'Electric Bass'],
         [/^bass(?!oon)/i,                                                                              'Bass'],
@@ -5167,24 +5214,20 @@
         [/^acoustic[- ]guitars?(?:\s+by)?$/i,                                                         'Acoustic Guitar'],
         [/^electric[- ]guitars?(?:\s+by)?$/i,                                                         'Electric Guitar'],
 
-        // Keys & synths
         [/^pianos?$/i,                                                                                 'Piano'],
         [/^(?:keyboards?|keys)(?:\s+by)?$/i,                                                         'Keyboards'],
         [/^synthesiz(?:er|ers)(?:\s+by)?$|^synthesisers?(?:\s+by)?$/i,                              'Synthesizer'],
         [/^synths?(?:\s+by)?$/i,                                                                     'Synth'],
         [/^([\w][\w+\-]+)\s+synths?(?:\s+by)?$/i,                                                'Synth'],
 
-        // Other instruments
         [/^strings?$/i,                                                                               'Strings'],
         [/^(?:brass|horns?)$/i,                                                                       'Brass'],
 
-        // DJ & electronic
         [/^(?:dj[- ]?mix|dj mixed)(?:\s+by)?$/i,                                                    'DJ Mix'],
         [/^(?:turntables?|dj|spinning)$/i,                                                            'Turntables'],
         [/^(?:samples?|sampling)$/i,                                                                  'Samples'],
         [/^noises?(?:\s+by)?$/i,                                                                     'Noises'],
 
-        // Artwork & design
         [/^art[- ]direction$/i,                                                                       'Art Direction'],
         [/^aesthetic[- ]direction(?:\s+by)?$/i,                                                      'Art Direction'],
         [/^art(?:war|work)?(?:\s+by)?$/i,                                                            'Artwork'],
@@ -5793,7 +5836,10 @@
         const _knownModPfx = /^(?:additional|original(?:ly)?|assistant|session|add(?:'t|\.t|`t|t|\.)|co[-\s]?)$/i;
         const _hasProperNounStrip = strippedPrefix && _strippedPfxWords.split(/\s+/).some(
             w => /^\p{Lu}/u.test(w) && !_knownModPfx.test(w));
-        const bracketSrc = strippedPrefix && !_hasProperNounStrip ? s : strippedPrefix ? sStripped : null;
+
+        const bracketSrc = strippedPrefix && !_hasProperNounStrip ? s
+            : strippedPrefix && _hasProperNounStrip ? _strippedPfxWords
+            : strippedPrefix ? sStripped : null;
         const bracketSrcLow = bracketSrc ? bracketSrc.toLowerCase() : null;
         const matchesBase = cLow === official.toLowerCase() || cLow === oBase || isStemVariant;
         const _addtPfxWord = hadAddtPrefix ? (_addtPrefixM[1].charAt(0).toUpperCase() + _addtPrefixM[1].slice(1).toLowerCase()) : null;
@@ -5860,19 +5906,22 @@
             return [l];
         });
         lines = lines.flatMap(l => {
-            const exceptM = l.match(/\bexcept\b(.*)/i);
+
+            const exceptSynonymRe = /\b(?:except|apart\s+from|excluding|with\s+the\s+exception\s+of)\b/i;
+            const exceptM = l.match(exceptSynonymRe);
             if (!exceptM) return [l];
-            const tail = exceptM[1];
+            const tail = l.slice(exceptM.index + exceptM[0].length);
             const extra = [];
             const knownRoleKw = 'written|vocalized|vocalize|composed|lyrics|music|arranged|produced|mastered|mixed|performed|sung|played|recorded|engineered|edited|programmed|designed|illustrated|photographed|artwork|remixed';
             const rolePosRe = new RegExp(`\\b(${knownRoleKw})\\s+by\\s+`, 'gi');
             const stopRe = new RegExp(`\\s*/\\s*|\\s+(?:${knownRoleKw})\\s+by\\s`, 'i');
-            const beforeExcept = l.slice(0, l.search(/\bexcept\b/i)).trim().replace(/[.,;]+$/, '').trim();
+            const beforeExcept = l.slice(0, exceptM.index).trim().replace(/[.,;]+$/, '').trim();
             const inheritedRoleM = beforeExcept.match(new RegExp(`\\b(${knownRoleKw})\\s+by\\b`, 'i'));
             const inheritedRole = inheritedRoleM ? inheritedRoleM[1].toLowerCase() : null;
             const exceptClauses = tail.split(/\s*(?:,\s*and|\s+and|,)\s+(?=(?:tracks?\s+)?\d)/i);
             for (const clause of exceptClauses) {
-                const trackNumM = clause.match(/^\s*(?:tracks?\s+)?(\d+(?:\s*[-,]\s*\d+)*)\s+/i);
+
+                const trackNumM = clause.match(/^\s*(?:tracks?\s+)?(\d+(?:\s*[-,&]\s*\d+)*)\s+/i);
                 const trackPrefix = trackNumM ? trackNumM[1].trim() + ' ' : '';
                 const roleBody = trackNumM ? clause.slice(trackNumM[0].length) : clause.trim();
                 let foundRole = false;
@@ -6487,7 +6536,7 @@
                     const allNums = [...existing._nums, ...incomingNums];
                     existing._nums = [...new Set(allNums)];
                     existing.trackPositions = formatTrackPositions(existing._nums);
-                } else if (incomingNums.length > 0 || existing._nums.length === 0) {
+                } else if (incomingNums.length > 0 || existing._nums.length > 0) {
                     const entry = { ...credit, _nums: incomingNums };
                     mergeOrder.push(entry);
                 }
@@ -6640,12 +6689,9 @@
         const _rawPublish = tralbum.current?.publish_date || '';
         const _publishNorm = _rawPublish ? wiNormalizeDate(_rawPublish) : '';
         const BANDCAMP_LAUNCH_DATE = '2008-09-16';
-        let invalidDate = '';
-        if (date && date.slice(0, 10) < BANDCAMP_LAUNCH_DATE && _publishNorm && _publishNorm.slice(0, 10) >= BANDCAMP_LAUNCH_DATE) {
-            invalidDate = date.slice(0, 10);
-            date = _publishNorm;
-        }
-        const publishDate  = (_publishNorm && _publishNorm.slice(0, 10) !== date.slice(0, 10)) ? _publishNorm.slice(0, 10) : '';
+
+        const preferPublishDate = !!(date && date.slice(0, 10) < BANDCAMP_LAUNCH_DATE && _publishNorm && _publishNorm.slice(0, 10) >= BANDCAMP_LAUNCH_DATE);
+        const publishDate = (_publishNorm && _publishNorm.slice(0, 10) !== date.slice(0, 10)) ? _publishNorm.slice(0, 10) : '';
         const imageUrl = (ldMeta?.image || '').replace(/_\d+(?=\.\w+$)/, '_16') || wiGetMeta(doc, 'og:image');
 
         let bitdepth = null, samplerate = null, fileType = 'FLAC', freeText = null;
@@ -6713,7 +6759,6 @@
             ? Array.from(tagEls).map(a => a.textContent.trim())
             : [];
 
-
         const { credits, source: creditsSource } = parseBandcampCredits(doc);
         const creditsSourceInfo = creditsSource;
 
@@ -6721,7 +6766,7 @@
             artist, title, label,
             catno: tralbum.current?.sku || null,
             date, publishDate, tracks, imageUrl, tags, credits, creditsSource: creditsSourceInfo,
-            bitdepth, samplerate, fileType, freeText, country, invalidDate,
+            bitdepth, samplerate, fileType, freeText, country, preferPublishDate,
             storeName: 'Bandcamp',
         };
     }
@@ -7066,7 +7111,7 @@
         for (const btn of doc.querySelectorAll('button[aria-label]')) {
             const lbl = btn.getAttribute('aria-label') || '';
             if (!lbl.startsWith('Play "')) continue;
-            if (relatedSection && !(btn.compareDocumentPosition(relatedSection) & 4 /* FOLLOWING */)) break;
+            if (relatedSection && !(btn.compareDocumentPosition(relatedSection) & 4 )) break;
 
             const m = lbl.match(/^Play "(.+)"$/);
             if (!m) continue;
@@ -8086,7 +8131,6 @@
         return { artist, artists: artistsArray, title, label: details.label, catno: details.catno, date: details.date, bitdepth, samplerate, tracks, imageUrl, storeName: 'ProStudioMasters' };
     }
 
-
     function parseISODuration(iso) {
         if (!iso) return 0;
         const s = String(iso).trim();
@@ -8123,7 +8167,6 @@
         if (!isNaN(n) && n > 0) return wiFormatDuration(n);
         return '';
     }
-
 
     async function wiParseMora(url) {
     const html = await wiCrossFetch(url);
@@ -8766,6 +8809,16 @@
         ['west virginia', 'US'],
         ['wisconsin', 'US'],
         ['wyoming', 'US'],
+
+        ['alberta', 'Canada'],
+        ['british columbia', 'Canada'],
+        ['calgary', 'Canada'],
+        ['montreal', 'Canada'],
+        ['ontario', 'Canada'],
+        ['ottawa', 'Canada'],
+        ['quebec', 'Canada'],
+        ['toronto', 'Canada'],
+        ['vancouver', 'Canada'],
 
         ['england', 'UK'],
         ['gb', 'UK'],
@@ -9427,7 +9480,39 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                         const cand = featMatch ? afterRemix.substring(0, featMatch.index).trim() : afterRemix;
                         remixes = cleanParts(cand.split(splitterRegex).map(s => s.trim()).filter(Boolean));
                     } else if (beforeRemix) {
-                        if (hasSplitterToken(beforeRemix)) {
+                        const featTokens = CONFIG.FEATURING_PATTERNS.map(escapeRegExp).join('|');
+                        const featRegexGlobal = new RegExp(`(?:${featTokens})`, 'ig');
+                        let lastFeat = null, fm;
+                        while ((fm = featRegexGlobal.exec(beforeRemix)) !== null) lastFeat = fm;
+                        if (lastFeat) {
+                            const afterFeat = beforeRemix.substring(lastFeat.index + lastFeat[0].length).trim();
+                            if (afterFeat) {
+                                const innerBracket = afterFeat.match(/[\(\[]\s*(.+)$/);
+                                if (innerBracket && innerBracket[1].trim()) {
+                                    const innerContent = innerBracket[1].trim();
+                                    if (hasSplitterToken(innerContent)) {
+                                        remixes = cleanParts(innerContent.split(splitterRegex).map(s => s.trim()).filter(Boolean));
+                                    } else {
+                                        remixes = cleanParts([innerContent]);
+                                    }
+                                } else if (hasSplitterToken(afterFeat)) {
+                                    const parts = cleanParts(afterFeat.split(splitterRegex).map(s => s.trim()).filter(Boolean));
+                                    if (parts.length) remixes = [parts[parts.length - 1]];
+                                } else {
+                                    const cand = lastWordsCandidate(afterFeat);
+                                    if (cand) remixes = cleanParts([cand]);
+                                }
+                            } else {
+                                const beforeFeatOnly = beforeRemix.substring(0, lastFeat.index).trim();
+                                if (hasSplitterToken(beforeFeatOnly)) {
+                                    const parts = cleanParts(beforeFeatOnly.split(splitterRegex).map(s => s.trim()).filter(Boolean));
+                                    if (parts.length) remixes = [parts[0]];
+                                } else {
+                                    const lastCand = lastWordsCandidate(beforeFeatOnly);
+                                    if (lastCand) remixes = cleanParts([lastCand]);
+                                }
+                            }
+                        } else if (hasSplitterToken(beforeRemix)) {
                             remixes = cleanParts(beforeRemix.split(splitterRegex).map(s => s.trim()).filter(Boolean));
                         } else {
                             const p = cleanParts([beforeRemix]);
@@ -9451,11 +9536,11 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
             return String(name).replace(/\s*\(\d+\)\s*$/g, '').replace(/^[\(\[]+|[\)\]]+$/g, '').trim().toLowerCase();
         }
 
-        const globalSeen = new Set();
         for (let i = 0; i < tracks.length; i++) {
             const title = (tracks[i].title || '').trim();
             if (!title) continue;
             const pos = tracks[i].position || String(i + 1);
+            const seen = new Set();
             const featSearchRegex = new RegExp(`(${featPattern})\\s*(.*?)(?=\\b(?:${remixTerminatorPattern})\\b|[\\(\\)\\[\\]]|$)`, 'gi');
             let match;
             while ((match = featSearchRegex.exec(title)) !== null) {
@@ -9464,7 +9549,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                 const parts = splitArtistsByConfiguredPatterns(featArtistsText);
                 parts.forEach(p => {
                     const n = normalizeForCompare(p);
-                    if (!globalSeen.has(n)) { globalSeen.add(n); results.push({ name: p, roles: ['Featuring'], trackPositions: pos }); }
+                    if (!seen.has(n)) { seen.add(n); results.push({ name: p, roles: ['Featuring'], trackPositions: pos }); }
                 });
             }
         }
@@ -9499,7 +9584,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
 
         const releaseFormat = state.importAutoDescr ? extractFormatFromTitle(title) : [];
         let freeText = dataFreeText || null;
-        if (bitdepth && samplerate) freeText = `${bitdepth}-bit/${(samplerate / 1000)}kHz`;
+        if (bitdepth && samplerate) freeText = `${bitdepth}-bit/${(samplerate / 1000)} kHz`;
 
         const tracksRaw = data.tracks ? data.tracks.map(t => ({
             ...t,
@@ -9701,7 +9786,10 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
 
             const basePayload = JSON.parse(built.full_data);
 
-            if (data.tags && data.tags.length > 0 && state.importStyles) {
+            if (state.importStyles && (Array.isArray(data.finalGenres) || Array.isArray(data.finalStyles))) {
+                if (data.finalGenres?.length > 0) basePayload.genre = data.finalGenres;
+                if (data.finalStyles?.length > 0) basePayload.style = data.finalStyles;
+            } else if (data.tags && data.tags.length > 0 && state.importStyles) {
                 const gsMap = wiMatchTagsToGenresStyles(data.tags);
                 const genresArr = [];
                 const stylesArr = [];
@@ -9895,7 +9983,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
             await withTimeout(wiSetFormatToFile(tracks.length, fileType || 'FLAC'), 10000, 'Format');
 
             let freeText = dataFreeText || null;
-            if (bitdepth && samplerate) freeText = `${bitdepth}-bit/${(samplerate/1000)}kHz`;
+            if (bitdepth && samplerate) freeText = `${bitdepth}-bit/${(samplerate/1000)} kHz`;
             const freeTextField = await withTimeout(wiWaitForElement('#free-text-input-0', 3000), 5000, 'Free text field');
             if (freeTextField) { snap(freeTextField); setReactValue(freeTextField, freeText || ''); }
             log(`Format: File / ${fileType || 'FLAC'}${freeText ? ' [' + freeText + ']' : ''}`, 'success');
@@ -9944,7 +10032,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
             }
 
             if (data.tags && data.tags.length > 0 && state.importStyles) {
-                const genreStyleMap = wiMatchTagsToGenresStyles(data.tags);
+                const genreStyleMap = data.finalGenreStyleMap || wiMatchTagsToGenresStyles(data.tags);
                 if (genreStyleMap.size > 0) {
                     const genreSnaps = await withTimeout(wiApplyGenresAndStyles(genreStyleMap), 10000, 'Genres/Styles');
                     if (genreSnaps.length > 0) wiFields.push(...genreSnaps);
@@ -10020,7 +10108,6 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
             restoreAll();
         }
     }
-
 
     async function wiParseDiscogsCredits(input) {
         const trimmed = input.trim();
@@ -10171,24 +10258,79 @@ wiIsAntiBotPage(html)) {
                 <button id="dh-wi-close" style="background:none; border:none; cursor:pointer; font-size:13px; padding:1px 4px; line-height:1; flex-shrink:0; opacity:0.65; color:#555;">✕</button>
             </div>
             <div style="padding:6px 10px 7px; flex-shrink:0;">
-                <input type="text" id="dh-wi-url" placeholder="Paste store URL (Bandcamp, Beatport, Qobuz, etc.) or Discogs URL for credits import" style="width:100%; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:5px 7px; box-sizing:border-box; box-shadow:none;">
+                <input type="text" id="dh-wi-url" placeholder="Paste store URL (Bandcamp, Beatport, Qobuz, etc.) or Discogs URL for credits import..." style="width:100%; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:5px 7px; box-sizing:border-box; box-shadow:none;">
             </div>
             <div id="dh-wi-preview" style="flex:1; overflow-y:auto; margin:0 10px 6px; padding:8px 8px 7px 8px; background:#f8f9fa; border:1px solid #e0e0e0; border-radius:4px; font-size:11px; display:none; min-height:60px; box-sizing:border-box;"></div>
             <div class="dh-wi-footer" style="display:flex; align-items:center; gap:6px; padding:7px 10px 8px; border-top:1px solid rgba(0,0,0,0.07); flex-shrink:0;">
-                <button id="dh-wi-fetch"  style="flex:0 0 166px; width:166px; height:34px; background:#1a6fbf; color:#fff; border:1px solid transparent; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600; box-sizing:border-box;">Fetch</button>
-                <div id="dh-wi-apply-wrap" style="flex:0 0 166px; width:166px; display:flex; height:34px; opacity:0.45; pointer-events:none;">
+                <button id="dh-wi-fetch"  style="flex:0 0 150px; width:150px; height:34px; background:#1a6fbf; color:#fff; border:1px solid transparent; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600; box-sizing:border-box;">Fetch</button>
+                <div id="dh-wi-apply-wrap" style="flex:0 0 150px; width:150px; display:flex; height:34px; opacity:0.45; pointer-events:none;">
                     <button id="dh-wi-apply"  style="flex:1; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-radius:5px 0 0 5px; cursor:pointer; font-size:13px; font-weight:600; padding:0 8px; box-sizing:border-box;">Apply</button>
                     <button id="dh-wi-apply-arrow" style="width:24px; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-left:1px solid rgba(255,255,255,0.25); border-radius:0 5px 5px 0; cursor:pointer; font-size:10px; padding:0; flex-shrink:0; box-sizing:border-box;"><span style="pointer-events:none; user-select:none;">▾</span></button>
                 </div>
-                <div id="dh-wi-savedraft-wrap" style="flex:0 0 52px; width:52px; box-sizing:border-box; height:34px; opacity:0.45; pointer-events:none;" title="Create draft with all metadata and open in new tab">
-                    <button id="dh-wi-savedraft" style="width:100%; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-radius:5px; cursor:pointer; font-size:10px; font-weight:600; line-height:1.25; box-sizing:border-box; padding:0;">Save To<br>Draft</button>
+                <div id="dh-wi-savedraft-wrap" style="flex:0 0 72px; width:72px; display:flex; height:34px; opacity:0.45; pointer-events:none;">
+                    <button id="dh-wi-savedraft" style="flex:1; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-radius:5px 0 0 5px; cursor:pointer; font-size:10px; font-weight:600; line-height:1.25; box-sizing:border-box; padding:0;">Save To<br>Draft</button>
+                    <button id="dh-wi-savedraft-arrow" style="width:20px; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-left:1px solid rgba(255,255,255,0.25); border-radius:0 5px 5px 0; cursor:pointer; font-size:10px; padding:0; flex-shrink:0; box-sizing:border-box;"><span style="pointer-events:none; user-select:none;">▾</span></button>
                 </div>
-                <button id="dh-wi-cancel" style="flex:0 0 51px; width:51px; box-sizing:border-box; height:34px; background:#f1f3f5; color:#111; border:1px solid #ccc; border-radius:5px; cursor:pointer; font-size:13px; padding:0; text-align:center;">Cancel</button>
+                <button id="dh-wi-cancel" style="flex:0 0 63px; width:63px; box-sizing:border-box; height:34px; background:#f1f3f5; color:#111; border:1px solid #ccc; border-radius:5px; cursor:pointer; font-size:13px; padding:0; text-align:center;">Cancel</button>
             </div>
         `;
         document.body.appendChild(overlay);
 
         let fetchedData = null;
+        let selectedDateField = 'date';
+        let disabledCreditIndices = new Set();
+        let disabledCreditRoles = new Set();
+        let manuallyDisabledCredits = new Set();
+        let disabledGenres = new Set();
+        let disabledStyles = new Set();
+        function getFilteredFetchedData() {
+            const needsCreditFilter = (disabledCreditIndices.size > 0 || disabledCreditRoles.size > 0) && fetchedData?.credits?.length;
+            const needsGenreStyleFilter = (disabledGenres.size > 0 || disabledStyles.size > 0) && fetchedData?.genreStyleGroups?.length;
+            const needsDateSwap = selectedDateField === 'publishDate' && fetchedData?.publishDate;
+            if (!needsCreditFilter && !needsGenreStyleFilter && !needsDateSwap) return fetchedData;
+
+            const result = { ...fetchedData };
+            if (needsDateSwap) {
+
+                result.date = fetchedData.publishDate;
+                result.publishDate = fetchedData.date;
+            }
+            if (needsCreditFilter) {
+                const filteredCredits = [];
+                fetchedData.credits.forEach((c, i) => {
+                    if (disabledCreditIndices.has(i)) return;
+                    const rolesArr = Array.isArray(c.roles) ? c.roles : (c.role ? c.role.split(',').map(r => r.trim()).filter(Boolean) : []);
+                    const keptRoles = rolesArr.filter(r => !disabledCreditRoles.has(`${i}::${r}`));
+
+                    if (keptRoles.length === 0) return;
+                    const entry = { ...c };
+                    if (Array.isArray(c.roles)) entry.roles = keptRoles;
+                    else entry.role = keptRoles.join(', ');
+                    filteredCredits.push(entry);
+                });
+                result.credits = filteredCredits;
+            }
+            if (needsGenreStyleFilter) {
+
+                const finalGenres = fetchedData.genreStyleGroups.map(g => g.genre).filter(g => !disabledGenres.has(g));
+                const finalGenreStyleMap = new Map();
+                for (const g of finalGenres) finalGenreStyleMap.set(g, new Set());
+                const finalStyles = [];
+                for (const { genre, styles } of fetchedData.genreStyleGroups) {
+                    if (disabledGenres.has(genre)) continue;
+                    for (const s of (styles || [])) {
+                        if (disabledStyles.has(s)) continue;
+                        finalStyles.push(s);
+                        if (!finalGenreStyleMap.has(genre)) finalGenreStyleMap.set(genre, new Set());
+                        finalGenreStyleMap.get(genre).add(s);
+                    }
+                }
+                result.finalGenreStyleMap = finalGenreStyleMap;
+                result.finalGenres = finalGenres;
+                result.finalStyles = finalStyles;
+            }
+            return result;
+        }
         const urlInput    = overlay.querySelector('#dh-wi-url');
         const previewEl   = overlay.querySelector('#dh-wi-preview');
         const fetchBtn    = overlay.querySelector('#dh-wi-fetch');
@@ -10197,6 +10339,7 @@ wiIsAntiBotPage(html)) {
         const applyWrap   = overlay.querySelector('#dh-wi-apply-wrap');
         const savedraftWrap = overlay.querySelector('#dh-wi-savedraft-wrap');
         const savedraftBtn  = overlay.querySelector('#dh-wi-savedraft');
+        const draftArrow    = overlay.querySelector('#dh-wi-savedraft-arrow');
         const cancelBtn   = overlay.querySelector('#dh-wi-cancel');
         const closeBtn    = overlay.querySelector('#dh-wi-close');
 
@@ -10278,7 +10421,7 @@ wiIsAntiBotPage(html)) {
                             align-items: center;
                             justify-content: center;
                             cursor: ${sub.disabled ? 'not-allowed' : 'pointer'};
-                            font-size: 11px;
+                            font-size: 10px;
                             font-weight: bold;
                             color: ${sub.disabled ? 'rgba(255,255,255,0.45)' : '#fff'};
                             background: ${sub.disabled ? disabledBg : greenBg};
@@ -10307,7 +10450,7 @@ wiIsAntiBotPage(html)) {
                     align-items: center;
                     justify-content: center;
                     cursor: ${def.disabled ? 'not-allowed' : 'pointer'};
-                    font-size: 11px;
+                    font-size: 10px;
                     font-weight: bold;
                     color: ${def.disabled ? 'rgba(255,255,255,0.45)' : '#fff'};
                     background: ${def.disabled ? disabledBg : greenBg};
@@ -10315,7 +10458,7 @@ wiIsAntiBotPage(html)) {
                     width: 100%;
                     box-sizing: border-box;
                     border-radius: ${isFirst ? '5px 5px 0 0' : isLast ? '0 0 5px 5px' : '0'};
-                    padding: 0 10px;
+                    padding: 0 6px;
                     transition: background 0.1s;
                 `;
                 item.textContent = def.label;
@@ -10331,6 +10474,7 @@ wiIsAntiBotPage(html)) {
         applyArrow.addEventListener('click', (e) => {
             e.stopPropagation();
             if (applyMenu.style.display !== 'none') { applyMenu.style.display = 'none'; return; }
+            draftMenu.style.display = 'none';
 
             _buildApplyMenu();
 
@@ -10348,6 +10492,93 @@ wiIsAntiBotPage(html)) {
                 applyMenu.style.display = 'none';
         });
         document.addEventListener('dh-theme-change', () => { if (applyMenu.style.display !== 'none') _buildApplyMenu(); });
+
+        const draftMenu = document.createElement('div');
+        draftMenu.style.cssText = 'display:none; position:fixed; z-index:10200; border-radius:5px; overflow:hidden; box-shadow:0 3px 10px rgba(0,0,0,0.25); font-family:Arial,sans-serif;';
+        document.body.appendChild(draftMenu);
+
+        const _buildDraftMenu = () => {
+            const greenBg = '#28a745';
+            const greenHover = '#1e7e34';
+
+            draftMenu.style.boxShadow = '0 3px 10px rgba(0,0,0,0.25)';
+            draftMenu.style.background = greenBg;
+            draftMenu.style.border = 'none';
+            draftMenu.style.borderRadius = '5px';
+            draftMenu.style.width = applyWrap.offsetWidth + 'px';
+
+            draftMenu.innerHTML = '';
+
+            const menuItems = [
+                {
+                    label: 'Without Capitalization Rules',
+                    title: 'Save to draft without normalizing capitalization',
+                    onClick: () => { _noCapMode = true; _saveDraft(); }
+                },
+                {
+                    label: 'Without Artist Splitters',
+                    title: 'Save to draft without splitting main and track artists (album credits are still split)',
+                    onClick: () => { _noSplitMode = true; _saveDraft(); }
+                },
+            ];
+
+            menuItems.forEach((def, idx) => {
+                const isFirst = idx === 0;
+                const isLast  = idx === menuItems.length - 1;
+
+                if (!isFirst) {
+                    const sep = document.createElement('div');
+                    sep.style.cssText = 'height:1px; background:rgba(255,255,255,0.2); width:100%;';
+                    draftMenu.appendChild(sep);
+                }
+
+                const item = document.createElement('div');
+                item.title = def.title;
+                item.style.cssText = `
+                    height: 30px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: pointer;
+                    font-size: 10px;
+                    font-weight: bold;
+                    color: #fff;
+                    background: ${greenBg};
+                    white-space: nowrap;
+                    width: 100%;
+                    box-sizing: border-box;
+                    border-radius: ${isFirst ? '5px 5px 0 0' : isLast ? '0 0 5px 5px' : '0'};
+                    padding: 0 6px;
+                    transition: background 0.1s;
+                `;
+                item.textContent = def.label;
+                item.addEventListener('mouseenter', () => { item.style.background = greenHover; });
+                item.addEventListener('mouseleave', () => { item.style.background = greenBg; });
+                item.addEventListener('click', () => { draftMenu.style.display = 'none'; def.onClick(); });
+                draftMenu.appendChild(item);
+            });
+        };
+
+        draftArrow.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (draftMenu.style.display !== 'none') { draftMenu.style.display = 'none'; return; }
+            applyMenu.style.display = 'none';
+
+            _buildDraftMenu();
+
+            const r = savedraftWrap.getBoundingClientRect();
+            draftMenu.style.display = 'block';
+
+            requestAnimationFrame(() => {
+                draftMenu.style.top   = (r.bottom + 3) + 'px';
+                draftMenu.style.left  = (r.right - draftMenu.offsetWidth) + 'px';
+            });
+        });
+        document.addEventListener('click', (e) => {
+            if (draftMenu.style.display !== 'none' && !draftArrow.contains(e.target) && !draftMenu.contains(e.target))
+                draftMenu.style.display = 'none';
+        });
+        document.addEventListener('dh-theme-change', () => { if (draftMenu.style.display !== 'none') _buildDraftMenu(); });
 
         let _noCapMode = false;
         let _creditsOnlyMode = false;
@@ -10376,10 +10607,26 @@ wiIsAntiBotPage(html)) {
             fetchBtn.textContent = 'Fetching…';
             previewEl.style.display = 'block';
             previewEl.innerHTML = '<span style="color:#888;">Loading…</span>';
+            disabledCreditIndices = new Set();
+            disabledCreditRoles = new Set();
+            manuallyDisabledCredits = new Set();
+            disabledGenres = new Set();
+            disabledStyles = new Set();
+            selectedDateField = 'date';
             applyBtn.disabled = true; applyWrap.style.opacity = '0.45'; applyWrap.style.pointerEvents = 'none'; savedraftWrap.style.opacity = '0.45'; savedraftWrap.style.pointerEvents = 'none';
             try {
                 fetchedData = await wiFetchReleaseData(url);
                 if (!fetchedData) throw new Error('No data returned');
+
+                try {
+                    if (state.importStyles && fetchedData.tags?.length > 0) {
+                        const gsMap = wiMatchTagsToGenresStyles(fetchedData.tags);
+                        fetchedData.genreStyleGroups = Array.from(gsMap || new Map(), ([genre, styleSet]) => ({
+                            genre,
+                            styles: Array.from(styleSet),
+                        }));
+                    }
+                } catch (e) {}
                 const esc = s => (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                 const PLACEHOLDER = 'data:image/png;base64,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';
 
@@ -10388,44 +10635,388 @@ wiIsAntiBotPage(html)) {
                     ? `<img id="dh-wi-cover-img" src="${PLACEHOLDER}" style="width:56px;height:56px;object-fit:cover;border-radius:3px;flex-shrink:0;border:1px solid rgba(0,0,0,0.08);pointer-events:none;user-select:none;">`
                     : '';
                 const _previewIsVA = wiDetectVA(fetchedData);
+                const maxPosLen = fetchedData.tracks.reduce((m, t) => Math.max(m, String(t.position || '').length), 1);
+                const posWidth  = maxPosLen <= 1 ? 10 : maxPosLen <= 2 ? 16 : maxPosLen <= 3 ? 22 : 28;
                 const trackRows = fetchedData.tracks.map((t, idx) => {
                     const ta = _previewIsVA ? (t.artists?.join(', ') || t.trackArtist || '') : '';
                     const isLast = idx === fetchedData.tracks.length - 1;
                     const borderStyle = isLast ? '' : 'border-bottom:1px solid rgba(0,0,0,0.04);';
                     return `
                         <div style="display:flex;align-items:center;height:18px;box-sizing:border-box;${borderStyle}white-space:nowrap;font-size:10px;">
-                            <span style="color:#888;width:16px;flex-shrink:0;user-select:none;">${esc(t.position)}</span>
-                            <span style="display:inline-flex;align-items:center;min-width:0;flex:1;">
-                                <span style="overflow:hidden;text-overflow:ellipsis;flex-shrink:1;white-space:nowrap;">
-                                    ${ta ? esc(ta) + ' – ' : ''}${esc(t.title)}
-                                </span>
-                                ${t.duration ? `<span style="color:#aaa;margin-left:6px;flex-shrink:0;">${esc(t.duration)}</span>` : ''}
+                            <span style="color:#888;width:${posWidth}px;flex-shrink:0;user-select:none;">${esc(t.position)}</span>
+                            ${ta ? `<span style="color:#999;flex-shrink:0;max-width:60%;overflow:hidden;text-overflow:ellipsis;margin-right:5px;">${esc(ta)}</span>` : ''}
+                            <span style="overflow:hidden;text-overflow:ellipsis;flex:1;white-space:nowrap;">${esc(t.title)}</span>
+                            ${t.duration ? `<span style="color:#aaa;flex-shrink:0;margin-left:6px;margin-right:8px;">${esc(t.duration)}</span>` : `<span style="width:8px;flex-shrink:0;"></span>`}
+                        </div>
+                    `;
+                }).join('\n');
+                const fetchedCredits = fetchedData.credits || [];
+                const creditRoleCount = fetchedCredits.reduce((sum, c) => sum + (Array.isArray(c.roles) ? c.roles.length : (c.role ? 1 : 0)), 0);
+                const creditToggleStyle = 'flex-shrink:0;width:15px;height:15px;margin-left:3px;display:flex;align-items:center;justify-content:center;border-radius:3px;pointer-events:none;font-size:9px;line-height:1;color:#dc3545;background:rgba(220,53,69,0.1);border:1px solid rgba(220,53,69,0.25);user-select:none;-webkit-user-select:none;';
+                const creditToggleDisabledStyle = 'flex-shrink:0;width:15px;height:15px;margin-left:3px;display:flex;align-items:center;justify-content:center;border-radius:3px;pointer-events:none;font-size:9px;line-height:1;color:#28a745;background:rgba(40,167,69,0.1);border:1px solid rgba(40,167,69,0.25);user-select:none;-webkit-user-select:none;';
+                const credChipToggleStyle = 'flex-shrink:0;pointer-events:none;font-size:9px;line-height:1;color:rgba(255,255,255,0.75);user-select:none;-webkit-user-select:none;';
+                const credChipToggleDisabledStyle = 'flex-shrink:0;pointer-events:none;font-size:9px;line-height:1;color:#28a745;user-select:none;-webkit-user-select:none;';
+                const creditRows = fetchedCredits.map((c, idx) => {
+                    const rolesArr = Array.isArray(c.roles) ? c.roles : (c.role ? c.role.split(',').map(r => r.trim()).filter(Boolean) : []);
+                    const isDisabled = disabledCreditIndices.has(idx);
+                    const chips = rolesArr.map(r => {
+                        const isRoleDisabled = disabledCreditRoles.has(`${idx}::${r}`);
+                        return `
+                            <span class="dh-wi-cred-chip" data-idx="${idx}" data-role="${esc(r)}" style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:500;color:#fff;padding:2px 7px;border-radius:4px;cursor:pointer;background:${isRoleDisabled ? '#ccc' : 'rgba(26,111,191,0.55)'};${isRoleDisabled ? 'opacity:0.6;' : ''}">
+                                <span style="${isRoleDisabled ? 'text-decoration:line-through;' : ''}">${esc(r)}</span>
+                                <span class="dh-wi-cred-chip-toggle" data-idx="${idx}" data-role="${esc(r)}" title="Exclude this role from submission" style="${isRoleDisabled ? credChipToggleDisabledStyle : credChipToggleStyle}">✕</span>
+                            </span>
+                        `;
+                    }).join('');
+                    const dash = rolesArr.length ? `<span style="font-size:11px;color:#aaa;flex-shrink:0;">–</span>` : '';
+                    return `
+                        <div class="dh-wi-cred-row" data-idx="${idx}" style="display:flex;flex-wrap:wrap;align-items:center;gap:3px 4px;padding:2px 0;font-size:11px;box-sizing:border-box;">
+                            ${chips}${dash}
+                            <span class="dh-wi-cred-name-wrap" data-idx="${idx}" style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;${isDisabled ? 'opacity:0.4;' : ''}">
+                                <span class="dh-wi-cred-name" style="font-weight:600;${isDisabled ? 'text-decoration:line-through;' : ''}">${esc(c.name)}${c.anv ? `<span style="color:#888;font-style:italic;font-weight:normal;margin-left:4px;">(ANV: ${esc(c.anv)})</span>` : ''}</span>
+                                <span class="dh-wi-cred-toggle" data-idx="${idx}" title="Exclude this credit from submission" style="${isDisabled ? creditToggleDisabledStyle : creditToggleStyle}">✕</span>
                             </span>
                         </div>
                     `;
-                }).join('');
+                }).join('\n');
+
+                const fetchedGenreStyleGroups = fetchedData.genreStyleGroups || [];
+                const styleCount = fetchedGenreStyleGroups.reduce((sum, g) => {
+                    if (disabledGenres.has(g.genre)) return sum;
+                    return sum + (g.styles || []).filter(s => !disabledStyles.has(s)).length;
+                }, 0);
+                const genreToggleStyle = 'flex-shrink:0;width:15px;height:15px;margin-left:3px;display:flex;align-items:center;justify-content:center;border-radius:3px;pointer-events:none;font-size:9px;line-height:1;color:#dc3545;background:rgba(220,53,69,0.1);border:1px solid rgba(220,53,69,0.25);user-select:none;-webkit-user-select:none;';
+                const genreToggleDisabledStyle = 'flex-shrink:0;width:15px;height:15px;margin-left:3px;display:flex;align-items:center;justify-content:center;border-radius:3px;pointer-events:none;font-size:9px;line-height:1;color:#28a745;background:rgba(40,167,69,0.1);border:1px solid rgba(40,167,69,0.25);user-select:none;-webkit-user-select:none;';
+                const chipToggleStyle = 'flex-shrink:0;pointer-events:none;font-size:9px;line-height:1;color:rgba(255,255,255,0.75);user-select:none;-webkit-user-select:none;';
+                const chipToggleDisabledStyle = 'flex-shrink:0;pointer-events:none;font-size:9px;line-height:1;color:#28a745;user-select:none;-webkit-user-select:none;';
+                const styleRows = fetchedGenreStyleGroups.map(g => {
+                    const isGenreDisabled = disabledGenres.has(g.genre);
+                    const hasStyles = (g.styles || []).length > 0;
+                    const onlyGenreNotice = hasStyles ? '' : `<div style="font-size:10px;font-weight:400;color:#888;padding-top:3px;">Only genre was found:</div>`;
+                    const genreRow = `
+                        ${onlyGenreNotice}
+                        <div class="dh-wi-genre-row" data-genre="${esc(g.genre)}" style="display:flex;align-items:center;padding:2px 0 0;font-size:11px;font-weight:600;box-sizing:border-box;cursor:pointer;">
+                            <span class="dh-wi-genre-name" style="${isGenreDisabled ? 'opacity:0.4;text-decoration:line-through;' : ''}">${esc(g.genre)}</span>
+                            <span class="dh-wi-genre-toggle" data-genre="${esc(g.genre)}" title="Exclude this genre (and its styles) from submission" style="${isGenreDisabled ? genreToggleDisabledStyle : genreToggleStyle}">✕</span>
+                            <span style="flex:1;"></span>
+                        </div>
+                    `;
+                    const chips = (g.styles || []).map(s => {
+                        const isStyleDisabled = isGenreDisabled || disabledStyles.has(s);
+                        return `
+                            <span class="dh-wi-style-chip" data-style="${esc(s)}" style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:500;color:#fff;padding:2px 7px;border-radius:4px;cursor:pointer;background:${isStyleDisabled ? '#ccc' : 'rgba(26,111,191,0.55)'};${isStyleDisabled ? 'opacity:0.6;' : ''}">
+                                <span style="${isStyleDisabled ? 'text-decoration:line-through;' : ''}">${esc(s)}</span>
+                                <span class="dh-wi-style-toggle" data-style="${esc(s)}" title="Exclude this style from submission" style="${isStyleDisabled ? chipToggleDisabledStyle : chipToggleStyle}">✕</span>
+                            </span>
+                        `;
+                    }).join('');
+                    const chipsRow = chips ? `<div class="dh-wi-styles-row" data-genre="${esc(g.genre)}" style="display:flex;flex-wrap:wrap;gap:3px 4px;padding:2px 0 4px;border-bottom:1px solid rgba(0,0,0,0.06);">${chips}</div>` : '';
+                    return genreRow + chipsRow;
+                }).join('\n');
+
                 if (fetchedData.tracks.length === 0) {
                     previewEl.innerHTML = `<span style="color:#dc3545;">${wiAntiBotError(urlInput.value.trim()).replace(/\n/g, '<br>')}</span>`;
                 } else {
                     const overflowStyle = fetchedData.tracks.length > 9 ? 'overflow-y:auto;' : 'overflow-y:hidden;';
+                    const tabActiveStyle   = 'background:none;border:none;cursor:pointer;font-size:10.5px;font-weight:600;padding:3px 8px 5px;color:#1a6fbf;border-bottom:2px solid #1a6fbf;margin-bottom:-1px;box-sizing:border-box;';
+                    const tabInactiveStyle = 'background:none;border:none;cursor:pointer;font-size:10.5px;font-weight:600;padding:3px 8px 5px;color:#888;border-bottom:2px solid transparent;margin-bottom:-1px;box-sizing:border-box;';
+                    const creditRowsHtml = creditRows || '<div style="color:#888;font-size:10px;padding:4px 0;">No credits found</div>';
+                    const styleRowsHtml = styleRows || '<div style="color:#888;font-size:10px;padding:4px 0;">No styles found</div>';
+                    const _datePart = wiNormalizeDate(fetchedData.date);
+                    const _publishPart = fetchedData.publishDate ? wiNormalizeDate(fetchedData.publishDate) : '';
+                    if (fetchedData.preferPublishDate && _publishPart) selectedDateField = 'publishDate';
+                    let dateSegmentHtml;
+                    if (_datePart && _publishPart && _datePart !== _publishPart) {
+                        const dateActive = selectedDateField === 'date';
+                        dateSegmentHtml =
+                            `<span class="dh-wi-date-pick${dateActive ? ' dh-wi-date-active' : ''}" data-field="date" title="Release date — click to use this one" style="cursor:pointer;padding:0 2px;border-radius:2px;${dateActive ? '' : 'opacity:.55;'}">${esc(_datePart)}</span>` +
+                            `<span style="opacity:.4;"> / </span>` +
+                            `<span class="dh-wi-date-pick${dateActive ? '' : ' dh-wi-date-active'}" data-field="publishDate" title="Publish date — click to use this one instead" style="cursor:pointer;padding:0 2px;border-radius:2px;${dateActive ? 'opacity:.55;' : ''}">${esc(_publishPart)} (Pub.)</span>`;
+                    } else {
+                        dateSegmentHtml = esc(_datePart);
+                    }
                     previewEl.innerHTML = `
                         <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:5px;">
                             ${imgHtml}
                             <div style="min-width:0;overflow:hidden;">
                                 <div style="font-weight:600;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(fetchedData.artist)}${fetchedData.artist && fetchedData.title ? ' – ' : ''}${esc(fetchedData.title)}</div>
-                                <div style="color:#888;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${[fetchedData.label, fetchedData.catno, (state.importCountry && fetchedData.country) ? fetchedData.country : 'Worldwide', fetchedData.invalidDate ? `${fetchedData.invalidDate} (Invalid); ${wiNormalizeDate(fetchedData.date)} (Pub.)` : wiNormalizeDate(fetchedData.date) + (fetchedData.publishDate ? '; ' + fetchedData.publishDate + ' (Pub.)' : '')].filter(Boolean).join(' · ')}</div>
-                                <div style="color:#888;font-size:10px;">${[
-                                    `${fetchedData.tracks.length} track${fetchedData.tracks.length !== 1 ? 's' : ''}`,
-                                    fetchedData.fileType || 'FLAC',
-                                    (fetchedData.bitdepth && fetchedData.samplerate)
-                                        ? `${fetchedData.bitdepth}-bit/${fetchedData.samplerate / 1000}kHz`
-                                        : (fetchedData.freeText || null),
-                                    esc(fetchedData.storeName),
-                                ].filter(Boolean).join(' · ')}</div>
+                                <div style="color:#888;font-size:10px;white-space:normal;overflow:hidden;">${[fetchedData.label, fetchedData.catno, (state.importCountry && fetchedData.country) ? fetchedData.country : 'Worldwide', dateSegmentHtml].filter(Boolean).join(' · ')}</div>
+                                <div style="color:#888;font-size:10px;">${[`${fetchedData.tracks.length} track${fetchedData.tracks.length !== 1 ? 's' : ''}`, fetchedData.fileType || 'FLAC', (fetchedData.bitdepth && fetchedData.samplerate) ? `${fetchedData.bitdepth}-bit/${fetchedData.samplerate / 1000} kHz` : (fetchedData.freeText || null), esc(fetchedData.storeName)].filter(Boolean).join(' · ')}</div>
                             </div>
                         </div>
-                        <div style="max-height:162px;${overflowStyle}"><div style="display:flex;flex-direction:column;min-width:100%;box-sizing:border-box;">${trackRows}</div></div>
+                        <div style="display:flex;gap:2px;margin-bottom:5px;border-bottom:1px solid rgba(0,0,0,0.08);">
+                            <button class="dh-wi-preview-tab active" data-tab="trk" style="${tabActiveStyle}">Tracklist</button>
+                            <button class="dh-wi-preview-tab" data-tab="crd" style="${tabInactiveStyle}">Credits${creditRoleCount > 0 ? ` (${creditRoleCount})` : ''}</button>
+                            <button class="dh-wi-preview-tab" data-tab="sty" style="${tabInactiveStyle}">Styles${styleCount > 0 ? ` (${styleCount})` : ''}</button>
+                        </div>
+                        <div id="dh-wi-panel-trk" style="max-height:162px;${overflowStyle}"><div style="display:flex;flex-direction:column;min-width:100%;box-sizing:border-box;">${trackRows}</div></div>
+                        <div id="dh-wi-panel-crd" style="display:none;overflow-y:auto;"><div style="display:flex;flex-direction:column;min-width:100%;box-sizing:border-box;">${creditRowsHtml}</div></div>
+                        <div id="dh-wi-panel-sty" style="display:none;overflow-y:auto;"><div style="display:flex;flex-direction:column;min-width:100%;box-sizing:border-box;">${styleRowsHtml}</div></div>
                     `;
+                    const panelTrkEl = previewEl.querySelector('#dh-wi-panel-trk');
+                    const panelCrdEl = previewEl.querySelector('#dh-wi-panel-crd');
+                    const panelStyEl = previewEl.querySelector('#dh-wi-panel-sty');
+                    previewEl.querySelectorAll('.dh-wi-date-pick').forEach(pick => {
+                        pick.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            selectedDateField = pick.dataset.field;
+                            previewEl.querySelectorAll('.dh-wi-date-pick').forEach(p => {
+                                const isActive = p.dataset.field === selectedDateField;
+                                p.classList.toggle('dh-wi-date-active', isActive);
+                                p.style.opacity = isActive ? '' : '.55';
+                            });
+                        });
+                    });
+
+                    panelCrdEl.style.height = panelTrkEl.offsetHeight + 'px';
+                    panelStyEl.style.height = panelTrkEl.offsetHeight + 'px';
+                    const crdTabBtn = previewEl.querySelector('.dh-wi-preview-tab[data-tab="crd"]');
+                    const styTabBtn = previewEl.querySelector('.dh-wi-preview-tab[data-tab="sty"]');
+                    function updateCreditsTabCount() {
+                        let n = 0;
+                        fetchedCredits.forEach((c, i) => {
+                            if (disabledCreditIndices.has(i)) return;
+                            const rolesArr = Array.isArray(c.roles) ? c.roles : (c.role ? c.role.split(',').map(r => r.trim()).filter(Boolean) : []);
+                            rolesArr.forEach(r => { if (!disabledCreditRoles.has(`${i}::${r}`)) n++; });
+                        });
+                        crdTabBtn.textContent = n > 0 ? `Credits (${n})` : 'Credits';
+                    }
+                    function updateStylesTabCount() {
+                        let n = 0;
+                        fetchedGenreStyleGroups.forEach(g => {
+                            if (disabledGenres.has(g.genre)) return;
+                            (g.styles || []).forEach(s => { if (!disabledStyles.has(s)) n++; });
+                        });
+                        styTabBtn.textContent = n > 0 ? `Styles (${n})` : 'Styles';
+                    }
+                    function allRolesDisabled(idx) {
+                        const row = panelCrdEl.querySelector(`.dh-wi-cred-row[data-idx="${idx}"]`);
+                        if (!row) return false;
+                        const chips = row.querySelectorAll('.dh-wi-cred-chip');
+                        if (!chips.length) return false;
+                        return Array.from(chips).every(chip => disabledCreditRoles.has(`${idx}::${chip.dataset.role}`));
+                    }
+                    function syncNameStateToRoles(idx) {
+
+                        if (manuallyDisabledCredits.has(idx)) return;
+                        const nameWrap = panelCrdEl.querySelector(`.dh-wi-cred-name-wrap[data-idx="${idx}"]`);
+                        if (!nameWrap) return;
+                        const nameEl = nameWrap.querySelector('.dh-wi-cred-name');
+                        const toggle = nameWrap.querySelector('.dh-wi-cred-toggle');
+                        if (allRolesDisabled(idx)) {
+                            disabledCreditIndices.add(idx);
+                            nameWrap.style.opacity = '0.4';
+                            if (nameEl) nameEl.style.textDecoration = 'line-through';
+                            if (toggle) toggle.style.cssText = creditToggleDisabledStyle;
+                        } else if (disabledCreditIndices.has(idx)) {
+                            disabledCreditIndices.delete(idx);
+                            nameWrap.style.opacity = '';
+                            if (nameEl) nameEl.style.textDecoration = '';
+                            if (toggle) toggle.style.cssText = creditToggleStyle;
+                        }
+                    }
+                    previewEl.querySelectorAll('.dh-wi-cred-name-wrap').forEach(nameWrap => {
+                        const idx = Number(nameWrap.dataset.idx);
+                        const nameEl = nameWrap.querySelector('.dh-wi-cred-name');
+                        nameWrap.addEventListener('mouseenter', () => {
+                            if (disabledCreditIndices.has(idx)) return;
+                            if (nameEl) nameEl.style.textDecoration = 'line-through';
+                        });
+                        nameWrap.addEventListener('mouseleave', () => {
+                            if (disabledCreditIndices.has(idx)) return;
+                            if (nameEl) nameEl.style.textDecoration = '';
+                        });
+                    });
+                    previewEl.querySelectorAll('.dh-wi-cred-name-wrap').forEach(nameWrap => {
+                        nameWrap.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            const idx = Number(nameWrap.dataset.idx);
+                            const row = panelCrdEl.querySelector(`.dh-wi-cred-row[data-idx="${idx}"]`);
+                            const nameEl = nameWrap.querySelector('.dh-wi-cred-name');
+                            const toggle = nameWrap.querySelector('.dh-wi-cred-toggle');
+                            if (disabledCreditIndices.has(idx)) {
+                                manuallyDisabledCredits.delete(idx);
+                                disabledCreditIndices.delete(idx);
+                                nameWrap.style.opacity = '';
+                                if (nameEl) nameEl.style.textDecoration = '';
+                                if (toggle) toggle.style.cssText = creditToggleStyle;
+                                if (row) {
+                                    row.querySelectorAll('.dh-wi-cred-chip').forEach(chip => {
+                                        const role = chip.dataset.role;
+                                        if (disabledCreditRoles.has(`${idx}::${role}`)) return;
+                                        chip.style.background = 'rgba(26,111,191,0.55)';
+                                        chip.style.opacity = '';
+                                        const label = chip.querySelector('span');
+                                        if (label) label.style.textDecoration = '';
+                                        const chipToggle = chip.querySelector('.dh-wi-cred-chip-toggle');
+                                        if (chipToggle) chipToggle.style.cssText = credChipToggleStyle;
+                                    });
+                                }
+
+                                syncNameStateToRoles(idx);
+                            } else {
+
+                                manuallyDisabledCredits.add(idx);
+                                disabledCreditIndices.add(idx);
+                                nameWrap.style.opacity = '0.4';
+                                if (nameEl) nameEl.style.textDecoration = 'line-through';
+                                if (toggle) toggle.style.cssText = creditToggleDisabledStyle;
+                                if (row) {
+                                    row.querySelectorAll('.dh-wi-cred-chip').forEach(chip => {
+                                        chip.style.background = '#ccc';
+                                        chip.style.opacity = '0.6';
+                                        const label = chip.querySelector('span');
+                                        if (label) label.style.textDecoration = 'line-through';
+                                        const chipToggle = chip.querySelector('.dh-wi-cred-chip-toggle');
+                                        if (chipToggle) chipToggle.style.cssText = credChipToggleDisabledStyle;
+                                    });
+                                }
+                            }
+                            updateCreditsTabCount();
+                        });
+                    });
+                    previewEl.querySelectorAll('.dh-wi-cred-chip').forEach(chip => {
+                        const idx = Number(chip.dataset.idx);
+                        const role = chip.dataset.role;
+                        const key = `${idx}::${role}`;
+                        const labelEl = chip.querySelector('span');
+                        chip.addEventListener('mouseenter', () => {
+                            if (manuallyDisabledCredits.has(idx) || disabledCreditRoles.has(key)) return;
+                            if (labelEl) labelEl.style.textDecoration = 'line-through';
+                            chip.style.background = 'rgba(26,111,191,0.78)';
+                        });
+                        chip.addEventListener('mouseleave', () => {
+                            if (manuallyDisabledCredits.has(idx) || disabledCreditRoles.has(key)) return;
+                            if (labelEl) labelEl.style.textDecoration = '';
+                            chip.style.background = 'rgba(26,111,191,0.55)';
+                        });
+                        chip.addEventListener('click', (e) => {
+                            e.stopPropagation();
+
+                            if (manuallyDisabledCredits.has(idx)) return;
+                            const toggle = chip.querySelector('.dh-wi-cred-chip-toggle');
+                            if (disabledCreditRoles.has(key)) {
+                                disabledCreditRoles.delete(key);
+                                chip.style.background = 'rgba(26,111,191,0.55)';
+                                chip.style.opacity = '';
+                                if (labelEl) labelEl.style.textDecoration = '';
+                                if (toggle) toggle.style.cssText = credChipToggleStyle;
+                            } else {
+                                disabledCreditRoles.add(key);
+                                chip.style.background = '#ccc';
+                                chip.style.opacity = '0.6';
+                                if (labelEl) labelEl.style.textDecoration = 'line-through';
+                                if (toggle) toggle.style.cssText = credChipToggleDisabledStyle;
+                            }
+                            syncNameStateToRoles(idx);
+                            updateCreditsTabCount();
+                        });
+                    });
+                    previewEl.querySelectorAll('.dh-wi-genre-row').forEach(row => {
+                        const genre = row.dataset.genre;
+                        const nameEl = row.querySelector('.dh-wi-genre-name');
+                        row.addEventListener('mouseenter', () => {
+                            if (disabledGenres.has(genre)) return;
+                            if (nameEl) nameEl.style.textDecoration = 'line-through';
+                        });
+                        row.addEventListener('mouseleave', () => {
+                            if (disabledGenres.has(genre)) return;
+                            if (nameEl) nameEl.style.textDecoration = '';
+                        });
+                    });
+                    previewEl.querySelectorAll('.dh-wi-genre-row').forEach(row => {
+                        row.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            const genre = row.dataset.genre;
+                            const nameEl = row.querySelector('.dh-wi-genre-name');
+                            const toggle = row.querySelector('.dh-wi-genre-toggle');
+                            const stylesRow = panelStyEl.querySelector(`.dh-wi-styles-row[data-genre="${CSS.escape(genre)}"]`);
+                            if (disabledGenres.has(genre)) {
+                                disabledGenres.delete(genre);
+                                nameEl.style.opacity = '';
+                                nameEl.style.textDecoration = '';
+                                if (toggle) toggle.style.cssText = genreToggleStyle;
+                                if (stylesRow) {
+                                    stylesRow.querySelectorAll('.dh-wi-style-chip').forEach(chip => {
+                                        const style = chip.dataset.style;
+                                        if (disabledStyles.has(style)) return;
+                                        chip.style.background = 'rgba(26,111,191,0.55)';
+                                        chip.style.opacity = '';
+                                        const label = chip.querySelector('span');
+                                        if (label) label.style.textDecoration = '';
+                                        const chipToggle = chip.querySelector('.dh-wi-style-toggle');
+                                        if (chipToggle) chipToggle.style.cssText = chipToggleStyle;
+                                    });
+                                }
+                            } else {
+
+                                disabledGenres.add(genre);
+                                nameEl.style.opacity = '0.4';
+                                nameEl.style.textDecoration = 'line-through';
+                                if (toggle) toggle.style.cssText = genreToggleDisabledStyle;
+                                if (stylesRow) {
+                                    stylesRow.querySelectorAll('.dh-wi-style-chip').forEach(chip => {
+                                        chip.style.background = '#ccc';
+                                        chip.style.opacity = '0.6';
+                                        const label = chip.querySelector('span');
+                                        if (label) label.style.textDecoration = 'line-through';
+                                        const chipToggle = chip.querySelector('.dh-wi-style-toggle');
+                                        if (chipToggle) chipToggle.style.cssText = chipToggleDisabledStyle;
+                                    });
+                                }
+                            }
+                            updateStylesTabCount();
+                        });
+                    });
+                    previewEl.querySelectorAll('.dh-wi-style-chip').forEach(chip => {
+                        const style = chip.dataset.style;
+                        const stylesRow = chip.closest('.dh-wi-styles-row');
+                        const labelEl = chip.querySelector('span');
+                        const isCascadeLocked = () => stylesRow?.dataset.genre && disabledGenres.has(stylesRow.dataset.genre);
+                        chip.addEventListener('mouseenter', () => {
+                            if (isCascadeLocked() || disabledStyles.has(style)) return;
+                            if (labelEl) labelEl.style.textDecoration = 'line-through';
+                            chip.style.background = 'rgba(26,111,191,0.78)';
+                        });
+                        chip.addEventListener('mouseleave', () => {
+                            if (isCascadeLocked() || disabledStyles.has(style)) return;
+                            if (labelEl) labelEl.style.textDecoration = '';
+                            chip.style.background = 'rgba(26,111,191,0.55)';
+                        });
+                        chip.addEventListener('click', (e) => {
+                            e.stopPropagation();
+
+                            if (isCascadeLocked()) return;
+                            const toggle = chip.querySelector('.dh-wi-style-toggle');
+                            if (disabledStyles.has(style)) {
+                                disabledStyles.delete(style);
+                                chip.style.background = 'rgba(26,111,191,0.55)';
+                                chip.style.opacity = '';
+                                if (labelEl) labelEl.style.textDecoration = '';
+                                if (toggle) toggle.style.cssText = chipToggleStyle;
+                            } else {
+                                disabledStyles.add(style);
+                                chip.style.background = '#ccc';
+                                chip.style.opacity = '0.6';
+                                if (labelEl) labelEl.style.textDecoration = 'line-through';
+                                if (toggle) toggle.style.cssText = chipToggleDisabledStyle;
+                            }
+                            updateStylesTabCount();
+                        });
+                    });
+                    previewEl.querySelectorAll('.dh-wi-preview-tab').forEach(btn => {
+                        btn.addEventListener('click', () => {
+                            previewEl.querySelectorAll('.dh-wi-preview-tab').forEach(b => {
+                                b.classList.remove('active');
+                                b.style.cssText = tabInactiveStyle;
+                            });
+                            btn.classList.add('active');
+                            btn.style.cssText = tabActiveStyle;
+                            panelTrkEl.style.display = btn.dataset.tab === 'trk' ? '' : 'none';
+                            panelCrdEl.style.display = btn.dataset.tab === 'crd' ? '' : 'none';
+                            panelStyEl.style.display = btn.dataset.tab === 'sty' ? '' : 'none';
+                        });
+                    });
                     applyBtn.disabled = false; applyWrap.style.opacity = '1'; applyWrap.style.pointerEvents = 'auto'; savedraftWrap.style.opacity = '1'; savedraftWrap.style.pointerEvents = 'auto';
                 }
                 if (panelImgUrl) {
@@ -10488,11 +11079,12 @@ wiIsAntiBotPage(html)) {
             if (_noSplitMode) { state.splitImport = false; state.importAutoFeat = false; state.importAutoRemixers = false; }
             try {
                 if (_creditsOnlyMode) {
-                    if (fetchedData.credits && fetchedData.credits.length > 0) {
+                    const _filteredCredits = getFilteredFetchedData().credits || [];
+                    if (_filteredCredits.length > 0) {
                         const addedCreditRemoveBtns = [];
                         const wiFields = [];
                         if (fetchedData.creditsSource === 'about') log('No credits section — credits imported from About notes', 'info');
-                        await wiApplyReleaseCredits(fetchedData.credits, wiFields, addedCreditRemoveBtns);
+                        await wiApplyReleaseCredits(_filteredCredits, wiFields, addedCreditRemoveBtns);
                         addActionToHistory({ type: 'webImport', fields: wiFields, tracklistAction: null, preImageReactIds: new Set(), addedArtistRemoveBtns: [], addedCreditRemoveBtns });
                         const n = addedCreditRemoveBtns.length;
                         log(`Done! Imported ${n} credit${n !== 1 ? 's' : ''} from ${fetchedData.storeName}`, 'success');
@@ -10546,7 +11138,7 @@ wiIsAntiBotPage(html)) {
                         await wiSmartCleanupForReimport(fetchedData);
                         await new Promise(r => setTimeout(r, 300));
                     }
-                    await wiApplyRelease(fetchedData, urlInput.value.trim(), _outerShield);
+                    await wiApplyRelease(getFilteredFetchedData(), urlInput.value.trim(), _outerShield);
                 }
             } catch(e) { log('Apply error: ' + e.message, 'error'); _outerShield.restoreAll(); }
             finally { if (_savedCap) state.capitalizeFields = _savedCap; if (_noSplitMode) { state.splitImport = _savedSplit; state.importAutoFeat = _savedAutoFeat; state.importAutoRemixers = _savedAutoRmx; } _noCapMode = false; _creditsOnlyMode = false; _durationsOnlyMode = false; _noSplitMode = false; }
@@ -10578,7 +11170,7 @@ wiIsAntiBotPage(html)) {
                             </span>
                         </div>
                     `;
-                }).join('');
+                }).join('\n');
                 const overflowStyle = _discogsData.credits.length > 9 ? 'overflow-y:auto;' : 'overflow-y:hidden;';
                 previewEl.innerHTML = `
                     <div style="font-weight:600;font-size:12px;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
@@ -10641,24 +11233,38 @@ wiIsAntiBotPage(html)) {
         cancelBtn.onclick = close;
         closeBtn.onclick  = close;
 
-        savedraftBtn.onclick = async (e) => {
-            if (e) { e.preventDefault(); e.stopPropagation(); }
+        const _saveDraft = async () => {
             if (!fetchedData) return;
             savedraftWrap.style.opacity = '0.45'; savedraftWrap.style.pointerEvents = 'none';
             applyWrap.style.opacity     = '0.45'; applyWrap.style.pointerEvents     = 'none';
             fetchBtn.disabled = true;
             savedraftBtn.innerHTML = 'Saving…';
+            const _savedCap = _noCapMode ? state.capitalizeFields : null;
+            if (_noCapMode) state.capitalizeFields = { ..._noCapFields };
+            const _savedSplit    = _noSplitMode ? state.splitImport        : null;
+            const _savedAutoFeat = _noSplitMode ? state.importAutoFeat     : null;
+            const _savedAutoRmx  = _noSplitMode ? state.importAutoRemixers : null;
+            if (_noSplitMode) { state.splitImport = false; state.importAutoFeat = false; state.importAutoRemixers = false; }
             try {
-                await wiSaveReleaseAsDraft(fetchedData, urlInput.value.trim());
+                await wiSaveReleaseAsDraft(getFilteredFetchedData(), urlInput.value.trim());
                 close();
             } catch (e) {
                 log(`Save to Draft failed: ${e.message}`, 'error');
             } finally {
+                if (_savedCap) state.capitalizeFields = _savedCap;
+                if (_noSplitMode) { state.splitImport = _savedSplit; state.importAutoFeat = _savedAutoFeat; state.importAutoRemixers = _savedAutoRmx; }
+                _noCapMode = false;
+                _noSplitMode = false;
                 savedraftBtn.innerHTML = 'Save To<br>Draft';
                 fetchBtn.disabled = false;
                 savedraftWrap.style.opacity = '1'; savedraftWrap.style.pointerEvents = 'auto';
                 applyWrap.style.opacity     = '1'; applyWrap.style.pointerEvents     = 'auto';
             }
+        };
+
+        savedraftBtn.onclick = (e) => {
+            if (e) { e.preventDefault(); e.stopPropagation(); }
+            _saveDraft();
         };
 
         overlay.addEventListener('mousemove', resetHideTimer);
@@ -11396,7 +12002,6 @@ wiIsAntiBotPage(html)) {
             _capApplyTheme(_isDark());
             document.addEventListener('dh-theme-change', (e) => _capApplyTheme(e.detail?.dark));
         })();
-
 
         const additionalToggle = document.getElementById('additional-tools-toggle');
         const additionalDropdown = document.getElementById('additional-tools-dropdown');
