@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      1.8.2
+// @version      1.9
 // @description  Imports metadata from web stores and plain-text tracklists, extracts info from titles and assigns data to the appropriate fields
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
@@ -2566,8 +2566,14 @@
             const row = trackRows[i];
             const titleInput = row.querySelector('input[data-type="track-title"], input[id*="track-title"]');
             if (!titleInput) continue;
-            const title = (titleInput.value || '').trim();
+            let title = (titleInput.value || '').trim();
             if (!title) continue;
+            if (!/[\(\[\uFF08\uFF3B]/.test(title)) {
+                const dashMatch = title.match(/^(.+?)\s*[\u2013\u2014-]\s+(.+)$/);
+                if (dashMatch && remixAnyRegex && remixAnyRegex.test(dashMatch[2])) {
+                    title = `${dashMatch[1].trim()} (${dashMatch[2].trim()})`;
+                }
+            }
 
             const containerRegex = /([\(\[\uFF08\uFF3B]\s*(.*?)\s*[\)\]\uFF09\uFF3D])/g;
             let m;
@@ -5304,6 +5310,7 @@
   ['compilation producer', 'Compilation Producer'],
   ['compiled by', 'Compiled By'],
   ['curated by', 'Curated By'],
+  ['curator', 'Curated By'],
   ['editor', 'Editor'],
   ['executive-producer', 'Executive-Producer'],
   ['post production', 'Post Production'],
@@ -5971,6 +5978,7 @@
                 /\bdark\s+ambient\s+project\b/i.test(line) ||
                 /\bcompilation\b.*\bfollowing\b/i.test(line)) continue;
             if (/^promo(?:tional)?\s+text\s*:/i.test(line) || /^notes?\s*:/i.test(line) || /^info\s*:/i.test(line)) continue;
+            if (/^(?:this|the|our)\s+(?:profile|page|account|channel|site|website|blog|store|shop)\s+(?:is|was)\s+(?:managed|run|maintained|administered|operated|updated)(?:\s+by)?\b/i.test(line)) continue;
             if (/:\s*$/.test(line) && !/\bby\b/i.test(line)) continue;
             const parseNames = (s) => {
                 const cleaned = /:\S+:$/.test(s.trim()) ? s.trim() : s.replace(/\s*:(?:\s.*)?$/, '');
@@ -6773,6 +6781,7 @@
     async function wiParseBeatport(url) {
         const html = await wiCrossFetch(url);
         const doc = wiParseHTML(html);
+        const splitBeatportGenre = (s) => s.replace(/\([^)]*\)/g, '').split('/').map(g => g.trim()).filter(Boolean);
 
         let releaseData = {
             artist: '', title: '', label: '', catno: '', date: '', tracks: [],
@@ -6806,7 +6815,7 @@
                         trackArtistRegistry.push(trackArtists.join('|').toLowerCase());
 
                         const genreName = t.genre?.name || t.sub_genre?.name || '';
-                        if (genreName) genreName.split('/').forEach(g => { const s = g.trim(); if (s) genreSet.add(s); });
+                        if (genreName) splitBeatportGenre(genreName).forEach(g => genreSet.add(g));
 
                         return {
                             position: String(t.number || t.track_number || (i + 1)),
@@ -6830,7 +6839,7 @@
         if (!releaseData.tags || releaseData.tags.length === 0) {
             const genreSet = new Set();
             doc.querySelectorAll('a[href*="/genre/"]').forEach(a => {
-                a.textContent.split('/').forEach(g => { const s = g.trim(); if (s) genreSet.add(s); });
+                splitBeatportGenre(a.textContent).forEach(g => genreSet.add(g));
             });
             if (genreSet.size > 0) releaseData.tags = [...genreSet];
         }
@@ -9134,11 +9143,20 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
   function wiDetectVA(data) {
         if (!data.tracks || data.tracks.length === 0) return false;
         if (data.artist && (data.artist.toLowerCase().includes('various artists') || /v\/a/i.test(data.artist))) return true;
+        const normalizeArtistName = (s) => (s || '')
+            .normalize('NFKC')
+            .replace(/[\u200B-\u200D\uFEFF]/g, '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toLowerCase();
         const trackArtistSets = data.tracks.map(t =>
-            (t.artists || []).map(a => a.trim().toLowerCase()).join('|')
+            (t.artists || []).map(normalizeArtistName).filter(Boolean).sort().join('|')
         ).filter(s => s !== "");
         const uniqueSets = [...new Set(trackArtistSets)];
-        return uniqueSets.length > 1;
+        if (uniqueSets.length <= 1) return false;
+        const releaseArtist = normalizeArtistName(data.artist);
+        if (releaseArtist && uniqueSets.every(s => s === releaseArtist)) return false;
+        return true;
     }
 
   function wiSetTextareaValue(el, value) {
@@ -9446,8 +9464,14 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
 
         const results = [];
         for (let i = 0; i < tracks.length; i++) {
-            const title = (tracks[i].title || '').trim();
+            let title = (tracks[i].title || '').trim();
             if (!title) continue;
+            if (!/[\(\[\uFF08\uFF3B]/.test(title)) {
+                const dashMatch = title.match(/^(.+?)\s*[\u2013\u2014-]\s+(.+)$/);
+                if (dashMatch && remixAnyRegex && remixAnyRegex.test(dashMatch[2])) {
+                    title = `${dashMatch[1].trim()} (${dashMatch[2].trim()})`;
+                }
+            }
             const pos = tracks[i].position || String(i + 1);
             const seen = new Set();
             const containerRegex = /([\(\[\uFF08\uFF3B]\s*(.*?)\s*[\)\]\uFF09\uFF3D])/g;
@@ -9609,6 +9633,14 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                 const p = String(trackPositions);
                 if (!featByPos.has(p)) featByPos.set(p, []);
                 featByPos.get(p).push({ name, role: 'Featuring' });
+            }
+            if (state.removeFeatFromTitle) {
+                const featPattern = buildFeaturingPattern();
+                const remixTerminatorPattern = getAllRemixTokensRegex();
+                for (const t of tracksPresplit) {
+                    const p = String(t.position || '');
+                    if (featByPos.has(p) && t.title) t.title = surgicalRemoval(t.title, featPattern, remixTerminatorPattern);
+                }
             }
         }
 
@@ -10717,7 +10749,7 @@ wiIsAntiBotPage(html)) {
                 if (fetchedData.tracks.length === 0) {
                     previewEl.innerHTML = `<span style="color:#dc3545;">${wiAntiBotError(urlInput.value.trim()).replace(/\n/g, '<br>')}</span>`;
                 } else {
-                    const overflowStyle = fetchedData.tracks.length > 9 ? 'overflow-y:auto;' : 'overflow-y:hidden;';
+                    const overflowStyle = 'overflow-y:auto;';
                     const tabActiveStyle   = 'background:none;border:none;cursor:pointer;font-size:10.5px;font-weight:600;padding:3px 8px 5px;color:#1a6fbf;border-bottom:2px solid #1a6fbf;margin-bottom:-1px;box-sizing:border-box;';
                     const tabInactiveStyle = 'background:none;border:none;cursor:pointer;font-size:10.5px;font-weight:600;padding:3px 8px 5px;color:#888;border-bottom:2px solid transparent;margin-bottom:-1px;box-sizing:border-box;';
                     const creditRowsHtml = creditRows || '<div style="color:#888;font-size:10px;padding:4px 0;">No credits found</div>';
@@ -10749,9 +10781,9 @@ wiIsAntiBotPage(html)) {
                             <button class="dh-wi-preview-tab" data-tab="crd" style="${tabInactiveStyle}">Credits${creditRoleCount > 0 ? ` (${creditRoleCount})` : ''}</button>
                             <button class="dh-wi-preview-tab" data-tab="sty" style="${tabInactiveStyle}">Styles${styleCount > 0 ? ` (${styleCount})` : ''}</button>
                         </div>
-                        <div id="dh-wi-panel-trk" style="max-height:162px;${overflowStyle}"><div style="display:flex;flex-direction:column;min-width:100%;box-sizing:border-box;">${trackRows}</div></div>
-                        <div id="dh-wi-panel-crd" style="display:none;overflow-y:auto;"><div style="display:flex;flex-direction:column;min-width:100%;box-sizing:border-box;">${creditRowsHtml}</div></div>
-                        <div id="dh-wi-panel-sty" style="display:none;overflow-y:auto;"><div style="display:flex;flex-direction:column;min-width:100%;box-sizing:border-box;">${styleRowsHtml}</div></div>
+                        <div id="dh-wi-panel-trk" style="height:162px;${overflowStyle}"><div style="display:flex;flex-direction:column;min-width:100%;box-sizing:border-box;">${trackRows}</div></div>
+                        <div id="dh-wi-panel-crd" style="display:none;height:162px;overflow-y:auto;"><div style="display:flex;flex-direction:column;min-width:100%;box-sizing:border-box;">${creditRowsHtml}</div></div>
+                        <div id="dh-wi-panel-sty" style="display:none;height:162px;overflow-y:auto;"><div style="display:flex;flex-direction:column;min-width:100%;box-sizing:border-box;">${styleRowsHtml}</div></div>
                     `;
                     const panelTrkEl = previewEl.querySelector('#dh-wi-panel-trk');
                     const panelCrdEl = previewEl.querySelector('#dh-wi-panel-crd');
