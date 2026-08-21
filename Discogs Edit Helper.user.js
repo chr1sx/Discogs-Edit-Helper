@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      1.9
+// @version      1.9.2
 // @description  Imports metadata from web stores and plain-text tracklists, extracts info from titles and assigns data to the appropriate fields
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
@@ -5925,7 +5925,14 @@
             const beforeExcept = l.slice(0, exceptM.index).trim().replace(/[.,;]+$/, '').trim();
             const inheritedRoleM = beforeExcept.match(new RegExp(`\\b(${knownRoleKw})\\s+by\\b`, 'i'));
             const inheritedRole = inheritedRoleM ? inheritedRoleM[1].toLowerCase() : null;
-            const exceptClauses = tail.split(/\s*(?:,\s*and|\s+and|,)\s+(?=(?:tracks?\s+)?\d)/i);
+            const naiveClauses = tail.split(/\s*(?:,\s*and|\s+and|,)\s+(?=(?:tracks?\s+)?\d)/i);
+            const exceptClauses = [];
+            let _clauseBuf = null;
+            for (const piece of naiveClauses) {
+                _clauseBuf = _clauseBuf === null ? piece : `${_clauseBuf}, ${piece.trim()}`;
+                if (/\bby\b/i.test(piece)) { exceptClauses.push(_clauseBuf); _clauseBuf = null; }
+            }
+            if (_clauseBuf !== null) exceptClauses.push(_clauseBuf);
             for (const clause of exceptClauses) {
 
                 const trackNumM = clause.match(/^\s*(?:tracks?\s+)?(\d+(?:\s*[-,&]\s*\d+)*)\s+/i);
@@ -10197,7 +10204,7 @@ wiIsAntiBotPage(html)) {
             if (buf.trim()) roleParts.push(buf.trim());
 
             const liText = li.textContent;
-            const trackPosMatch = liText.match(/\(\s*tracks?\s*:?\s*([\d,\s]+)\)/i);
+            const trackPosMatch = liText.match(/\(\s*tracks?\s*:?\s*([\dA-Za-z,\s\-\u2013\u2014]+?)\s*\)/i);
             const trackPositions = trackPosMatch
                 ? trackPosMatch[1].split(',').map(s => s.trim()).filter(Boolean).join(', ')
                 : null;
@@ -10242,12 +10249,21 @@ wiIsAntiBotPage(html)) {
             const existingPreview  = existing.querySelector('#dh-wi-preview');
 
             if (existingSaveWrap) {
+                const _existingVal = existing.querySelector('#dh-wi-url')?.value || '';
+                const _existingIsDiscogs = /discogs\.com\/release\/\d+|discogs\.com\/.*\/release\/\d+|^\d{5,}$/.test(_existingVal.trim());
                 existingSaveWrap.style.opacity = '0.45';
                 existingSaveWrap.style.pointerEvents = 'none';
+                existingSaveWrap.title = _existingIsDiscogs ? "Not available for Discogs credits import — there's no new release to create a draft of" : '';
             }
+            const existingApplyArrow = existing.querySelector('#dh-wi-apply-arrow');
             if (existingApplyWrap) {
                 existingApplyWrap.style.opacity = '0.45';
                 existingApplyWrap.style.pointerEvents = 'none';
+            }
+            if (existingApplyArrow) {
+                const _existingVal2 = existing.querySelector('#dh-wi-url')?.value || '';
+                const _existingIsDiscogs2 = /discogs\.com\/release\/\d+|discogs\.com\/.*\/release\/\d+|^\d{5,}$/.test(_existingVal2.trim());
+                existingApplyArrow.title = _existingIsDiscogs2 ? 'No apply variants available for Discogs credits import' : '';
             }
             if (existingSaveBtn) existingSaveBtn.innerHTML = 'Save To<br>Draft';
 
@@ -10396,8 +10412,8 @@ wiIsAntiBotPage(html)) {
             const menuItems = [
                 {
                     label: 'Without Capitalization Rules',
-                    title: 'Apply without normalizing capitalization',
-                    disabled: false,
+                    title: isDiscogsImport ? 'Not applicable — Discogs credits import never applies capitalization rules' : 'Apply without normalizing capitalization',
+                    disabled: isDiscogsImport,
                     onClick: () => { _noCapMode = true; if (_isDiscogsUrl(urlInput.value)) _discogsApply(); else _storeApply(); }
                 },
                 {
@@ -10512,11 +10528,18 @@ wiIsAntiBotPage(html)) {
 
             const r = applyWrap.getBoundingClientRect();
             applyMenu.style.display = 'block';
+            applyMenu.style.visibility = 'hidden';
 
             requestAnimationFrame(() => {
-                applyMenu.style.top  = (r.bottom + 3) + 'px';
                 applyMenu.style.left = r.left + 'px';
                 applyMenu.style.width = applyWrap.offsetWidth + 'px';
+                const menuHeight = applyMenu.offsetHeight;
+                const spaceBelow = window.innerHeight - r.bottom;
+                const flipThreshold = Math.max(menuHeight, 110) + 10;
+                const openUpward = spaceBelow < flipThreshold && r.top > menuHeight + 10;
+                applyMenu.style.top = openUpward ? (r.top - menuHeight - 3) + 'px' : (r.bottom + 3) + 'px';
+                applyMenu.style.boxShadow = openUpward ? '0 -3px 10px rgba(0,0,0,0.25)' : '0 3px 10px rgba(0,0,0,0.25)';
+                applyMenu.style.visibility = 'visible';
             });
         });
         document.addEventListener('click', (e) => {
@@ -10600,10 +10623,17 @@ wiIsAntiBotPage(html)) {
 
             const r = savedraftWrap.getBoundingClientRect();
             draftMenu.style.display = 'block';
+            draftMenu.style.visibility = 'hidden';
 
             requestAnimationFrame(() => {
-                draftMenu.style.top   = (r.bottom + 3) + 'px';
                 draftMenu.style.left  = (r.right - draftMenu.offsetWidth) + 'px';
+                const menuHeight = draftMenu.offsetHeight;
+                const spaceBelow = window.innerHeight - r.bottom;
+                const flipThreshold = Math.max(menuHeight, 110) + 10;
+                const openUpward = spaceBelow < flipThreshold && r.top > menuHeight + 10;
+                draftMenu.style.top = openUpward ? (r.top - menuHeight - 3) + 'px' : (r.bottom + 3) + 'px';
+                draftMenu.style.boxShadow = openUpward ? '0 -3px 10px rgba(0,0,0,0.25)' : '0 3px 10px rgba(0,0,0,0.25)';
+                draftMenu.style.visibility = 'visible';
             });
         });
         document.addEventListener('click', (e) => {
@@ -10624,6 +10654,13 @@ wiIsAntiBotPage(html)) {
             const isDiscogs = _isDiscogsUrl(val);
             if (supportedSpan) supportedSpan.style.display = isDiscogs ? 'none' : '';
             const name = val ? detectStoreName(val) : '';
+            savedraftWrap.style.opacity = isDiscogs ? '0.45' : '1';
+            savedraftWrap.style.pointerEvents = isDiscogs ? 'none' : 'auto';
+            savedraftWrap.title = isDiscogs ? "Not available for Discogs credits import — there's no new release to create a draft of" : '';
+            applyArrow.style.pointerEvents = isDiscogs ? 'none' : 'auto';
+            applyArrow.style.cursor = isDiscogs ? 'not-allowed' : 'pointer';
+            applyArrow.title = isDiscogs ? 'No apply variants available for Discogs credits import' : '';
+            if (isDiscogs) applyMenu.style.display = 'none';
         });
 
         urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') fetchBtn.click(); });
@@ -10701,11 +10738,12 @@ wiIsAntiBotPage(html)) {
                         `;
                     }).join('');
                     const dash = rolesArr.length ? `<span style="font-size:11px;color:#aaa;flex-shrink:0;">–</span>` : '';
+                    const tracksSuffix = c.trackPositions ? `<span style="color:#888;font-weight:normal;margin-left:4px;">(tracks: ${esc(c.trackPositions)})</span>` : '';
                     return `
                         <div class="dh-wi-cred-row" data-idx="${idx}" style="display:flex;flex-wrap:wrap;align-items:center;gap:3px 4px;padding:2px 0;font-size:11px;box-sizing:border-box;">
                             ${chips}${dash}
                             <span class="dh-wi-cred-name-wrap" data-idx="${idx}" style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;${isDisabled ? 'opacity:0.4;' : ''}">
-                                <span class="dh-wi-cred-name" style="font-weight:600;${isDisabled ? 'text-decoration:line-through;' : ''}">${esc(c.name)}${c.anv ? `<span style="color:#888;font-style:italic;font-weight:normal;margin-left:4px;">(ANV: ${esc(c.anv)})</span>` : ''}</span>
+                                <span class="dh-wi-cred-name" style="font-weight:600;${isDisabled ? 'text-decoration:line-through;' : ''}">${esc(c.name)}${c.anv ? `<span style="color:#888;font-style:italic;font-weight:normal;margin-left:4px;">(ANV: ${esc(c.anv)})</span>` : ''}${tracksSuffix}</span>
                                 <span class="dh-wi-cred-toggle" data-idx="${idx}" title="Exclude this credit from submission" style="${isDisabled ? creditToggleDisabledStyle : creditToggleStyle}">✕</span>
                             </span>
                         </div>
@@ -10767,13 +10805,26 @@ wiIsAntiBotPage(html)) {
                     } else {
                         dateSegmentHtml = esc(_datePart);
                     }
+                    const WI_LABEL_LINE_CHAR_BUDGET = 42;
+                    const WI_LABEL_MIN_CHARS = 8;
+                    const fitLabelForWiMeta = (labelText, catnoText, countryText) => {
+                        if (!labelText) return labelText;
+                        const restLen = (catnoText ? catnoText.length + 3 : 0) + (countryText ? countryText.length + 3 : 0);
+                        const maxLabelLen = Math.max(WI_LABEL_MIN_CHARS, WI_LABEL_LINE_CHAR_BUDGET - restLen);
+                        if (labelText.length <= maxLabelLen) return labelText;
+                        const truncLen = Math.max(WI_LABEL_MIN_CHARS - 3, maxLabelLen - 3);
+                        return `${labelText.slice(0, truncLen).trimEnd()}...`;
+                    };
+                    const wiResolvedCountry = (state.importCountry && fetchedData.country) ? fetchedData.country : 'Worldwide';
+                    const buildMetaLineHtmlEsc = (labelText) => [esc(fitLabelForWiMeta(labelText, fetchedData.catno, wiResolvedCountry)), esc(fetchedData.catno), esc(wiResolvedCountry), dateSegmentHtml].filter(Boolean).join(' · ');
+                    const metaLineClampStyle = 'display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;text-overflow:ellipsis;line-height:1.35;max-height:2.7em;';
                     previewEl.innerHTML = `
                         <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:5px;">
                             ${imgHtml}
-                            <div style="min-width:0;overflow:hidden;">
+                            <div style="min-width:0;flex:1;overflow:hidden;">
                                 <div style="font-weight:600;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(fetchedData.artist)}${fetchedData.artist && fetchedData.title ? ' – ' : ''}${esc(fetchedData.title)}</div>
-                                <div style="color:#888;font-size:10px;white-space:normal;overflow:hidden;">${[fetchedData.label, fetchedData.catno, (state.importCountry && fetchedData.country) ? fetchedData.country : 'Worldwide', dateSegmentHtml].filter(Boolean).join(' · ')}</div>
-                                <div style="color:#888;font-size:10px;">${[`${fetchedData.tracks.length} track${fetchedData.tracks.length !== 1 ? 's' : ''}`, fetchedData.fileType || 'FLAC', (fetchedData.bitdepth && fetchedData.samplerate) ? `${fetchedData.bitdepth}-bit/${fetchedData.samplerate / 1000} kHz` : (fetchedData.freeText || null), esc(fetchedData.storeName)].filter(Boolean).join(' · ')}</div>
+                                <div id="dh-wi-meta-line" style="color:#888;font-size:10px;${metaLineClampStyle}">${buildMetaLineHtmlEsc(fetchedData.label)}</div>
+                                <div style="color:#888;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${[`${fetchedData.tracks.length} track${fetchedData.tracks.length !== 1 ? 's' : ''}`, fetchedData.fileType || 'FLAC', (fetchedData.bitdepth && fetchedData.samplerate) ? `${fetchedData.bitdepth}-bit/${fetchedData.samplerate / 1000} kHz` : (fetchedData.freeText || null), esc(fetchedData.storeName)].filter(Boolean).join(' · ')}</div>
                             </div>
                         </div>
                         <div style="display:flex;gap:2px;margin-bottom:5px;border-bottom:1px solid rgba(0,0,0,0.08);">
@@ -10788,8 +10839,11 @@ wiIsAntiBotPage(html)) {
                     const panelTrkEl = previewEl.querySelector('#dh-wi-panel-trk');
                     const panelCrdEl = previewEl.querySelector('#dh-wi-panel-crd');
                     const panelStyEl = previewEl.querySelector('#dh-wi-panel-sty');
-                    previewEl.querySelectorAll('.dh-wi-date-pick').forEach(pick => {
-                        pick.addEventListener('click', (e) => {
+                    if (!previewEl.dataset.dhDatePickBound) {
+                        previewEl.dataset.dhDatePickBound = '1';
+                        previewEl.addEventListener('click', (e) => {
+                            const pick = e.target.closest('.dh-wi-date-pick');
+                            if (!pick || !previewEl.contains(pick)) return;
                             e.stopPropagation();
                             selectedDateField = pick.dataset.field;
                             previewEl.querySelectorAll('.dh-wi-date-pick').forEach(p => {
@@ -10798,7 +10852,7 @@ wiIsAntiBotPage(html)) {
                                 p.style.opacity = isActive ? '' : '.55';
                             });
                         });
-                    });
+                    }
 
                     panelCrdEl.style.height = panelTrkEl.offsetHeight + 'px';
                     panelStyEl.style.height = panelTrkEl.offsetHeight + 'px';
@@ -11050,6 +11104,7 @@ wiIsAntiBotPage(html)) {
                         });
                     });
                     applyBtn.disabled = false; applyWrap.style.opacity = '1'; applyWrap.style.pointerEvents = 'auto'; savedraftWrap.style.opacity = '1'; savedraftWrap.style.pointerEvents = 'auto';
+                    applyArrow.style.pointerEvents = 'auto'; applyArrow.style.cursor = 'pointer'; applyArrow.title = '';
                 }
                 if (panelImgUrl) {
                     const coverImg = previewEl.querySelector('#dh-wi-cover-img');
@@ -11177,6 +11232,26 @@ wiIsAntiBotPage(html)) {
             await clearInfoProcessing();
         };
 
+        let disabledDiscogsCreditIndices = new Set();
+        let disabledDiscogsCreditRoles = new Set();
+        let manuallyDisabledDiscogsCredits = new Set();
+
+        function getFilteredDiscogsCredits() {
+            if (!_discogsData) return [];
+            const filtered = [];
+            _discogsData.credits.forEach((c, i) => {
+                if (disabledDiscogsCreditIndices.has(i)) return;
+                const rolesArr = Array.isArray(c.roles) ? c.roles : (c.role ? c.role.split(',').map(r => r.trim()).filter(Boolean) : []);
+                const keptRoles = rolesArr.filter(r => !disabledDiscogsCreditRoles.has(`${i}::${r}`));
+                if (keptRoles.length === 0) return;
+                const entry = { ...c };
+                if (Array.isArray(c.roles)) entry.roles = keptRoles;
+                else entry.role = keptRoles.join(', ');
+                filtered.push(entry);
+            });
+            return filtered;
+        }
+
         const _discogsFetch = async () => {
             const raw = urlInput.value.trim();
             if (!raw) return;
@@ -11186,34 +11261,195 @@ wiIsAntiBotPage(html)) {
             previewEl.innerHTML = '<span style="color:#888;">Loading…</span>';
             applyBtn.disabled = true; applyWrap.style.opacity = '0.45'; applyWrap.style.pointerEvents = 'none'; savedraftWrap.style.opacity = '0.45'; savedraftWrap.style.pointerEvents = 'none';
             _discogsData = null;
+            disabledDiscogsCreditIndices = new Set();
+            disabledDiscogsCreditRoles = new Set();
+            manuallyDisabledDiscogsCredits = new Set();
             try {
                 _discogsData = await wiParseDiscogsCredits(raw);
                 const esc = s => (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-                const creditRows = _discogsData.credits.map((c, idx) => {
-                    const isLast = idx === _discogsData.credits.length - 1;
-                    const borderStyle = isLast ? '' : 'border-bottom:1px solid rgba(0,0,0,0.05);';
-                    return `
-                        <div style="display:flex;align-items:center;height:18px;box-sizing:border-box;${borderStyle}white-space:nowrap;font-size:10px;">
-                            <span style="display:inline-flex;align-items:center;min-width:0;flex:1;">
-                                <span style="overflow:hidden;text-overflow:ellipsis;flex-shrink:1;white-space:nowrap;">
-                                    <span style="color:#888;">${esc(c.roles.join(', '))}</span> — ${esc(c.name)}
+
+                const creditToggleStyle = 'flex-shrink:0;width:15px;height:15px;margin-left:3px;display:flex;align-items:center;justify-content:center;border-radius:3px;pointer-events:none;font-size:9px;line-height:1;color:#dc3545;background:rgba(220,53,69,0.1);border:1px solid rgba(220,53,69,0.25);user-select:none;-webkit-user-select:none;';
+                const creditToggleDisabledStyle = 'flex-shrink:0;width:15px;height:15px;margin-left:3px;display:flex;align-items:center;justify-content:center;border-radius:3px;pointer-events:none;font-size:9px;line-height:1;color:#28a745;background:rgba(40,167,69,0.1);border:1px solid rgba(40,167,69,0.25);user-select:none;-webkit-user-select:none;';
+                const credChipToggleStyle = 'flex-shrink:0;pointer-events:none;font-size:9px;line-height:1;color:rgba(255,255,255,0.75);user-select:none;-webkit-user-select:none;';
+                const credChipToggleDisabledStyle = 'flex-shrink:0;pointer-events:none;font-size:9px;line-height:1;color:#28a745;user-select:none;-webkit-user-select:none;';
+
+                function renderDiscogsCreditRows() {
+                    return _discogsData.credits.map((c, idx) => {
+                        const rolesArr = Array.isArray(c.roles) ? c.roles : (c.role ? c.role.split(',').map(r => r.trim()).filter(Boolean) : []);
+                        const isDisabled = disabledDiscogsCreditIndices.has(idx);
+                        const chips = rolesArr.map(r => {
+                            const isRoleDisabled = disabledDiscogsCreditRoles.has(`${idx}::${r}`);
+                            return `
+                                <span class="dh-wi-dcred-chip" data-idx="${idx}" data-role="${esc(r)}" style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:500;color:#fff;padding:2px 7px;border-radius:4px;cursor:pointer;background:${isRoleDisabled ? '#ccc' : 'rgba(26,111,191,0.55)'};${isRoleDisabled ? 'opacity:0.6;' : ''}">
+                                    <span style="${isRoleDisabled ? 'text-decoration:line-through;' : ''}">${esc(r)}</span>
+                                    <span class="dh-wi-dcred-chip-toggle" title="Exclude this role from submission" style="${isRoleDisabled ? credChipToggleDisabledStyle : credChipToggleStyle}">✕</span>
                                 </span>
-                                ${c.anv ? `<span style="color:#888;font-style:italic;margin-left:6px;flex-shrink:0;">(ANV: ${esc(c.anv)})</span>` : ''}
-                            </span>
-                        </div>
-                    `;
-                }).join('\n');
+                            `;
+                        }).join('');
+                        const dash = rolesArr.length ? `<span style="font-size:11px;color:#aaa;flex-shrink:0;">–</span>` : '';
+                        const tracksSuffix = c.trackPositions ? `<span style="color:#888;font-weight:normal;margin-left:4px;">(tracks: ${esc(c.trackPositions)})</span>` : '';
+                        return `
+                            <div class="dh-wi-dcred-row" data-idx="${idx}" style="display:flex;flex-wrap:wrap;align-items:center;gap:3px 4px;padding:2px 0;font-size:11px;box-sizing:border-box;">
+                                ${chips}${dash}
+                                <span class="dh-wi-dcred-name-wrap" data-idx="${idx}" style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;${isDisabled ? 'opacity:0.4;' : ''}">
+                                    <span class="dh-wi-dcred-name" style="font-weight:600;${isDisabled ? 'text-decoration:line-through;' : ''}">${esc(c.name)}${c.anv ? `<span style="color:#888;font-style:italic;font-weight:normal;margin-left:4px;">(ANV: ${esc(c.anv)})</span>` : ''}${tracksSuffix}</span>
+                                    <span class="dh-wi-dcred-toggle" title="Exclude this credit from submission" style="${isDisabled ? creditToggleDisabledStyle : creditToggleStyle}">✕</span>
+                                </span>
+                            </div>
+                        `;
+                    }).join('\n');
+                }
+
+                function updateDiscogsCreditsCount() {
+                    let n = 0;
+                    _discogsData.credits.forEach((c, i) => {
+                        if (disabledDiscogsCreditIndices.has(i)) return;
+                        const rolesArr = Array.isArray(c.roles) ? c.roles : (c.role ? c.role.split(',').map(r => r.trim()).filter(Boolean) : []);
+                        rolesArr.forEach(r => { if (!disabledDiscogsCreditRoles.has(`${i}::${r}`)) n++; });
+                    });
+                    const countEl = previewEl.querySelector('#dh-wi-dcred-count');
+                    if (countEl) countEl.textContent = `${n} credit${n !== 1 ? 's' : ''} · Discogs #${esc(_discogsData.releaseId)}`;
+                    applyBtn.disabled = n === 0;
+                    applyWrap.style.opacity = n === 0 ? '0.45' : '1';
+                    applyWrap.style.pointerEvents = n === 0 ? 'none' : 'auto';
+                }
+
+                function allDiscogsRolesDisabled(idx) {
+                    const row = previewEl.querySelector(`.dh-wi-dcred-row[data-idx="${idx}"]`);
+                    if (!row) return false;
+                    const chips = row.querySelectorAll('.dh-wi-dcred-chip');
+                    if (!chips.length) return false;
+                    return Array.from(chips).every(chip => disabledDiscogsCreditRoles.has(`${idx}::${chip.dataset.role}`));
+                }
+
+                function syncDiscogsNameStateToRoles(idx) {
+                    if (manuallyDisabledDiscogsCredits.has(idx)) return;
+                    const nameWrap = previewEl.querySelector(`.dh-wi-dcred-name-wrap[data-idx="${idx}"]`);
+                    if (!nameWrap) return;
+                    const nameEl = nameWrap.querySelector('.dh-wi-dcred-name');
+                    const toggle = nameWrap.querySelector('.dh-wi-dcred-toggle');
+                    if (allDiscogsRolesDisabled(idx)) {
+                        disabledDiscogsCreditIndices.add(idx);
+                        nameWrap.style.opacity = '0.4';
+                        if (nameEl) nameEl.style.textDecoration = 'line-through';
+                        if (toggle) toggle.style.cssText = creditToggleDisabledStyle;
+                    } else if (disabledDiscogsCreditIndices.has(idx)) {
+                        disabledDiscogsCreditIndices.delete(idx);
+                        nameWrap.style.opacity = '';
+                        if (nameEl) nameEl.style.textDecoration = '';
+                        if (toggle) toggle.style.cssText = creditToggleStyle;
+                    }
+                }
+
+                function bindDiscogsCreditEvents() {
+                    previewEl.querySelectorAll('.dh-wi-dcred-name-wrap').forEach(nameWrap => {
+                        const idx = Number(nameWrap.dataset.idx);
+                        const nameEl = nameWrap.querySelector('.dh-wi-dcred-name');
+                        nameWrap.addEventListener('mouseenter', () => {
+                            if (disabledDiscogsCreditIndices.has(idx)) return;
+                            if (nameEl) nameEl.style.textDecoration = 'line-through';
+                        });
+                        nameWrap.addEventListener('mouseleave', () => {
+                            if (disabledDiscogsCreditIndices.has(idx)) return;
+                            if (nameEl) nameEl.style.textDecoration = '';
+                        });
+                        nameWrap.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            const row = previewEl.querySelector(`.dh-wi-dcred-row[data-idx="${idx}"]`);
+                            const toggle = nameWrap.querySelector('.dh-wi-dcred-toggle');
+                            if (disabledDiscogsCreditIndices.has(idx)) {
+                                manuallyDisabledDiscogsCredits.delete(idx);
+                                disabledDiscogsCreditIndices.delete(idx);
+                                nameWrap.style.opacity = '';
+                                if (nameEl) nameEl.style.textDecoration = '';
+                                if (toggle) toggle.style.cssText = creditToggleStyle;
+                                if (row) {
+                                    row.querySelectorAll('.dh-wi-dcred-chip').forEach(chip => {
+                                        const role = chip.dataset.role;
+                                        if (disabledDiscogsCreditRoles.has(`${idx}::${role}`)) return;
+                                        chip.style.background = 'rgba(26,111,191,0.55)';
+                                        chip.style.opacity = '';
+                                        const label = chip.querySelector('span');
+                                        if (label) label.style.textDecoration = '';
+                                        const chipToggle = chip.querySelector('.dh-wi-dcred-chip-toggle');
+                                        if (chipToggle) chipToggle.style.cssText = credChipToggleStyle;
+                                    });
+                                }
+                                syncDiscogsNameStateToRoles(idx);
+                            } else {
+                                manuallyDisabledDiscogsCredits.add(idx);
+                                disabledDiscogsCreditIndices.add(idx);
+                                nameWrap.style.opacity = '0.4';
+                                if (nameEl) nameEl.style.textDecoration = 'line-through';
+                                if (toggle) toggle.style.cssText = creditToggleDisabledStyle;
+                                if (row) {
+                                    row.querySelectorAll('.dh-wi-dcred-chip').forEach(chip => {
+                                        chip.style.background = '#ccc';
+                                        chip.style.opacity = '0.6';
+                                        const label = chip.querySelector('span');
+                                        if (label) label.style.textDecoration = 'line-through';
+                                        const chipToggle = chip.querySelector('.dh-wi-dcred-chip-toggle');
+                                        if (chipToggle) chipToggle.style.cssText = credChipToggleDisabledStyle;
+                                    });
+                                }
+                            }
+                            updateDiscogsCreditsCount();
+                        });
+                    });
+                    previewEl.querySelectorAll('.dh-wi-dcred-chip').forEach(chip => {
+                        const idx = Number(chip.dataset.idx);
+                        const role = chip.dataset.role;
+                        const key = `${idx}::${role}`;
+                        const labelEl = chip.querySelector('span');
+                        chip.addEventListener('mouseenter', () => {
+                            if (manuallyDisabledDiscogsCredits.has(idx) || disabledDiscogsCreditRoles.has(key)) return;
+                            if (labelEl) labelEl.style.textDecoration = 'line-through';
+                            chip.style.background = 'rgba(26,111,191,0.78)';
+                        });
+                        chip.addEventListener('mouseleave', () => {
+                            if (manuallyDisabledDiscogsCredits.has(idx) || disabledDiscogsCreditRoles.has(key)) return;
+                            if (labelEl) labelEl.style.textDecoration = '';
+                            chip.style.background = 'rgba(26,111,191,0.55)';
+                        });
+                        chip.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            if (manuallyDisabledDiscogsCredits.has(idx)) return;
+                            const toggle = chip.querySelector('.dh-wi-dcred-chip-toggle');
+                            if (disabledDiscogsCreditRoles.has(key)) {
+                                disabledDiscogsCreditRoles.delete(key);
+                                chip.style.background = 'rgba(26,111,191,0.55)';
+                                chip.style.opacity = '';
+                                if (labelEl) labelEl.style.textDecoration = '';
+                                if (toggle) toggle.style.cssText = credChipToggleStyle;
+                            } else {
+                                disabledDiscogsCreditRoles.add(key);
+                                chip.style.background = '#ccc';
+                                chip.style.opacity = '0.6';
+                                if (labelEl) labelEl.style.textDecoration = 'line-through';
+                                if (toggle) toggle.style.cssText = credChipToggleDisabledStyle;
+                            }
+                            syncDiscogsNameStateToRoles(idx);
+                            updateDiscogsCreditsCount();
+                        });
+                    });
+                }
+
+                const creditRowsHtml = renderDiscogsCreditRows() || '<div style="color:#888;font-size:10px;padding:4px 0;">No credits found</div>';
                 const overflowStyle = _discogsData.credits.length > 9 ? 'overflow-y:auto;' : 'overflow-y:hidden;';
                 previewEl.innerHTML = `
                     <div style="font-weight:600;font-size:12px;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
                         ${esc(_discogsData.artist)}${_discogsData.artist ? ' – ' : ''}${esc(_discogsData.pageTitle)}
                     </div>
-                    <div style="color:#888;font-size:10px;margin-bottom:5px;">
+                    <div id="dh-wi-dcred-count" style="color:#888;font-size:10px;margin-bottom:5px;">
                         ${_discogsData.credits.length} credit${_discogsData.credits.length !== 1 ? 's' : ''} · Discogs #${esc(_discogsData.releaseId)}
                     </div>
-                    <div style="max-height:162px;${overflowStyle}"><div style="display:flex;flex-direction:column;min-width:100%;box-sizing:border-box;">${creditRows}</div></div>
+                    <div style="max-height:162px;${overflowStyle}"><div style="display:flex;flex-direction:column;min-width:100%;box-sizing:border-box;">${creditRowsHtml}</div></div>
                 `;
-                applyBtn.disabled = false; applyWrap.style.opacity = '1'; applyWrap.style.pointerEvents = 'auto'; savedraftWrap.style.opacity = '1'; savedraftWrap.style.pointerEvents = 'auto';
+                bindDiscogsCreditEvents();
+                applyBtn.disabled = false; applyWrap.style.opacity = '1'; applyWrap.style.pointerEvents = 'auto';
+                applyArrow.style.pointerEvents = 'none'; applyArrow.style.cursor = 'not-allowed';
+                applyArrow.title = 'No apply variants available for Discogs credits import';
+                applyMenu.style.display = 'none';
             } catch(err) {
                 _discogsData = null;
                 previewEl.innerHTML = `<span style="color:#dc3545;">${err.message.replace(/\n/g, '<br>')}</span>`;
@@ -11223,7 +11459,8 @@ wiIsAntiBotPage(html)) {
         };
 
         const _discogsApply = async () => {
-            if (!_discogsData || !_discogsData.credits.length) return;
+            const filteredDiscogsCredits = getFilteredDiscogsCredits();
+            if (!_discogsData || !filteredDiscogsCredits.length) return;
             overlay.style.display = 'none';
             resetHideTimer();
             await setInfoProcessing();
@@ -11233,7 +11470,7 @@ wiIsAntiBotPage(html)) {
             try {
                 const addedCreditRemoveBtns = [];
                 const wiFields = [];
-                await wiApplyReleaseCredits(_discogsData.credits, wiFields, addedCreditRemoveBtns, true);
+                await wiApplyReleaseCredits(filteredDiscogsCredits, wiFields, addedCreditRemoveBtns, true);
                 addActionToHistory({
                     type: 'discogsCreditsImport',
                     addedCreditRemoveBtns,
