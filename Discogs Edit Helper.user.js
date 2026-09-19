@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      1.9.6
+// @version      1.9.7
 // @description  Imports metadata from web stores and plain-text tracklists, extracts info from titles and assigns data to the appropriate fields
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
@@ -43,7 +43,8 @@
         CAPITALIZE_KEEP_LOWER: ['da', 'de', 'del', 'des', 'di', 'la', 'van', 'von'],
         MEASUREMENT_UNITS: ['mm', 'cm', 'm', 'km', 'in', 'yd', 'mi', 'kg', 'mg', 'lb', 'oz', 'ml', 'mph', 'km/h'],
         REMIX_SKIP_TERMS: ['club', 'radio', 'extended', 'album', 'instrumental', 'vocal', 'acoustic', 'dub', 'main', 'clean', 'explicit', 'full', 'short', 'rough', 'long', 'final', 'demo', 'early', 'tv', 'video', 'single', 'promo', 'original', 'alternate', 'alternative', 'deluxe', 'special', 'bonus', 'live', 'vip'],
-        CLEAN_TITLE_PATTERNS: ['original mix', 'explicit', 'previously unreleased', 'unreleased', 'digital bonus track', 'digital bonus', 'bonus track', 'bonus', '24bit', '24-bit', '24 bit', '16bit', '16-bit', '16 bit', '000 bpm']
+        CLEAN_TITLE_PATTERNS: ['original mix', 'explicit', 'previously unreleased', 'unreleased', 'digital bonus track', 'digital bonus', 'bonus track', 'bonus', '24bit', '24-bit', '24 bit', '16bit', '16-bit', '16 bit', '000 bpm'],
+        NOT_ON_LABEL_SKIPLIST: ['audio', 'company', 'entertainment', 'label', 'music', 'production', 'productions', 'recordings', 'records', 'sound', 'sounds', 'studio', 'studios', 'group']
     };
     const CONFIG_RAW = {
         INACTIVITY_TIMEOUT_MS:    60 * 1000,
@@ -58,6 +59,7 @@
         MEASUREMENT_UNITS:        ['mm', 'cm', 'm', 'km', 'in', 'yd', 'mi', 'kg', 'mg', 'lb', 'oz', 'ml', 'mph', 'km/h'],
         REMIX_SKIP_TERMS:        ['club', 'radio', 'extended', 'album', 'instrumental', 'vocal', 'acoustic', 'dub', 'main', 'clean', 'explicit', 'full', 'short', 'rough', 'long', 'final', 'demo', 'early', 'tv', 'video', 'single', 'promo', 'original', 'alternate', 'alternative', 'deluxe', 'special', 'bonus', 'live', 'vip'],
         CLEAN_TITLE_PATTERNS:     ['original mix', 'explicit', 'previously unreleased', 'unreleased', 'digital bonus track', 'digital bonus', 'bonus track', 'bonus', '24bit', '24-bit', '24 bit', '16bit', '16-bit', '16 bit', '000 bpm'],
+        NOT_ON_LABEL_SKIPLIST:    ['audio', 'company', 'entertainment', 'label', 'music', 'production', 'productions', 'recordings', 'records', 'sound', 'sounds', 'studio', 'studios', 'group'],
     };
 
     const CONFIG_DEFAULTS = {
@@ -73,6 +75,7 @@
         MEASUREMENT_UNITS:         [...CONFIG_RAW.MEASUREMENT_UNITS],
         REMIX_SKIP_TERMS:         [...CONFIG_RAW.REMIX_SKIP_TERMS],
         CLEAN_TITLE_PATTERNS:      [...CONFIG_RAW.CLEAN_TITLE_PATTERNS],
+        NOT_ON_LABEL_SKIPLIST:     [...CONFIG_RAW.NOT_ON_LABEL_SKIPLIST],
     };
 
     const STORAGE_KEYS = {
@@ -93,6 +96,7 @@
         CFG_MEASUREMENT_UNITS: 'discogs_helper_cfg_measurement_units',
         CFG_REMIX_SKIP_TERMS: 'discogs_helper_cfg_remix_skip_terms',
         CFG_CLEAN_TITLE:    'discogs_helper_cfg_clean_title',
+        CFG_NOT_ON_LABEL_SKIPLIST: 'discogs_helper_cfg_not_on_label_skiplist',
         CFG_CAPITALIZE_FIELDS: 'discogs_helper_cfg_capitalize_fields_v1',
         CFG_CAPITALIZE_BTN_FIELDS: 'discogs_helper_cfg_capitalize_btn_fields_v1',
         CFG_SPLIT_IMPORT:    'discogs_helper_cfg_split_import_v2',
@@ -163,6 +167,12 @@
         } catch (e) { return null; }
     }
 
+    function isKnownLabelName(lbl) {
+        if (!lbl) return false;
+        const words = lbl.split(/\s+/).map(w => w.toLowerCase());
+        return CONFIG.NOT_ON_LABEL_SKIPLIST.some(kw => words.includes(kw.toLowerCase()));
+    }
+
     function saveArrayToStorage(key, arr) {
         try { localStorage.setItem(key, arr.join('; ')); } catch (e) {}
     }
@@ -199,6 +209,9 @@
 
         const cleanTitle = parseStoredArray(STORAGE_KEYS.CFG_CLEAN_TITLE);
         if (cleanTitle) CONFIG.CLEAN_TITLE_PATTERNS = cleanTitle;
+
+        const notOnLabelSkiplist = parseStoredArray(STORAGE_KEYS.CFG_NOT_ON_LABEL_SKIPLIST);
+        if (notOnLabelSkiplist) CONFIG.NOT_ON_LABEL_SKIPLIST = notOnLabelSkiplist;
         try {
             const storedTimeout = localStorage.getItem(STORAGE_KEYS.CFG_TIMEOUT);
             if (storedTimeout) { const t = parseInt(storedTimeout, 10); if (t > 0) CONFIG.INACTIVITY_TIMEOUT_MS = t * 1000; }
@@ -742,10 +755,10 @@
     }
 
     function stripTrailingSeparators(s) {
-        s = s.replace(/[\s\-\:;,]+$/g, '');
+        s = s.replace(/[\s\-;,]+$/g, '');
         if (!/(?:^|[\s.])[A-Za-z]{1,3}\.$/.test(s)) {
             s = s.replace(/\.+$/, '');
-            s = s.replace(/[\s\-\:;,]+$/g, '');
+            s = s.replace(/[\s\-;,]+$/g, '');
         }
         return s;
     }
@@ -766,10 +779,8 @@
                 const inner = s.slice(1, -1).trim();
                 return '(' + inner + ')';
             }
-            const isColonWrapped = /^:/.test(s) && /:$/.test(s);
-            s = s.replace(/^[\s\(\-:\.]+/, '');
+            s = s.replace(/^[\s\(\-\.]+/, '');
             s = stripTrailingSeparators(s);
-            if (isColonWrapped) s = ':' + s.replace(/:$/, '') + ':';
             return s;
         }
         if (s.startsWith('[') && s.endsWith(']')) {
@@ -778,10 +789,8 @@
         if (s.startsWith('(') && s.endsWith(')')) {
             s = s.slice(1, -1).trim();
         }
-        const isColonWrapped2 = /^:/.test(s) && /:$/.test(s);
-        s = s.replace(/^[\s\(\-:\.]+/, '');
+        s = s.replace(/^[\s\(\-\.]+/, '');
         s = stripTrailingSeparators(s);
-        if (isColonWrapped2) s = ':' + s.replace(/:$/, '') + ':';
         if (s.startsWith('(') && s.endsWith(')')) {
             s = s.slice(1, -1).trim();
         }
@@ -1866,6 +1875,8 @@
             if (ampmM) return ampmM[1] + ampmM[2].toUpperCase();
             const ordinalM = core.match(/^(\d+)(st|nd|rd|th)$/i);
             if (ordinalM) return ordinalM[1] + ordinalM[2].toLowerCase();
+            const decadeM = core.match(/^(\d+)(s)$/i);
+            if (decadeM) return decadeM[1] + decadeM[2].toLowerCase();
             const unitSuffix = core.slice(numPrefixM[1].length);
             const unitMatch = CONFIG.MEASUREMENT_UNITS.find(u => u.toLowerCase() === unitSuffix.toLowerCase());
             if (unitMatch) return numPrefixM[1] + unitMatch.toLowerCase();
@@ -3810,6 +3821,12 @@
                 desc: 'Redundant bracket contents to strip from titles',
                 getValue: () => CONFIG.CLEAN_TITLE_PATTERNS.join('; '),
             },
+            {
+                id: 'cfg-not-on-label-skiplist',
+                label: 'Not On Label',
+                desc: 'Self-released skiplist if the detected label contains one of these words',
+                getValue: () => CONFIG.NOT_ON_LABEL_SKIPLIST.join('; '),
+            },
         ];
 
         const fieldsHtml = fields.map(f => `
@@ -3997,6 +4014,7 @@
             const keepLower      = parseField('cfg-keep-lower');
             const measurementUnits = parseField('cfg-measurement-units');
             const cleanTitle     = parseField('cfg-clean-title');
+            const notOnLabelSkiplist = parseField('cfg-not-on-label-skiplist');
 
             if (splitter.length)    { CONFIG.ARTIST_SPLITTER_PATTERNS = splitter;        saveArrayToStorage(STORAGE_KEYS.CFG_SPLITTER,   splitter); }
             if (creditSep.length)   { CONFIG.CREDIT_SEPARATOR_PATTERNS = creditSep;      saveArrayToStorage(STORAGE_KEYS.CFG_CREDIT_SEP, creditSep); }
@@ -4009,6 +4027,7 @@
             if (keepLower.length)   { CONFIG.CAPITALIZE_KEEP_LOWER = keepLower;          saveArrayToStorage(STORAGE_KEYS.CAPITALIZE_KEEP_LOWER, keepLower); }
             if (measurementUnits.length) { CONFIG.MEASUREMENT_UNITS = measurementUnits;  saveArrayToStorage(STORAGE_KEYS.CFG_MEASUREMENT_UNITS, measurementUnits); }
             if (cleanTitle.length)  { CONFIG.CLEAN_TITLE_PATTERNS = cleanTitle;          saveArrayToStorage(STORAGE_KEYS.CFG_CLEAN_TITLE, cleanTitle); }
+            if (notOnLabelSkiplist.length) { CONFIG.NOT_ON_LABEL_SKIPLIST = notOnLabelSkiplist; saveArrayToStorage(STORAGE_KEYS.CFG_NOT_ON_LABEL_SKIPLIST, notOnLabelSkiplist); }
 
             applyPatternExpansions();
             updateRemixToggleUI();
@@ -4050,6 +4069,7 @@
             CONFIG.CAPITALIZE_KEEP_LOWER    = [...CONFIG_DEFAULTS.CAPITALIZE_KEEP_LOWER];
             CONFIG.MEASUREMENT_UNITS        = [...CONFIG_DEFAULTS.MEASUREMENT_UNITS];
             CONFIG.CLEAN_TITLE_PATTERNS     = [...CONFIG_DEFAULTS.CLEAN_TITLE_PATTERNS];
+            CONFIG.NOT_ON_LABEL_SKIPLIST    = [...CONFIG_DEFAULTS.NOT_ON_LABEL_SKIPLIST];
             CONFIG.INACTIVITY_TIMEOUT_MS    = CONFIG_DEFAULTS.INACTIVITY_TIMEOUT_MS;
             state.startCollapsed            = false;
             state.capitalizeFields          = { albumArtists: true, albumTitle: true, label: true, vaArtists: true, trackTitles: true, joiners: true, creditNames: true, trackCredits: true };
@@ -4068,7 +4088,7 @@
             const keys = [
                 STORAGE_KEYS.CFG_FEATURING, STORAGE_KEYS.CFG_REMIX, STORAGE_KEYS.CFG_REMIX_BY,
                 STORAGE_KEYS.CFG_REMIX_OPT, STORAGE_KEYS.CFG_SPLITTER, STORAGE_KEYS.CFG_CREDIT_SEP, STORAGE_KEYS.CFG_KEEP_UPPER,
-                STORAGE_KEYS.CFG_KEEP_LOWER, STORAGE_KEYS.CFG_MEASUREMENT_UNITS, STORAGE_KEYS.CFG_REMIX_SKIP_TERMS, STORAGE_KEYS.CFG_CLEAN_TITLE,
+                STORAGE_KEYS.CFG_KEEP_LOWER, STORAGE_KEYS.CFG_MEASUREMENT_UNITS, STORAGE_KEYS.CFG_REMIX_SKIP_TERMS, STORAGE_KEYS.CFG_CLEAN_TITLE, STORAGE_KEYS.CFG_NOT_ON_LABEL_SKIPLIST,
                 STORAGE_KEYS.CFG_TIMEOUT, STORAGE_KEYS.CFG_START_COLLAPSED, STORAGE_KEYS.CFG_CAPITALIZE_FIELDS, STORAGE_KEYS.CFG_CAPITALIZE_BTN_FIELDS, STORAGE_KEYS.CFG_SPLIT_IMPORT, STORAGE_KEYS.CFG_IMPORT_CREDITS, STORAGE_KEYS.CFG_IMPORT_STYLES, STORAGE_KEYS.CFG_IMPORT_AUTO_REMIXERS, STORAGE_KEYS.CFG_IMPORT_AUTO_FEAT, STORAGE_KEYS.CFG_CAPITALIZE_MIXED, STORAGE_KEYS.CFG_IMPORT_AUTO_DESCR, STORAGE_KEYS.CFG_IMPORT_COUNTRY
             ];
             keys.forEach(k => { try { localStorage.removeItem(k); } catch(e) {} });
@@ -9971,7 +9991,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
         const payloadArtists = convertJoinsToDiscogsFormat(artistsToFill.length > 0 ? artistsToFill : [{ name: '' }]);
 
         let lbl = capIf(cf.label, (label || '').trim());
-        if (!lbl || (artist.trim() && lbl.toLowerCase() === artist.trim().toLowerCase())) lbl = `Not On Label (${artist.trim()} Self-released)`;
+        if (!isKnownLabelName(lbl) && (!lbl || (artist.trim() && lbl.toLowerCase() === artist.trim().toLowerCase()))) lbl = `Not On Label (${artist.trim()} Self-released)`;
 
         const resolvedCountry = (state.importCountry && dataCountry) ? dataCountry : 'Worldwide';
 
@@ -10372,7 +10392,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
             const labelEl = document.querySelector('#label-name-input-0');
             if (labelEl) {
                 let lbl = capIf(cf.label, (label || '').trim());
-                if (!lbl || (artist.trim() && lbl.toLowerCase() === artist.trim().toLowerCase())) lbl = `Not On Label (${artist.trim()} Self-released)`;
+                if (!isKnownLabelName(lbl) && (!lbl || (artist.trim() && lbl.toLowerCase() === artist.trim().toLowerCase()))) lbl = `Not On Label (${artist.trim()} Self-released)`;
                 setReactValue(labelEl, lbl);
                 log(`Label: ${lbl} / Cat: ${catno || 'none'}`, 'success');
             }
