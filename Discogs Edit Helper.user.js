@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      1.9.7
+// @version      1.9.8
 // @description  Imports metadata from web stores and plain-text tracklists, extracts info from titles and assigns data to the appropriate fields
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
@@ -43,8 +43,9 @@
         CAPITALIZE_KEEP_LOWER: ['da', 'de', 'del', 'des', 'di', 'la', 'van', 'von'],
         MEASUREMENT_UNITS: ['mm', 'cm', 'm', 'km', 'in', 'yd', 'mi', 'kg', 'mg', 'lb', 'oz', 'ml', 'mph', 'km/h'],
         REMIX_SKIP_TERMS: ['club', 'radio', 'extended', 'album', 'instrumental', 'vocal', 'acoustic', 'dub', 'main', 'clean', 'explicit', 'full', 'short', 'rough', 'long', 'final', 'demo', 'early', 'tv', 'video', 'single', 'promo', 'original', 'alternate', 'alternative', 'deluxe', 'special', 'bonus', 'live', 'vip'],
+        REMIX_CLEANUP_TERMS: ['acoustic', 'demo', 'instrumental', 'extended', 'radio', 'club', 'dub', 'alternate', 'alternative'],
         CLEAN_TITLE_PATTERNS: ['original mix', 'explicit', 'previously unreleased', 'unreleased', 'digital bonus track', 'digital bonus', 'bonus track', 'bonus', '24bit', '24-bit', '24 bit', '16bit', '16-bit', '16 bit', '000 bpm'],
-        NOT_ON_LABEL_SKIPLIST: ['audio', 'company', 'entertainment', 'label', 'music', 'production', 'productions', 'recordings', 'records', 'sound', 'sounds', 'studio', 'studios', 'group']
+        NOT_ON_LABEL_SKIPLIST: ['audio', 'company', 'entertainment', 'label', 'music', 'production', 'productions', 'recordings', 'records', 'rec', 'sound', 'sounds', 'studio', 'studios', 'group']
     };
     const CONFIG_RAW = {
         INACTIVITY_TIMEOUT_MS:    60 * 1000,
@@ -58,8 +59,9 @@
         CAPITALIZE_KEEP_LOWER:    ['da', 'de', 'del', 'des', 'di', 'la', 'van', 'von'],
         MEASUREMENT_UNITS:        ['mm', 'cm', 'm', 'km', 'in', 'yd', 'mi', 'kg', 'mg', 'lb', 'oz', 'ml', 'mph', 'km/h'],
         REMIX_SKIP_TERMS:        ['club', 'radio', 'extended', 'album', 'instrumental', 'vocal', 'acoustic', 'dub', 'main', 'clean', 'explicit', 'full', 'short', 'rough', 'long', 'final', 'demo', 'early', 'tv', 'video', 'single', 'promo', 'original', 'alternate', 'alternative', 'deluxe', 'special', 'bonus', 'live', 'vip'],
+        REMIX_CLEANUP_TERMS:     ['acoustic', 'demo', 'instrumental', 'extended', 'radio', 'club', 'dub', 'alternate', 'alternative'],
         CLEAN_TITLE_PATTERNS:     ['original mix', 'explicit', 'previously unreleased', 'unreleased', 'digital bonus track', 'digital bonus', 'bonus track', 'bonus', '24bit', '24-bit', '24 bit', '16bit', '16-bit', '16 bit', '000 bpm'],
-        NOT_ON_LABEL_SKIPLIST:    ['audio', 'company', 'entertainment', 'label', 'music', 'production', 'productions', 'recordings', 'records', 'sound', 'sounds', 'studio', 'studios', 'group'],
+        NOT_ON_LABEL_SKIPLIST:    ['audio', 'company', 'entertainment', 'label', 'music', 'production', 'productions', 'recordings', 'records', 'rec', 'sound', 'sounds', 'studio', 'studios', 'group'],
     };
 
     const CONFIG_DEFAULTS = {
@@ -74,6 +76,7 @@
         CAPITALIZE_KEEP_LOWER:     [...CONFIG_RAW.CAPITALIZE_KEEP_LOWER],
         MEASUREMENT_UNITS:         [...CONFIG_RAW.MEASUREMENT_UNITS],
         REMIX_SKIP_TERMS:         [...CONFIG_RAW.REMIX_SKIP_TERMS],
+        REMIX_CLEANUP_TERMS:      [...CONFIG_RAW.REMIX_CLEANUP_TERMS],
         CLEAN_TITLE_PATTERNS:      [...CONFIG_RAW.CLEAN_TITLE_PATTERNS],
         NOT_ON_LABEL_SKIPLIST:     [...CONFIG_RAW.NOT_ON_LABEL_SKIPLIST],
     };
@@ -95,6 +98,7 @@
         CFG_KEEP_LOWER:     'discogs_helper_cfg_keep_lower',
         CFG_MEASUREMENT_UNITS: 'discogs_helper_cfg_measurement_units',
         CFG_REMIX_SKIP_TERMS: 'discogs_helper_cfg_remix_skip_terms',
+        CFG_REMIX_CLEANUP_TERMS: 'discogs_helper_cfg_remix_cleanup_terms',
         CFG_CLEAN_TITLE:    'discogs_helper_cfg_clean_title',
         CFG_NOT_ON_LABEL_SKIPLIST: 'discogs_helper_cfg_not_on_label_skiplist',
         CFG_CAPITALIZE_FIELDS: 'discogs_helper_cfg_capitalize_fields_v1',
@@ -206,6 +210,9 @@
 
         const remixSkipTerms = parseStoredArray(STORAGE_KEYS.CFG_REMIX_SKIP_TERMS);
         if (remixSkipTerms) CONFIG.REMIX_SKIP_TERMS = remixSkipTerms;
+
+        const remixCleanupTerms = parseStoredArray(STORAGE_KEYS.CFG_REMIX_CLEANUP_TERMS);
+        if (remixCleanupTerms) CONFIG.REMIX_CLEANUP_TERMS = remixCleanupTerms;
 
         const cleanTitle = parseStoredArray(STORAGE_KEYS.CFG_CLEAN_TITLE);
         if (cleanTitle) CONFIG.CLEAN_TITLE_PATTERNS = cleanTitle;
@@ -2672,6 +2679,26 @@
         return CONFIG.REMIX_SKIP_TERMS.some(t => t.toLowerCase() === n);
     }
 
+    function stripRemixCleanupTerms(name) {
+        let n = String(name || '').trim();
+        let changed = true;
+        while (changed) {
+            changed = false;
+            const mStart = n.match(/^([\p{L}][\p{L}\d'’-]*)\s+(\S.*)$/u);
+            if (mStart && CONFIG.REMIX_CLEANUP_TERMS.some(t => t.toLowerCase() === mStart[1].toLowerCase())) {
+                n = mStart[2].trim();
+                changed = true;
+                continue;
+            }
+            const mEnd = n.match(/^(.*\S)\s+([\p{L}][\p{L}\d'’-]*)$/u);
+            if (mEnd && CONFIG.REMIX_CLEANUP_TERMS.some(t => t.toLowerCase() === mEnd[2].toLowerCase())) {
+                n = mEnd[1].trim();
+                changed = true;
+            }
+        }
+        return n;
+    }
+
     async function extractRemixers(optionalOnly = false, silent = false) {
         if (typeof optionalOnly !== 'boolean') optionalOnly = false;
         await setInfoProcessing();
@@ -2705,6 +2732,7 @@
                 let cleaned = orig.replace(getRemixByRegex(), '');
                 cleaned = cleaned.replace(/^by\s+/i, '');
                 cleaned = cleanupArtistName(cleaned, true);
+                cleaned = stripRemixCleanupTerms(cleaned);
                 cleaned = cleaned.replace(/[\(\[]+$/g, '').replace(/^[\)\]]+/g, '').trim();
                 if (orig.startsWith('[') && !cleaned.endsWith(']')) {
                     cleaned = '[' + cleaned.replace(/^\[+/, '') + ']';
@@ -3798,6 +3826,12 @@
                 getValue: () => CONFIG.REMIX_SKIP_TERMS.join('; '),
             },
             {
+                id: 'cfg-remix-cleanup',
+                label: 'Remix Cleanup Terms',
+                desc: 'Stripped from the start and end of remix credit names',
+                getValue: () => CONFIG.REMIX_CLEANUP_TERMS.join('; '),
+            },
+            {
                 id: 'cfg-keep-upper',
                 label: 'Always Uppercase',
                 desc: 'Words always in uppercase when capitalizing',
@@ -4010,6 +4044,7 @@
             const remixBy        = parseField('cfg-remix-by');
             const remixOpt       = parseField('cfg-remix-opt');
             const remixSkip      = parseField('cfg-remix-skip');
+            const remixCleanup   = parseField('cfg-remix-cleanup');
             const keepUpper      = parseField('cfg-keep-upper');
             const keepLower      = parseField('cfg-keep-lower');
             const measurementUnits = parseField('cfg-measurement-units');
@@ -4023,6 +4058,7 @@
             if (remixBy.length)     { CONFIG_RAW.REMIX_BY_PATTERNS = remixBy;            saveArrayToStorage(STORAGE_KEYS.CFG_REMIX_BY,   remixBy); }
             if (remixOpt.length)    { CONFIG_RAW.REMIX_PATTERNS_OPTIONAL = remixOpt;     saveArrayToStorage(STORAGE_KEYS.CFG_REMIX_OPT,  remixOpt); }
             if (remixSkip.length)   { CONFIG.REMIX_SKIP_TERMS = remixSkip;               saveArrayToStorage(STORAGE_KEYS.CFG_REMIX_SKIP_TERMS, remixSkip); }
+            if (remixCleanup.length) { CONFIG.REMIX_CLEANUP_TERMS = remixCleanup;        saveArrayToStorage(STORAGE_KEYS.CFG_REMIX_CLEANUP_TERMS, remixCleanup); }
             if (keepUpper.length)   { CONFIG.CAPITALIZE_KEEP_UPPER = keepUpper;          saveArrayToStorage(STORAGE_KEYS.CFG_KEEP_UPPER, keepUpper); }
             if (keepLower.length)   { CONFIG.CAPITALIZE_KEEP_LOWER = keepLower;          saveArrayToStorage(STORAGE_KEYS.CAPITALIZE_KEEP_LOWER, keepLower); }
             if (measurementUnits.length) { CONFIG.MEASUREMENT_UNITS = measurementUnits;  saveArrayToStorage(STORAGE_KEYS.CFG_MEASUREMENT_UNITS, measurementUnits); }
@@ -4061,6 +4097,7 @@
             CONFIG_RAW.REMIX_BY_PATTERNS       = [...CONFIG_DEFAULTS.REMIX_BY_PATTERNS];
             CONFIG_RAW.REMIX_PATTERNS_OPTIONAL = [...CONFIG_DEFAULTS.REMIX_PATTERNS_OPTIONAL];
             CONFIG.REMIX_SKIP_TERMS            = [...CONFIG_DEFAULTS.REMIX_SKIP_TERMS];
+            CONFIG.REMIX_CLEANUP_TERMS         = [...CONFIG_DEFAULTS.REMIX_CLEANUP_TERMS];
 
             CONFIG.ARTIST_SPLITTER_PATTERNS  = [...CONFIG_DEFAULTS.ARTIST_SPLITTER_PATTERNS];
             CONFIG.CREDIT_SEPARATOR_PATTERNS = [...CONFIG_DEFAULTS.CREDIT_SEPARATOR_PATTERNS];
@@ -4088,7 +4125,7 @@
             const keys = [
                 STORAGE_KEYS.CFG_FEATURING, STORAGE_KEYS.CFG_REMIX, STORAGE_KEYS.CFG_REMIX_BY,
                 STORAGE_KEYS.CFG_REMIX_OPT, STORAGE_KEYS.CFG_SPLITTER, STORAGE_KEYS.CFG_CREDIT_SEP, STORAGE_KEYS.CFG_KEEP_UPPER,
-                STORAGE_KEYS.CFG_KEEP_LOWER, STORAGE_KEYS.CFG_MEASUREMENT_UNITS, STORAGE_KEYS.CFG_REMIX_SKIP_TERMS, STORAGE_KEYS.CFG_CLEAN_TITLE, STORAGE_KEYS.CFG_NOT_ON_LABEL_SKIPLIST,
+                STORAGE_KEYS.CFG_KEEP_LOWER, STORAGE_KEYS.CFG_MEASUREMENT_UNITS, STORAGE_KEYS.CFG_REMIX_SKIP_TERMS, STORAGE_KEYS.CFG_REMIX_CLEANUP_TERMS, STORAGE_KEYS.CFG_CLEAN_TITLE, STORAGE_KEYS.CFG_NOT_ON_LABEL_SKIPLIST,
                 STORAGE_KEYS.CFG_TIMEOUT, STORAGE_KEYS.CFG_START_COLLAPSED, STORAGE_KEYS.CFG_CAPITALIZE_FIELDS, STORAGE_KEYS.CFG_CAPITALIZE_BTN_FIELDS, STORAGE_KEYS.CFG_SPLIT_IMPORT, STORAGE_KEYS.CFG_IMPORT_CREDITS, STORAGE_KEYS.CFG_IMPORT_STYLES, STORAGE_KEYS.CFG_IMPORT_AUTO_REMIXERS, STORAGE_KEYS.CFG_IMPORT_AUTO_FEAT, STORAGE_KEYS.CFG_CAPITALIZE_MIXED, STORAGE_KEYS.CFG_IMPORT_AUTO_DESCR, STORAGE_KEYS.CFG_IMPORT_COUNTRY
             ];
             keys.forEach(k => { try { localStorage.removeItem(k); } catch(e) {} });
@@ -4528,6 +4565,7 @@
             #dh-config-overlay input[type="text"]:focus,
             #dh-wi-url:focus,
             #dh-ct-custom-input:focus,
+            #dh-bp-query:focus,
             #dh-importer-textarea:focus {
                 outline: none !important;
                 box-shadow:
@@ -4538,7 +4576,7 @@
                     0 0 0 5px rgba(30,102,214,0.05),
                     0 0 0 6px rgba(30,102,214,0.03) !important;
             }
-            #dh-config-overlay input[type="text"], #dh-wi-url, #dh-ct-custom-input, #dh-importer-textarea {
+            #dh-config-overlay input[type="text"], #dh-wi-url, #dh-ct-custom-input, #dh-bp-query, #dh-importer-textarea {
                 box-shadow: none !important;
             }
             #dh-config-overlay .dh-cfg-scroll > div {
@@ -5977,6 +6015,7 @@
         ['final mix and master',      ['Mixed By', 'Mastered By']],
         ['mix and master',            ['Mixed By', 'Mastered By']],
         ['mix and mastered',          ['Mixed By', 'Mastered By']],
+        ['restoration and mastering',  [{ official: 'Mastered By', bracket: 'Mastering' }, 'Restoration']],
         ['whisper',                   [{ official: 'Vocals', bracket: 'Whispers' }]],
         ['whispers',                  [{ official: 'Vocals', bracket: 'Whispers' }]],
         ['whispering',                [{ official: 'Vocals', bracket: 'Whispers' }]],
@@ -6276,6 +6315,19 @@
             if (/^[©℗]/.test(line.trim())) continue;
             if (/@/.test(line) && !/\bby\b/i.test(line)) continue;
             const _bracketFirstM = line.trim().match(/^\[([^\]]+)\]\s*(.+)$/);
+            {
+                const _t = line.trim();
+                const _core = _t.replace(/[.,;!?]+$/, '');
+                if (_core.length > 1 && _core.includes(':')) {
+                    const _first = _core[0], _last = _core[_core.length - 1];
+                    const _isWrappingQuotePair =
+                        (_first === '"' && _last === '"') ||
+                        (_first === "'" && _last === "'") ||
+                        (_first === '\u201c' && _last === '\u201d') ||
+                        (_first === '\u2018' && _last === '\u2019');
+                    if (_isWrappingQuotePair) line = _core.slice(1, -1).trim();
+                }
+            }
             line = /^\([A-Za-z]+\)\s*\w/.test(line.trim())
                 ? line.trim()
                 : line.replace(/^[^\p{L}\p{N}'"(]+/u, '').trim();
@@ -6535,7 +6587,7 @@
                 return [namePart, null];
             };
             const cleanName = (s) => {
-                const t = s.trim().replace(/^by[\s:]+/i, '').replace(/^:\s*/, '').replace(/[.,;]+$/, '')
+                let t = s.trim().replace(/^by[\s:]+/i, '').replace(/^:\s*/, '')
                     .replace(/[©℗]\s*/g, '')
                     .replace(/\s+except\b.*/i, '')
                     .replace(/\s+at\s+\S.*$/gi, '')
@@ -6547,6 +6599,9 @@
                     .replace(/\s+\b(?:in|at|on|from|since|between|during)\b\s*$/i, '')
                     .replace(/^((?:\S+\s+){1,}\S+?)\s+\bin\b\s+\S.*$/i, '$1')
                     .trim();
+                t = t.replace(/\s*[-\u2013\u2014]+\s*$/, '').trim();
+                t = /(?:^|[\s.])\p{L}\.$/u.test(t) ? t.replace(/[,;]+$/, '') : t.replace(/[.,;]+$/, '');
+                t = t.trim();
                 if (/^@/.test(t) || /^in\s/i.test(t) || /^at\s/.test(t) || /^on\s+tracks?\b/i.test(t)) return '';
                 if (/^\[[A-Z]{1,6}\]$/.test(t)) return '';
                 if (/^\d{4}(?:[-\u2013]\d{2,4})*$/.test(t) || /^\d{4}-\d{2}-\d{2}$/.test(t)) return '';
@@ -6579,7 +6634,22 @@
                 });
                 return { clean: clean.trim().replace(/^,\s*|,\s*$/g, '').replace(/\s+/g, ' '), positions: nums.length ? formatTrackPositions(nums) : null };
             };
+            const stripWrappingQuotes = (s) => {
+                const raw = (s || '').trim();
+                if (raw.length < 2) return s;
+                const t = raw.replace(/[.,;!?]+$/, '');
+                if (t.length < 2) return s;
+                const first = t[0], last = t[t.length - 1];
+                const isPair =
+                    (first === '"' && last === '"') ||
+                    (first === "'" && last === "'") ||
+                    (first === '\u201c' && last === '\u201d') ||
+                    (first === '\u2018' && last === '\u2019');
+                return isPair ? t.slice(1, -1).trim() : s;
+            };
             const processClause = (roleStr, nameStr) => {
+                roleStr = stripWrappingQuotes(roleStr);
+                nameStr = stripWrappingQuotes(nameStr);
                 const roleStrClean = roleStr.replace(/\s*@\s*\S.*$/g, '').trim();
                 const { clean: cleanRole, positions: rolePositions } = extractTrackPos(roleStrClean);
                 const { clean: cleanedNameStr, positions: namePositions } = extractTrackPos(nameStr);
@@ -6589,21 +6659,31 @@
                 const r = parseRoles(cleanRole).filter(role =>
                     !(role.official === 'Remix' && !role.bracket)
                 );
+                const isMultiRoleList = (text) => /,|\band\b/i.test(text.trim());
                 const n = parseNames(cleanName(cleanedNameStr)).filter(name => !FALSE_CREDIT_NAME_RE.test(name.trim()));
-                if (r.length > 0 && n.length > 0) {
-                    for (const name of n) {
-                        const parenM = name.replace(/[\u200b\u200c\u200d\u200e\u200f\u00ad\ufeff\u2060\u180e]/g, '').trim().match(/^(.+?)\s*\(([^()]+)\)\s*$/);
-                        if (parenM) {
-                            const baseName = parenM[1].trim();
-                            const extraRoles = parseRoles(parenM[2].trim()).filter(role => !(role.official === 'Remix' && !role.bracket));
-                            if (extraRoles.length > 0 && baseName) {
-                                results.push({ name: baseName, roles: r.map(toRoleStr), trackPositions: positions });
-                                results.push({ name: baseName, roles: extraRoles.map(toRoleStr), trackPositions: positions });
+                for (const name of n) {
+                    const parenM = name.replace(/[\u200b\u200c\u200d\u200e\u200f\u00ad\ufeff\u2060\u180e]/g, '').trim().match(/^(.+?)\s*\(([^()]+)\)\s*$/);
+                    if (parenM) {
+                        const baseName = parenM[1].trim();
+                        const parenText = parenM[2].trim();
+                        if (r.length > 0) {
+                            if (isMultiRoleList(parenText)) {
+                                const extraRoles = parseRoles(parenText).filter(role => !(role.official === 'Remix' && !role.bracket));
+                                if (extraRoles.length > 0 && baseName) {
+                                    results.push({ name: baseName, roles: r.map(toRoleStr), trackPositions: positions });
+                                    results.push({ name: baseName, roles: extraRoles.map(toRoleStr), trackPositions: positions });
+                                    continue;
+                                }
+                            }
+                        } else {
+                            const parenRoles = parseRoles(parenText).filter(role => !(role.official === 'Remix' && !role.bracket));
+                            if (parenRoles.length > 0 && baseName) {
+                                results.push({ name: baseName, roles: parenRoles.map(toRoleStr), trackPositions: positions });
                                 continue;
                             }
                         }
-                        results.push({ name: name.trim(), roles: r.map(toRoleStr), trackPositions: positions });
                     }
+                    if (r.length > 0) results.push({ name: name.trim(), roles: r.map(toRoleStr), trackPositions: positions });
                 }
             };
 
@@ -6754,6 +6834,8 @@
 
     function parseBandcampCredits(doc) {
         const toLines = (el) => el.innerHTML
+            .replace(/<span[^>]*>\s*(?:&nbsp;|\s)*<a[^>]*>\s*(?:show\s+)?(?:more|less)\s*<\/a>\s*<\/span>/gi, '')
+            .replace(/<a[^>]*>\s*(?:show\s+)?(?:more|less)\s*<\/a>/gi, '')
             .replace(/<br\s*\/?>/gi, '\n')
             .replace(/<[^>]+>/g, ' ')
             .replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ')
@@ -7046,10 +7128,22 @@
         const backLabelName = backLabelEl
             ? (backLabelEl.lastChild?.textContent?.trim() || backLabelEl.textContent.trim().replace(/^more\s+from\s*/i, '').trim())
             : null;
-        const publisherName = ldMeta?.publisher?.name || '';
-        const label    = backLabelName
+        const bandName = doc.querySelector('p#band-name-location > span.title')?.textContent?.trim() || '';
+        const publisherName = ldMeta?.publisher?.name || bandName;
+        const isBandcampLabelPage = Boolean(
+            (Array.isArray(ldMeta?.publisher?.subjectOf) &&
+                ldMeta.publisher.subjectOf.some(item => item?.name === 'artists' || item?.url?.endsWith('/artists'))) ||
+            doc.querySelector('a[href="/artists"], a[href$="/artists"], #band-navbar a[href*="/artists"]')
+        );
+        const selfReleasedLabel = artist.trim()
+            && !isBandcampLabelPage
+            && (!publisherName || publisherName.toLowerCase() === artist.toLowerCase())
+            ? `Not On Label (${artist.trim()} Self-released)`
+            : '';
+        const label = backLabelName
             || (publisherName && publisherName.toLowerCase() !== artist.toLowerCase() ? publisherName : '')
-            || doc.querySelector('p#band-name-location > span.title')?.textContent?.trim()
+            || (isBandcampLabelPage ? publisherName : '')
+            || selfReleasedLabel
             || '';
         let date     = wiNormalizeDate(ldMeta?.datePublished || tralbum.current?.release_date || tralbum.album_release_date || '');
         const locationText = doc.querySelector('p#band-name-location > span.location')?.textContent?.trim() || '';
@@ -7149,7 +7243,7 @@
             catnoSource: parsedCatno ? catnoSource : null,
             date, publishDate, tracks, imageUrl, tags, credits, creditsSource: creditsSourceInfo,
             bitdepth, samplerate, fileType, freeText, country, preferPublishDate,
-            storeName: 'Bandcamp',
+            isBandcampLabelPage, storeName: 'Bandcamp',
         };
     }
     async function wiParseBeatport(url) {
@@ -7229,6 +7323,496 @@
         }
 
         return releaseData;
+    }
+
+    function wiBeatportSearchPageUrl(q) {
+        return `https://www.beatport.com/search/releases?q=${encodeURIComponent(q)}`;
+    }
+
+    async function wiSearchBeatport(query) {
+        function wiBeatportSearchUrl(q) {
+            return `https://www.beatport.com/search?q=${encodeURIComponent(q)}`;
+        }
+
+        function wiBeatportArtistsOf(o, albumArtistMap) {
+            const nameOf = (a) => (typeof a === 'string' ? a : (a?.artist_name || a?.name || '')).trim();
+            const list = Array.isArray(o.artists) ? o.artists : [];
+            const primary = list.filter(a => {
+                const role = (a?.artist_type_name || a?.artist_type || a?.type || a?.role || '').toString().toLowerCase();
+                return !role.includes('remix');
+            });
+
+            if (primary.length) {
+                return [...new Set(primary.map(nameOf).filter(Boolean))].join(', ');
+            }
+
+            const releaseId = o.id ?? o.release_id;
+            if (albumArtistMap && releaseId != null) {
+                const fromTracks = albumArtistMap.get(String(releaseId));
+                if (fromTracks && fromTracks.size) return [...fromTracks].join(', ');
+            }
+
+            return [...new Set(list.map(nameOf).filter(Boolean))].join(', ');
+        }
+
+        function wiBeatportBuildAlbumArtistMap(tracks) {
+            const map = new Map();
+            if (!Array.isArray(tracks)) return map;
+            for (const t of tracks) {
+                const releaseId = t.release?.release_id ?? t.release?.id;
+                if (releaseId == null) continue;
+                const primary = Array.isArray(t.artists) ? t.artists : [];
+                const names = primary.map(a => a.artist_name || a.name).filter(Boolean);
+                if (!names.length) continue;
+                const key = String(releaseId);
+                if (!map.has(key)) map.set(key, new Set());
+                const set = map.get(key);
+                names.forEach(n => set.add(n));
+            }
+            return map;
+        }
+
+        function wiBeatportLabelOf(o) {
+            if (typeof o.label_name === 'string' && o.label_name) return o.label_name;
+            if (o.label && typeof o.label === 'object') {
+                if (typeof o.label.label_name === 'string' && o.label.label_name) return o.label.label_name;
+                if (typeof o.label.name === 'string' && o.label.name) return o.label.name;
+            }
+            if (Array.isArray(o.labels) && o.labels.length) {
+                const first = o.labels[0];
+                if (typeof first === 'string') return first;
+                if (first && typeof first.label_name === 'string') return first.label_name;
+                if (first && typeof first.name === 'string') return first.name;
+            }
+            return wiBeatportFindLabelDeep(o);
+        }
+
+        function wiBeatportFindLabelDeep(node, depth = 0, seen = new Set()) {
+            if (depth > 4 || !node || typeof node !== 'object' || seen.has(node)) return '';
+            seen.add(node);
+            const keys = Object.keys(node).sort((a, b) => {
+                const score = (k) => (/^label$|labels?_?name/i.test(k) ? 0 : 1);
+                return score(a) - score(b);
+            });
+            for (const key of keys) {
+                if (!/label/i.test(key)) continue;
+                const val = node[key];
+                if (typeof val === 'string' && val.trim()) return val.trim();
+                if (val && typeof val === 'object') {
+                    if (typeof val.label_name === 'string' && val.label_name.trim()) return val.label_name.trim();
+                    if (typeof val.name === 'string' && val.name.trim()) return val.name.trim();
+                    if (Array.isArray(val) && val.length) {
+                        const first = val[0];
+                        if (typeof first === 'string' && first.trim()) return first.trim();
+                        if (first && typeof first.label_name === 'string' && first.label_name.trim()) return first.label_name.trim();
+                        if (first && typeof first.name === 'string' && first.name.trim()) return first.name.trim();
+                    }
+                }
+            }
+            for (const key of keys) {
+                const val = node[key];
+                if (val && typeof val === 'object') {
+                    const found = wiBeatportFindLabelDeep(val, depth + 1, seen);
+                    if (found) return found;
+                }
+            }
+            return '';
+        }
+
+        function wiBeatportImageUrl(o) {
+            const fillTpl = (tpl) => tpl
+                .replace('{w}', '150').replace('{h}', '150').replace('{size}', '150x150')
+                .replace('{W}', '150').replace('{H}', '150');
+            if (typeof o.release_image_uri === 'string' && o.release_image_uri) return o.release_image_uri;
+            if (typeof o.release_image_dynamic_uri === 'string' && o.release_image_dynamic_uri) {
+                return fillTpl(o.release_image_dynamic_uri);
+            }
+            const img = o.image || o.artwork || o.cover_image || o.cover || o.release?.image;
+            let uri = '';
+            if (typeof img === 'string') uri = img;
+            else if (img && typeof img === 'object') {
+                uri = img.uri || img.url || img.large || img.small || img.original ||
+                      (img.dynamic_uri && fillTpl(img.dynamic_uri));
+            }
+            if (!uri && typeof o.dynamic_uri === 'string') uri = fillTpl(o.dynamic_uri);
+            if (!uri && Array.isArray(o.images) && o.images.length) {
+                const first = o.images[0];
+                uri = typeof first === 'string' ? first : (first?.uri || first?.url || '');
+            }
+            if (!uri) uri = wiBeatportFindImageUrlDeep(o);
+            return uri || '';
+        }
+
+        function wiBeatportFindImageUrlDeep(node, depth = 0, seen = new Set()) {
+            if (depth > 5 || !node || typeof node !== 'object' || seen.has(node)) return '';
+            seen.add(node);
+
+            const keys = Object.keys(node).sort((a, b) => {
+                const score = (k) => (/image|artwork|cover|thumb|photo/i.test(k) ? 0 : 1);
+                return score(a) - score(b);
+            });
+
+            for (const key of keys) {
+                const val = node[key];
+                if (
+                    typeof val === 'string' &&
+                    /^https?:\/\//i.test(val) &&
+                    (/\.(jpg|jpeg|png|webp|gif)(\?|$)/i.test(val) || /beatport\.com.*media/i.test(val))
+                ) {
+                    return val;
+                }
+            }
+            for (const key of keys) {
+                const val = node[key];
+                if (val && typeof val === 'object') {
+                    const found = wiBeatportFindImageUrlDeep(val, depth + 1, seen);
+                    if (found) return found;
+                }
+            }
+            return '';
+        }
+
+        function wiBeatportDateOf(o) {
+            const raw = o.release_date || o.exclusive_date || o.publish_date || '';
+            if (!raw) return '';
+            const d = new Date(raw);
+            if (isNaN(d.getTime())) return '';
+            const yyyy = d.getFullYear();
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            return `${yyyy}-${mm}-${dd}`;
+        }
+
+        function wiBeatportLooksLikeRelease(o) {
+            if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
+            const hasTitle = typeof o.name === 'string' || typeof o.release_name === 'string' ||
+                typeof o.title === 'string' || typeof o.display_name === 'string';
+            const hasSlug = typeof o.slug === 'string';
+            const hasReleaseSignal = 'catalog_number' in o || 'new_release_date' in o || 'label' in o || 'label_name' in o;
+            const looksLikeTrack = ('mix_name' in o) || ('bpm' in o && 'key' in o);
+            return hasTitle && hasSlug && hasReleaseSignal && !looksLikeTrack;
+        }
+
+        function wiBeatportLooksLikeTrack(o) {
+            if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
+            const hasTitle = typeof o.name === 'string' || typeof o.release_name === 'string' ||
+                typeof o.title === 'string' || typeof o.track_name === 'string' || typeof o.display_name === 'string';
+            const hasSlug = typeof o.slug === 'string';
+            return hasTitle && hasSlug && ('mix_name' in o || 'bpm' in o || 'key' in o);
+        }
+
+        function wiBeatportScanForReleases(node, out, seen, depth = 0) {
+            if (!node || typeof node !== 'object' || depth > 8 || seen.has(node)) return;
+            seen.add(node);
+            if (Array.isArray(node)) {
+                if (node.length && wiBeatportLooksLikeRelease(node[0])) {
+                    out.push(...node.filter(wiBeatportLooksLikeRelease));
+                    return;
+                }
+                for (const item of node) wiBeatportScanForReleases(item, out, seen, depth + 1);
+                return;
+            }
+            for (const key of Object.keys(node)) wiBeatportScanForReleases(node[key], out, seen, depth + 1);
+        }
+
+        function wiBeatportScanForTracks(node, out, seen, depth = 0) {
+            if (!node || typeof node !== 'object' || depth > 8 || seen.has(node)) return;
+            seen.add(node);
+            if (Array.isArray(node)) {
+                if (node.length && wiBeatportLooksLikeTrack(node[0])) {
+                    out.push(...node.filter(wiBeatportLooksLikeTrack));
+                    return;
+                }
+                for (const item of node) wiBeatportScanForTracks(item, out, seen, depth + 1);
+                return;
+            }
+            for (const key of Object.keys(node)) wiBeatportScanForTracks(node[key], out, seen, depth + 1);
+        }
+
+        function wiBeatportFindReleasesAndTracks(root) {
+            let releases = [];
+            let tracks = [];
+            const queries = root?.props?.pageProps?.dehydratedState?.queries;
+            if (Array.isArray(queries)) {
+                for (const query of queries) {
+                    const key = query?.queryKey;
+                    if (Array.isArray(key) && key[0] === 'search-all') {
+                        const d = query?.state?.data;
+                        if (Array.isArray(d?.releases?.data)) releases = d.releases.data;
+                        else if (Array.isArray(d?.releases)) releases = d.releases;
+                        if (Array.isArray(d?.tracks?.data)) tracks = d.tracks.data;
+                        else if (Array.isArray(d?.tracks)) tracks = d.tracks;
+                    }
+                }
+            }
+            if (releases.length === 0 && tracks.length === 0) {
+                const releaseOut = [];
+                const trackOut = [];
+                wiBeatportScanForReleases(root, releaseOut, new Set());
+                wiBeatportScanForTracks(root, trackOut, new Set());
+                releases = releaseOut;
+                tracks = trackOut;
+            }
+            return { releases, tracks };
+        }
+
+        const html = await wiCrossFetch(wiBeatportSearchUrl(query));
+        const match = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+        if (!match) throw new Error("Could not find embedded search data on Beatport's page.");
+        let root;
+        try { root = JSON.parse(match[1]); }
+        catch (e) { throw new Error("Could not parse Beatport's search data."); }
+
+        const { releases, tracks } = wiBeatportFindReleasesAndTracks(root);
+        const albumArtistMap = wiBeatportBuildAlbumArtistMap(tracks);
+        return releases.slice(0, 10).map(r => ({
+            title: r.name || r.release_name || r.title || r.display_name || '',
+            artists: wiBeatportArtistsOf(r, albumArtistMap),
+            label: wiBeatportLabelOf(r),
+            catno: r.catalog_number || '',
+            date: wiBeatportDateOf(r),
+            imageUrl: wiBeatportImageUrl(r),
+            url: `https://www.beatport.com/release/${r.slug}/${r.id ?? r.release_id ?? ''}`,
+        })).filter(r => r.catno);
+    }
+
+    let _wiBeatportPanelCloseHandler = null;
+
+    function wiCloseBeatportCatnoSearch() {
+        const existing = document.getElementById('dh-wi-beatport-panel');
+        if (existing) existing.remove();
+        if (_wiBeatportPanelCloseHandler) {
+            document.removeEventListener('mousedown', _wiBeatportPanelCloseHandler, true);
+            _wiBeatportPanelCloseHandler = null;
+        }
+    }
+
+    function wiFetchImageAsDataUri(imageUrl, attempt = 0) {
+        if (!imageUrl) return Promise.resolve('');
+        const blobToDataUri = (blob) => new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result || '');
+            reader.onerror = () => resolve('');
+            reader.readAsDataURL(blob);
+        });
+        const retryOrEmpty = (resolve) => {
+            if (attempt < 1) { wiFetchImageAsDataUri(imageUrl, attempt + 1).then(resolve); return; }
+            resolve('');
+        };
+        return new Promise((resolve) => {
+            if (typeof GM_xmlhttpRequest !== 'undefined') {
+                GM_xmlhttpRequest({
+                    method: 'GET', url: imageUrl, responseType: 'blob',
+                    onload: r => {
+                        if (!r.response || !r.response.size) { retryOrEmpty(resolve); return; }
+                        blobToDataUri(r.response).then(resolve);
+                    },
+                    onerror: () => retryOrEmpty(resolve),
+                    timeout: 20000,
+                });
+                return;
+            }
+            const runtimeId = (typeof chrome !== 'undefined' && chrome.runtime?.id)
+                || (typeof browser !== 'undefined' && browser.runtime?.id);
+            if (runtimeId) {
+                const api = (typeof browser !== 'undefined' && browser.runtime) ? browser.runtime : chrome.runtime;
+                try {
+                    api.sendMessage({ type: 'dh_fetch_blob', url: imageUrl }, response => {
+                        const err = (typeof chrome !== 'undefined' && chrome.runtime?.lastError)
+                            || (typeof browser !== 'undefined' && browser.runtime?.lastError);
+                        if (err || !response || !response.ok || !response.base64) { retryOrEmpty(resolve); return; }
+                        resolve(`data:${response.mimeType || 'image/jpeg'};base64,${response.base64}`);
+                    });
+                } catch (e) { retryOrEmpty(resolve); }
+                return;
+            }
+            fetch(imageUrl).then(r => r.blob()).then(blobToDataUri).then(resolve).catch(() => retryOrEmpty(resolve));
+        });
+    }
+
+    async function wiFetchImagesQueued(urls, onEach, concurrency = 3) {
+        let idx = 0;
+        const worker = async () => {
+            while (idx < urls.length) {
+                const myIdx = idx++;
+                const url = urls[myIdx];
+                if (!url) continue;
+                const dataUri = await wiFetchImageAsDataUri(url);
+                onEach(myIdx, dataUri);
+            }
+        };
+        const workers = Array.from({ length: Math.min(concurrency, urls.length) }, worker);
+        await Promise.all(workers);
+    }
+
+    function wiOpenBeatportCatnoSearch(anchorEl, artist, title, onPick, isDark) {
+        wiCloseBeatportCatnoSearch();
+
+        const esc = s => (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+        const bg        = isDark ? '#1c1d24' : '#ffffff';
+        const border     = isDark ? 'rgba(255,255,255,0.12)' : '#e0e0e0';
+        const textColor  = isDark ? '#f0f2f7' : '#1c2230';
+        const subColor   = isDark ? '#9aa0b0' : '#6b7280';
+        const hoverBg    = isDark ? 'rgba(127,178,245,0.12)' : 'rgba(29,99,179,0.08)';
+        const inputBg    = isDark ? '#1a1c1f' : '#fff';
+        const inputBorder = isDark ? '#333' : '#ccc';
+        const inputColor = isDark ? '#ddd' : '#222';
+        const accentColor = isDark ? '#7fb2f5' : '#1d63b3';
+
+        const panel = document.createElement('div');
+        panel.id = 'dh-wi-beatport-panel';
+        panel.setAttribute('data-darkreader-ignore', '');
+        panel.style.cssText = `
+            position: fixed;
+            width: 290px;
+            height: 380px;
+            box-sizing: border-box;
+            background: ${bg};
+            border: 1px solid ${border};
+            border-radius: 7px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            z-index: 2147483000;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        `;
+        panel.innerHTML = `
+            <div style="padding:7px 8px;border-bottom:1px solid ${border};flex-shrink:0;">
+                <input type="text" id="dh-bp-query" value="${esc(`${artist || ''} ${title || ''}`.trim())}" placeholder="Search Beatport..." style="width:100%;font-size:11px;padding:5px 7px;border:1px solid ${inputBorder};border-radius:4px;background:${inputBg};color:${inputColor};box-sizing:border-box;outline:none;">
+            </div>
+            <div id="dh-bp-results" style="overflow-y:auto;flex:1;"></div>
+        `;
+        document.body.appendChild(panel);
+
+        const positionPanel = () => {
+            const wiOverlay = document.getElementById('dh-web-importer-overlay');
+            const refRect = (wiOverlay || anchorEl).getBoundingClientRect();
+            const panelHeight = panel.offsetHeight || 380;
+            const panelWidth = panel.offsetWidth || 290;
+            let top = refRect.top + (refRect.height - panelHeight) / 2;
+            top = Math.min(Math.max(8, top), window.innerHeight - panelHeight - 8);
+            let left = refRect.right - panelWidth - 7;
+            left = Math.min(Math.max(8, left), window.innerWidth - panelWidth - 8);
+            panel.style.top = `${top}px`;
+            panel.style.left = `${left}px`;
+        };
+        positionPanel();
+
+        const queryInput = panel.querySelector('#dh-bp-query');
+        const resultsEl   = panel.querySelector('#dh-bp-results');
+
+        const openSiteLinkHtml = (q) => {
+            const href = q ? wiBeatportSearchPageUrl(q) : 'https://www.beatport.com/search/releases';
+            return `<div style="border-top:1px solid ${border};padding:7px 8px;text-align:center;"><a href="${esc(href)}" id="dh-bp-open-site" target="_blank" rel="noopener noreferrer" style="font-size:10px;color:${subColor};text-decoration:none;">Open search on Beatport ↗</a></div>`;
+        };
+        const bindOpenSiteLink = () => {
+            const el = resultsEl.querySelector('#dh-bp-open-site');
+            if (!el) return;
+            el.addEventListener('click', e => e.stopPropagation());
+            el.addEventListener('mouseenter', () => { el.style.color = accentColor; });
+            el.addEventListener('mouseleave', () => { el.style.color = subColor; });
+        };
+
+        const renderStatus = (msg, showLink = true) => {
+            resultsEl.innerHTML = `<div style="padding:12px 10px;font-size:11px;color:${subColor};text-align:center;">${esc(msg)}</div>${showLink ? openSiteLinkHtml(queryInput.value.trim()) : ''}`;
+            if (showLink) bindOpenSiteLink();
+        };
+
+        let imageFetchToken = 0;
+
+        const renderResults = (results) => {
+            if (!results.length) {
+                renderStatus('Search returned no results.');
+                return;
+            }
+            resultsEl.innerHTML = results.map((r, i) => `
+                <div class="dh-bp-item" data-idx="${i}" style="position:relative;display:flex;gap:7px;align-items:center;padding:4px 9px;cursor:pointer;">
+                    <a class="dh-bp-open" data-idx="${i}" href="${esc(r.url)}" title="Open on Beatport in a new window" style="position:absolute;top:1px;left:1px;width:13px;height:13px;line-height:13px;font-size:10px;font-weight:600;text-align:center;text-decoration:none;color:${textColor};background:${inputBg};border:1px solid ${border};border-radius:3px;z-index:1;opacity:0.7;cursor:pointer;">\u2197</a>
+                    <div class="dh-bp-thumb" data-idx="${i}" style="width:34px;height:34px;border-radius:4px;flex-shrink:0;background:${inputBg};overflow:hidden;"></div>
+                    <div style="min-width:0;flex:1;line-height:1.28;">
+                        <div style="font-size:11.5px;font-weight:600;color:${textColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(r.artists) || '\u2014'}</div>
+                        <div style="font-size:11px;color:${textColor};opacity:0.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(r.title) || '\u2014'}</div>
+                        <div style="font-size:10.5px;color:${subColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${[r.label ? esc(r.label) : '', `<span style="color:${accentColor};font-weight:600;">${esc(r.catno)}</span>`, r.date ? esc(r.date) : ''].filter(Boolean).join(' <span style="opacity:0.6;">\u00b7</span> ')}</div>
+                    </div>
+                </div>
+            `).join('') + openSiteLinkHtml(queryInput.value.trim());
+            resultsEl.querySelectorAll('.dh-bp-open').forEach(a => {
+                a.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const r = results[Number(a.dataset.idx)];
+                    if (r && r.url) window.open(r.url, '_blank', 'noopener,noreferrer');
+                });
+                a.addEventListener('mouseenter', () => { a.style.color = accentColor; a.style.borderColor = accentColor; a.style.opacity = '1'; });
+                a.addEventListener('mouseleave', () => { a.style.color = textColor; a.style.borderColor = border; a.style.opacity = '0.7'; });
+            });
+            resultsEl.querySelectorAll('.dh-bp-item').forEach(item => {
+                item.addEventListener('mouseenter', () => { item.style.background = hoverBg; });
+                item.addEventListener('mouseleave', () => { item.style.background = ''; });
+                item.addEventListener('click', () => {
+                    const r = results[Number(item.dataset.idx)];
+                    if (r) {
+                        onPick(r.catno, r.url);
+                        wiCloseBeatportCatnoSearch();
+                    }
+                });
+            });
+            bindOpenSiteLink();
+            positionPanel();
+
+            const myImageToken = ++imageFetchToken;
+            const urls = results.map(r => r.imageUrl || '');
+            wiFetchImagesQueued(urls, (idx, dataUri) => {
+                if (myImageToken !== imageFetchToken || !dataUri) return;
+                const thumb = resultsEl.querySelector(`.dh-bp-thumb[data-idx="${idx}"]`);
+                if (!thumb) return;
+                const imgEl = document.createElement('img');
+                imgEl.src = dataUri;
+                imgEl.setAttribute('data-darkreader-ignore', '');
+                imgEl.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;filter:none !important;';
+                thumb.innerHTML = '';
+                thumb.appendChild(imgEl);
+            });
+        };
+
+        let searchToken = 0;
+        const runSearch = async (q) => {
+            const myToken = ++searchToken;
+            if (!q.trim()) { renderStatus('Type an artist / title to search.', false); return; }
+            renderStatus('Searching Beatport…', false);
+            try {
+                const results = await wiSearchBeatport(q.trim());
+                if (myToken !== searchToken) return;
+                renderResults(results);
+            } catch (e) {
+                if (myToken !== searchToken) return;
+                renderStatus(e.message || 'Search failed.');
+            }
+        };
+
+        let debounceTimer = null;
+        queryInput.addEventListener('input', () => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => runSearch(queryInput.value), 450);
+        });
+        queryInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { clearTimeout(debounceTimer); runSearch(queryInput.value); }
+            if (e.key === 'Escape') wiCloseBeatportCatnoSearch();
+            e.stopPropagation();
+        });
+        queryInput.addEventListener('click', e => e.stopPropagation());
+        queryInput.focus();
+        queryInput.select();
+
+        runSearch(queryInput.value);
+
+        _wiBeatportPanelCloseHandler = (e) => {
+            if (panel.contains(e.target) || e.target === anchorEl) return;
+            wiCloseBeatportCatnoSearch();
+        };
+        setTimeout(() => document.addEventListener('mousedown', _wiBeatportPanelCloseHandler, true), 0);
     }
 
     async function wiParseJunoDownload(url) {
@@ -9991,7 +10575,12 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
         const payloadArtists = convertJoinsToDiscogsFormat(artistsToFill.length > 0 ? artistsToFill : [{ name: '' }]);
 
         let lbl = capIf(cf.label, (label || '').trim());
-        if (!isKnownLabelName(lbl) && (!lbl || (artist.trim() && lbl.toLowerCase() === artist.trim().toLowerCase()))) lbl = `Not On Label (${artist.trim()} Self-released)`;
+        if (!isKnownLabelName(lbl)) {
+            const preserveBandcampLabel = data.storeName === 'Bandcamp' && data.isBandcampLabelPage === true;
+            if (!preserveBandcampLabel && (!lbl || (artist.trim() && lbl.toLowerCase() === artist.trim().toLowerCase()))) {
+                lbl = `Not On Label (${artist.trim()} Self-released)`;
+            }
+        }
 
         const resolvedCountry = (state.importCountry && dataCountry) ? dataCountry : 'Worldwide';
 
@@ -10077,6 +10666,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
             let notes = sourceUrl
                 ? `Metadata imported with Discogs Edit Helper.\nRelease URL: ${sourceUrl}`
                 : 'Metadata imported with Discogs Edit Helper.';
+            if (data.catnoBeatportUrl) notes += `\nCatalog number source: ${data.catnoBeatportUrl}`;
             if (sourceUrl && date && publishDate && dateFieldUsed === 'publishDate') {
                 notes += '\n\n' + `Both the publish date (${date}) and release date (${publishDate}) were available. The publish date was selected because it reflects when the release was actually made public.`;
             }
@@ -10392,7 +10982,12 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
             const labelEl = document.querySelector('#label-name-input-0');
             if (labelEl) {
                 let lbl = capIf(cf.label, (label || '').trim());
-                if (!isKnownLabelName(lbl) && (!lbl || (artist.trim() && lbl.toLowerCase() === artist.trim().toLowerCase()))) lbl = `Not On Label (${artist.trim()} Self-released)`;
+                if (!isKnownLabelName(lbl)) {
+                    const preserveBandcampLabel = data.storeName === 'Bandcamp' && data.isBandcampLabelPage === true;
+                    if (!preserveBandcampLabel && (!lbl || (artist.trim() && lbl.toLowerCase() === artist.trim().toLowerCase()))) {
+                        lbl = `Not On Label (${artist.trim()} Self-released)`;
+                    }
+                }
                 setReactValue(labelEl, lbl);
                 log(`Label: ${lbl} / Cat: ${catno || 'none'}`, 'success');
             }
@@ -10490,6 +11085,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                     || await withTimeout(wiWaitForElement('#release-submission-notes-textarea', 3000), 5000, 'Submission notes textarea');
                 if (snEl) {
                     let urlLine = 'Metadata imported with Discogs Edit Helper.\nRelease URL: ' + sourceUrl;
+                    if (data.catnoBeatportUrl) urlLine += '\nCatalog number source: ' + data.catnoBeatportUrl;
                     if (date && publishDate && dateFieldUsed === 'publishDate') {
                         urlLine += '\n\n' + `Both the publish date (${date}) and release date (${publishDate}) were available. The publish date was selected because it reflects when the release was actually made public.`;
                     }
@@ -10770,7 +11366,7 @@ wiIsAntiBotPage(html)) {
                 result.finalGenres = finalGenres;
                 result.finalStyles = finalStyles;
             }
-            if (needsCatnoFilter) result.catno = null;
+            if (needsCatnoFilter) { result.catno = null; result.catnoBeatportUrl = null; }
             return result;
         }
         const urlInput    = overlay.querySelector('#dh-wi-url');
@@ -10820,7 +11416,7 @@ wiIsAntiBotPage(html)) {
                     split: [
                         {
                             label: 'Durations',
-                            title: 'Import only track durations, skipping all other fields',
+                            title: 'Import only track durations, skipping all other fields. Matches by track position; if none match but the track counts are equal, falls back to row order',
                             disabled: isDiscogsImport,
                             onClick: () => { _durationsOnlyMode = true; if (_isDiscogsUrl(urlInput.value)) _discogsApply(); else _storeApply(); }
                         },
@@ -11106,14 +11702,14 @@ wiIsAntiBotPage(html)) {
                     : '';
                 const _previewIsVA = wiDetectVA(fetchedData);
                 const maxPosLen = fetchedData.tracks.reduce((m, t) => Math.max(m, String(t.position || '').length), 1);
-                const posWidth  = maxPosLen <= 1 ? 10 : maxPosLen <= 2 ? 16 : maxPosLen <= 3 ? 22 : 28;
+                const posWidth  = maxPosLen <= 1 ? 8 : maxPosLen <= 2 ? 14 : 20;
                 const trackRows = fetchedData.tracks.map((t, idx) => {
                     const ta = _previewIsVA ? (t.artists?.join(', ') || t.trackArtist || '') : '';
                     const isLast = idx === fetchedData.tracks.length - 1;
                     const borderStyle = isLast ? '' : 'border-bottom:1px solid rgba(0,0,0,0.04);';
                     return `
                         <div style="display:flex;align-items:center;height:18px;box-sizing:border-box;${borderStyle}white-space:nowrap;font-size:10px;">
-                            <span style="color:#888;width:${posWidth}px;flex-shrink:0;user-select:none;">${esc(t.position)}</span>
+                            <span style="color:#888;min-width:${posWidth}px;flex-shrink:0;user-select:none;">${esc(t.position)}</span>
                             ${ta ? `<span style="color:#999;flex-shrink:0;max-width:60%;overflow:hidden;text-overflow:ellipsis;margin-right:5px;">${esc(ta)}</span>` : ''}
                             <span style="overflow:hidden;text-overflow:ellipsis;flex:1;white-space:nowrap;">${esc(t.title)}</span>
                             ${t.duration ? `<span style="color:#aaa;flex-shrink:0;margin-left:6px;margin-right:8px;">${esc(t.duration)}</span>` : `<span style="width:8px;flex-shrink:0;"></span>`}
@@ -11208,9 +11804,13 @@ wiIsAntiBotPage(html)) {
                     }
                     const WI_LABEL_LINE_CHAR_BUDGET = 60;
                     const WI_LABEL_MIN_CHARS = 8;
-                    const fitLabelForWiMeta = (labelText, catnoText, countryText) => {
+                    const wiDisplayLabelFor = (labelText) => {
+                        const m = /^Not On Label \((.+) Self-released\)$/.exec(labelText || '');
+                        return m ? m[1] : labelText;
+                    };
+                    const fitLabelForWiMeta = (labelText, catnoText) => {
                         if (!labelText) return labelText;
-                        const restLen = (catnoText ? catnoText.length + 3 : 0) + (countryText ? countryText.length + 3 : 0);
+                        const restLen = catnoText ? catnoText.length + 3 : 0;
                         const maxLabelLen = Math.max(WI_LABEL_MIN_CHARS, WI_LABEL_LINE_CHAR_BUDGET - restLen);
                         if (labelText.length <= maxLabelLen) return labelText;
                         const truncLen = Math.max(WI_LABEL_MIN_CHARS - 3, maxLabelLen - 3);
@@ -11231,8 +11831,10 @@ wiIsAntiBotPage(html)) {
                         ? (catnoIsBandcampSourced
                             ? `<span class="dh-wi-catno-toggle" title="${esc(wiCatnoTooltip).replace(/"/g, '&quot;')}" style="${catnoDisabled ? catnoDisabledStyle : catnoActiveStyle}">${esc(fetchedData.catno)}</span>`
                             : esc(fetchedData.catno))
-                        : '';
-                    const buildMetaLineHtmlEsc = (labelText) => [esc(fitLabelForWiMeta(labelText, fetchedData.catno, wiResolvedCountry)), wiCatnoHtml, esc(wiResolvedCountry)].filter(Boolean).join(' · ');
+                        : 'none';
+                    const wiBpSearchIconStyle = 'cursor:pointer;display:inline-block;flex-shrink:0;width:11px;height:11px;vertical-align:-1px;margin-left:3px;color:inherit;';
+                    const wiCatnoLookupHtml = `<span class="dh-wi-catno-lookup" title="Search Beatport for the catalog number" style="${wiBpSearchIconStyle}"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block;"><path d="M11.5 11.5L14.5 14.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M2 7C2 4.23858 4.23858 2 7 2C9.76142 2 12 4.23858 12 7C12 9.76142 9.76142 12 7 12C4.23858 12 2 9.76142 2 7Z" stroke="currentColor" stroke-width="1.5"/><rect x="6.5" y="6.5" width="1" height="1" rx="0.5" fill="currentColor"/><path d="M6.5 7H5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M7 6.5V5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>`;
+                    const buildMetaLineTextHtmlEsc = (labelText) => [esc(fitLabelForWiMeta(wiDisplayLabelFor(labelText), fetchedData.catno)), wiCatnoHtml].filter(Boolean).join(' · ');
                     const metaLineClampStyle = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
                     const line3Base = [`${fetchedData.tracks.length} track${fetchedData.tracks.length !== 1 ? 's' : ''}`, fetchedData.fileType || 'FLAC', (fetchedData.bitdepth && fetchedData.samplerate) ? `${fetchedData.bitdepth}-bit/${fetchedData.samplerate / 1000} kHz` : (fetchedData.freeText || null)].filter(Boolean).map(esc).join(' · ');
                     const line3Html = dateSegmentHtml ? `${line3Base}${line3Base ? ' · ' : ''}${dateSegmentHtml}` : line3Base;
@@ -11244,7 +11846,9 @@ wiIsAntiBotPage(html)) {
                             ${imgHtml}
                             <div style="min-width:0;flex:1;overflow:hidden;">
                                 <div style="font-weight:700;font-size:12.5px;color:${wiTitleColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(fetchedData.artist)}${fetchedData.artist && fetchedData.title ? ' – ' : ''}${esc(fetchedData.title)}</div>
-                                <div id="dh-wi-meta-line" style="color:${wiMetaColor};font-weight:500;font-size:10.5px;${metaLineClampStyle}">${buildMetaLineHtmlEsc(fetchedData.label)}</div>
+                                <div style="display:flex;align-items:center;gap:0;color:${wiMetaColor};font-weight:500;font-size:10.5px;overflow:hidden;">
+                                    <span id="dh-wi-meta-line" style="min-width:0;${metaLineClampStyle}">${buildMetaLineTextHtmlEsc(fetchedData.label)}</span>${wiCatnoLookupHtml}<span style="flex-shrink:0;white-space:nowrap;">${wiResolvedCountry ? ` · ${esc(wiResolvedCountry)}` : ''}</span>
+                                </div>
                                 <div style="color:${wiLine3Color};font-weight:500;font-size:10.25px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${line3Html}</div>
                             </div>
                         </div>
@@ -11528,6 +12132,28 @@ wiIsAntiBotPage(html)) {
                             catnoToggleEl.style.cssText = catnoActiveStyle;
                         });
                     }
+                    const catnoLookupEl = previewEl.querySelector('.dh-wi-catno-lookup');
+                    const wiLookupAccentColor = wiPreviewIsDark ? '#7fb2f5' : '#1d63b3';
+                    const bindCatnoLookup = (el) => {
+                        if (!el) return;
+                        el.addEventListener('mouseenter', () => { el.style.color = wiLookupAccentColor; });
+                        el.addEventListener('mouseleave', () => { el.style.color = ''; });
+                        el.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            wiOpenBeatportCatnoSearch(el, fetchedData.artist, fetchedData.title, (picked, pickedUrl) => {
+                                fetchedData.catno = picked;
+                                fetchedData.catnoSource = null;
+                                fetchedData.catnoBeatportUrl = pickedUrl || null;
+                                catnoDisabled = false;
+                                const metaLineEl = previewEl.querySelector('#dh-wi-meta-line');
+                                if (metaLineEl) {
+                                    const newWiCatnoHtml = fetchedData.catno ? esc(fetchedData.catno) : 'none';
+                                    metaLineEl.innerHTML = [esc(fitLabelForWiMeta(wiDisplayLabelFor(fetchedData.label), fetchedData.catno)), newWiCatnoHtml].filter(Boolean).join(' · ');
+                                }
+                            }, wiPreviewIsDark);
+                        });
+                    };
+                    bindCatnoLookup(catnoLookupEl);
                     previewEl.querySelectorAll('.dh-wi-preview-tab').forEach(btn => {
                         btn.addEventListener('click', () => {
                             previewEl.querySelectorAll('.dh-wi-preview-tab').forEach(b => {
@@ -11631,6 +12257,7 @@ wiIsAntiBotPage(html)) {
                     } else {
                         const trackRows = getTrackInputRows();
                         let filled = 0;
+                        let usedFallback = false;
                         const changes = [];
                         const matchedPositions = new Set();
                         for (const row of trackRows) {
@@ -11647,9 +12274,30 @@ wiIsAntiBotPage(html)) {
                             matchedPositions.add(pos);
                             changes.push({ durationInput: durInput, oldDuration });
                         }
+                        if (filled === 0) {
+                            if (trackRows.length > 0 && trackRows.length === tracksWithDur.length) {
+                                usedFallback = true;
+                                log(`No matching track positions found — track counts match (${trackRows.length}), falling back to sequential order (row 1 = track 1, row 2 = track 2, etc.)`, 'warning');
+                                trackRows.forEach((row, i) => {
+                                    const match = tracksWithDur[i];
+                                    const durInput = row.querySelector(DUR_SEL);
+                                    if (!match || !durInput) return;
+                                    const oldDuration = durInput.value || '';
+                                    setReactValue(durInput, trimLeadingZeros(match.duration));
+                                    filled++;
+                                    matchedPositions.add(`row ${i + 1}`);
+                                    changes.push({ durationInput: durInput, oldDuration });
+                                });
+                            } else {
+                                log(`No matching track positions found, and track counts differ (page has ${trackRows.length}, fetched data has ${tracksWithDur.length}) — skipping sequential-order fallback to avoid misaligning durations`, 'warning');
+                            }
+                        }
                         if (changes.length > 0) addActionToHistory({ type: 'missingDurationImport', changes });
                         const s = filled !== 1 ? 's' : '';
-                        if (filled > 0) {
+                        if (filled > 0 && usedFallback) {
+                            log(`Done! Imported ${filled} duration${s} by sequential order (position match failed) from ${fetchedData.storeName}`, 'success');
+                            setInfoSingleLine(`Done! Imported ${filled} duration${s} by row`, true);
+                        } else if (filled > 0) {
                             log(`Done! Imported ${filled} duration${s}: ${[...matchedPositions].join(', ')} from ${fetchedData.storeName}`, 'success');
                             setInfoSingleLine(`Done! Imported ${filled} duration${s}`, true);
                         } else {
