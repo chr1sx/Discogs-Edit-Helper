@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      1.9.8
+// @version      1.9.9
 // @description  Imports metadata from web stores and plain-text tracklists, extracts info from titles and assigns data to the appropriate fields
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
@@ -10423,6 +10423,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                 if (!orig) continue;
                 let cleaned = orig.replace(getRemixByRegex(), '').replace(/^by\s+/i, '');
                 cleaned = cleanupArtistName(cleaned, true).replace(/[\(\[]+$/g, '').replace(/^[\)\]]+/g, '').trim();
+                cleaned = stripRemixCleanupTerms(cleaned);
                 if (orig.startsWith('[') && !cleaned.endsWith(']')) cleaned = '[' + cleaned.replace(/^\[+/, '') + ']';
                 if (orig.startsWith('(') && !cleaned.endsWith(')')) cleaned = '(' + cleaned.replace(/^\(+/, '') + ')';
                 out.push(cleaned);
@@ -10512,7 +10513,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                         }
                     }
                 }
-                remixes.forEach(r => { const n = normalizeForCompare(r); if (!seen.has(n)) { seen.add(n); results.push({ name: r, roles: ['Remix'], trackPositions: pos }); } });
+                remixes.filter(r => !isNonArtistRemixTerm(r)).forEach(r => { const n = normalizeForCompare(r); if (!seen.has(n)) { seen.add(n); results.push({ name: r, roles: ['Remix'], trackPositions: pos }); } });
             }
         }
         return results;
