@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      1.9.9
+// @version      2.0
 // @description  Imports metadata from web stores and plain-text tracklists, extracts info from titles and assigns data to the appropriate fields
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
@@ -40,7 +40,7 @@
         REMIX_BY_PATTERNS: ['remixed by', 'remix by', 'rmx by', 'rebuild by', 'rebuilt by', 'reworked by', 'rework by', 'edited by', 'edit by', 'mixed by', 'mix by', 'version by', 'dub by'],
         REMIX_PATTERNS_OPTIONAL: ['dub', 'edit', 'rework', 'mix', 'version'],
         CAPITALIZE_KEEP_UPPER: ['CIA', 'DJ', 'DNA', 'EP', 'FBI', 'FM', 'HD', 'KGB', 'LSD', 'MC', 'MI6', 'NASA', 'TNT', 'UFO', 'UK', 'USA', 'USSR', 'VIP', 'VHS', 'WTF'],
-        CAPITALIZE_KEEP_LOWER: ['da', 'de', 'del', 'des', 'di', 'la', 'van', 'von'],
+        CAPITALIZE_KEEP_LOWER: ['von'],
         MEASUREMENT_UNITS: ['mm', 'cm', 'm', 'km', 'in', 'yd', 'mi', 'kg', 'mg', 'lb', 'oz', 'ml', 'mph', 'km/h'],
         REMIX_SKIP_TERMS: ['club', 'radio', 'extended', 'album', 'instrumental', 'vocal', 'acoustic', 'dub', 'main', 'clean', 'explicit', 'full', 'short', 'rough', 'long', 'final', 'demo', 'early', 'tv', 'video', 'single', 'promo', 'original', 'alternate', 'alternative', 'deluxe', 'special', 'bonus', 'live', 'vip'],
         REMIX_CLEANUP_TERMS: ['acoustic', 'demo', 'instrumental', 'extended', 'radio', 'club', 'dub', 'alternate', 'alternative'],
@@ -56,7 +56,7 @@
         REMIX_BY_PATTERNS:        ['remixed by', 'remix by', 'rmx by', 'rebuild by', 'rebuilt by', 'reworked by', 'rework by', 'edited by', 'edit by', 'mixed by', 'mix by', 'version by', 'dub by'],
         REMIX_PATTERNS_OPTIONAL:  ['dub', 'edit', 'rework', 'mix', 'version'],
         CAPITALIZE_KEEP_UPPER:    ['CIA', 'DJ', 'DNA', 'EP', 'FBI', 'FM', 'HD', 'KGB', 'LSD', 'MC', 'MI6', 'NASA', 'TNT', 'UFO', 'UK', 'USA', 'USSR', 'VIP', 'VHS', 'WTF'],
-        CAPITALIZE_KEEP_LOWER:    ['da', 'de', 'del', 'des', 'di', 'la', 'van', 'von'],
+        CAPITALIZE_KEEP_LOWER:    ['von'],
         MEASUREMENT_UNITS:        ['mm', 'cm', 'm', 'km', 'in', 'yd', 'mi', 'kg', 'mg', 'lb', 'oz', 'ml', 'mph', 'km/h'],
         REMIX_SKIP_TERMS:        ['club', 'radio', 'extended', 'album', 'instrumental', 'vocal', 'acoustic', 'dub', 'main', 'clean', 'explicit', 'full', 'short', 'rough', 'long', 'final', 'demo', 'early', 'tv', 'video', 'single', 'promo', 'original', 'alternate', 'alternative', 'deluxe', 'special', 'bonus', 'live', 'vip'],
         REMIX_CLEANUP_TERMS:     ['acoustic', 'demo', 'instrumental', 'extended', 'radio', 'club', 'dub', 'alternate', 'alternative'],
@@ -111,6 +111,7 @@
         CFG_IMPORT_AUTO_DESCR:    'discogs_helper_cfg_import_auto_descr_v1',
         CFG_IMPORT_COUNTRY:       'discogs_helper_cfg_import_country_v1',
         CFG_CAPITALIZE_MIXED:     'discogs_helper_cfg_capitalize_mixed_v1',
+        CFG_PREFERRED_FILE_TYPES: 'discogs_helper_cfg_preferred_file_types_v1',
     };
 
     const state = {
@@ -130,6 +131,7 @@
         importAutoFeat: true,
         importAutoDescr: true,
         importCountry: true,
+        preferredFileTypes: {},
         capitalizeMixedCase: true,
         removeMainFromTitle: true,
         removeFeatFromTitle: false,
@@ -260,6 +262,10 @@
             state.importAutoFeat = storedAutoFeat !== null ? (storedAutoFeat === '1') : true;
             const storedAutoDescr = localStorage.getItem(STORAGE_KEYS.CFG_IMPORT_AUTO_DESCR);
             state.importAutoDescr = storedAutoDescr !== null ? (storedAutoDescr === '1') : true;
+            try {
+                const storedPrefTypes = JSON.parse(localStorage.getItem(STORAGE_KEYS.CFG_PREFERRED_FILE_TYPES) || '{}');
+                state.preferredFileTypes = (storedPrefTypes && typeof storedPrefTypes === 'object' && !Array.isArray(storedPrefTypes)) ? storedPrefTypes : {};
+            } catch (e) { state.preferredFileTypes = {}; }
             const storedCountry = localStorage.getItem(STORAGE_KEYS.CFG_IMPORT_COUNTRY);
             state.importCountry = storedCountry !== null ? (storedCountry === '1') : true;
             const storedCapMixed = localStorage.getItem(STORAGE_KEYS.CFG_CAPITALIZE_MIXED);
@@ -3951,6 +3957,24 @@
                         ${(()=>{ const labels={'albumArtists':'Album Artists','albumTitle':'Album Title','label':'Label/Company','joiners':'Joiners','vaArtists':'Track Artists','trackTitles':'Track Titles','trackCredits':'Track Credits','creditNames':'Album Credits'}; return Object.keys(labels).map(k=>`<label style="display:flex;align-items:center;gap:5px;font-size:11px;cursor:pointer;white-space:nowrap;"><input type="checkbox" class="cfg-cap-btn-field" data-field="${k}" ${state.capitalizeBtnFields[k]?'checked':''}><span>${labels[k]}</span></label>`).join(''); })()}
                     </div>
                 </div>
+                <div style="position:relative; display:inline-block;">
+                    <button id="cfg-filetype-toggle" type="button"
+                        title="Preferred file type per platform"
+                        style="display:flex; align-items:center; gap:4px; font-size:11px; font-weight:600; cursor:pointer; user-select:none; white-space:nowrap; background:none; border:none; padding:0; color:inherit;">
+                        File Type &#9660;
+                    </button>
+                    <div id="cfg-filetype-dropdown" style="display:none; position:fixed; z-index:9999; background:#fff; border:1px solid #ccc; border-radius:5px; padding:6px 10px 8px 8px; box-shadow:0 3px 10px rgba(0,0,0,0.15); flex-direction:column; gap:4px; width:max-content; max-height:60vh; overflow-y:auto; scrollbar-gutter:stable;">
+                        ${(() => Object.keys(WI_FILE_TYPE_TABLE).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase())).map(store => {
+                            const picked = (state.preferredFileTypes && state.preferredFileTypes[store]) || '';
+                            const opts = WI_FILE_TYPE_TABLE[store].map(e => {
+                                const t = Array.isArray(e) ? e[0] : e;
+                                const b = Array.isArray(e) ? ' [' + e[1] + ']' : '';
+                                return '<option value="' + t + '"' + (picked === t ? ' selected' : '') + '>' + wiFileTypeLabel(t) + b + '</option>';
+                            }).join('');
+                            return '<label style="display:flex; align-items:center; justify-content:space-between; gap:12px; font-size:11px; white-space:nowrap;"><span>' + store + '</span><select class="cfg-filetype-select" data-store="' + store + '" style="font-size:11px; padding:1px 3px; border:1px solid #ccc; border-radius:3px; width:105px; min-width:105px; max-width:105px; flex:0 0 105px; box-sizing:border-box;"><option value="">Default</option>' + opts + '</select></label>';
+                        }).join(''))()}
+                    </div>
+                </div>
             </div>
             <div class="dh-cfg-scroll" style="padding:7px 9px 4px; overflow-y:auto; flex:1;">
                 ${fieldsHtml}
@@ -4029,6 +4053,13 @@
                 state.importCountry = importCountryEl.checked;
                 try { localStorage.setItem(STORAGE_KEYS.CFG_IMPORT_COUNTRY, state.importCountry ? '1' : '0'); } catch(e) {}
             }
+            const fileTypeSelects = document.querySelectorAll('.cfg-filetype-select');
+            if (fileTypeSelects.length) {
+                const prefs = {};
+                fileTypeSelects.forEach(sel => { if (sel.value) prefs[sel.dataset.store] = sel.value; });
+                state.preferredFileTypes = prefs;
+                try { localStorage.setItem(STORAGE_KEYS.CFG_PREFERRED_FILE_TYPES, JSON.stringify(prefs)); } catch(e) {}
+            }
             const capMixedEl = document.getElementById('cfg-capitalize-mixed');
             if (capMixedEl) {
                 state.capitalizeMixedCase = capMixedEl.checked;
@@ -4060,7 +4091,7 @@
             if (remixSkip.length)   { CONFIG.REMIX_SKIP_TERMS = remixSkip;               saveArrayToStorage(STORAGE_KEYS.CFG_REMIX_SKIP_TERMS, remixSkip); }
             if (remixCleanup.length) { CONFIG.REMIX_CLEANUP_TERMS = remixCleanup;        saveArrayToStorage(STORAGE_KEYS.CFG_REMIX_CLEANUP_TERMS, remixCleanup); }
             if (keepUpper.length)   { CONFIG.CAPITALIZE_KEEP_UPPER = keepUpper;          saveArrayToStorage(STORAGE_KEYS.CFG_KEEP_UPPER, keepUpper); }
-            if (keepLower.length)   { CONFIG.CAPITALIZE_KEEP_LOWER = keepLower;          saveArrayToStorage(STORAGE_KEYS.CAPITALIZE_KEEP_LOWER, keepLower); }
+            if (keepLower.length)   { CONFIG.CAPITALIZE_KEEP_LOWER = keepLower;          saveArrayToStorage(STORAGE_KEYS.CFG_KEEP_LOWER, keepLower); }
             if (measurementUnits.length) { CONFIG.MEASUREMENT_UNITS = measurementUnits;  saveArrayToStorage(STORAGE_KEYS.CFG_MEASUREMENT_UNITS, measurementUnits); }
             if (cleanTitle.length)  { CONFIG.CLEAN_TITLE_PATTERNS = cleanTitle;          saveArrayToStorage(STORAGE_KEYS.CFG_CLEAN_TITLE, cleanTitle); }
             if (notOnLabelSkiplist.length) { CONFIG.NOT_ON_LABEL_SKIPLIST = notOnLabelSkiplist; saveArrayToStorage(STORAGE_KEYS.CFG_NOT_ON_LABEL_SKIPLIST, notOnLabelSkiplist); }
@@ -4119,6 +4150,7 @@
             state.importAutoDescr           = true;
             state.importCountry             = true;
             state.capitalizeMixedCase       = true;
+            state.preferredFileTypes        = {};
 
             applyPatternExpansions();
 
@@ -4129,6 +4161,7 @@
                 STORAGE_KEYS.CFG_TIMEOUT, STORAGE_KEYS.CFG_START_COLLAPSED, STORAGE_KEYS.CFG_CAPITALIZE_FIELDS, STORAGE_KEYS.CFG_CAPITALIZE_BTN_FIELDS, STORAGE_KEYS.CFG_SPLIT_IMPORT, STORAGE_KEYS.CFG_IMPORT_CREDITS, STORAGE_KEYS.CFG_IMPORT_STYLES, STORAGE_KEYS.CFG_IMPORT_AUTO_REMIXERS, STORAGE_KEYS.CFG_IMPORT_AUTO_FEAT, STORAGE_KEYS.CFG_CAPITALIZE_MIXED, STORAGE_KEYS.CFG_IMPORT_AUTO_DESCR, STORAGE_KEYS.CFG_IMPORT_COUNTRY
             ];
             keys.forEach(k => { try { localStorage.removeItem(k); } catch(e) {} });
+            try { localStorage.removeItem(STORAGE_KEYS.CFG_PREFERRED_FILE_TYPES); } catch(e) {}
             fields.forEach(f => {
                 const el = document.getElementById(f.id);
                 if (el) el.value = f.getValue();
@@ -4151,6 +4184,7 @@
             if (autoDescrEl) autoDescrEl.checked = true;
             const importCountryEl = document.getElementById('cfg-import-country');
             if (importCountryEl) importCountryEl.checked = true;
+            document.querySelectorAll('.cfg-filetype-select').forEach(sel => { sel.value = ''; });
 
             updateRemixToggleUI();
             updateRemixButtonTitle();
@@ -4189,6 +4223,7 @@
                 _capDropdown.style.display = open ? 'none' : 'flex';
                 _capToggle.textContent = open ? 'Capitalize \u25BC' : 'Capitalize \u25B2';
                 if (!open && _impDropdown) { _impDropdown.style.display = 'none'; _impToggle.textContent = 'Import \u25BC'; }
+                  if (!open && _ftDropdown) { _ftDropdown.style.display = 'none'; _ftToggle.textContent = 'File Type \u25BC'; }
                 const isDark = localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
                 _capDropdown.style.background  = isDark ? '#1f2224' : '#fff';
                 _capDropdown.style.borderColor = isDark ? '#444' : '#ccc';
@@ -4204,6 +4239,38 @@
                 _capToggle.textContent = 'Capitalize \u25BC';
             });
             _capDropdown.addEventListener('click', e => e.stopPropagation());
+        }
+        const _ftToggle   = document.getElementById('cfg-filetype-toggle');
+        const _ftDropdown = document.getElementById('cfg-filetype-dropdown');
+        if (_ftToggle && _ftDropdown) {
+            _ftToggle.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const open = _ftDropdown.style.display !== 'none';
+                if (!open) {
+                    const r = _ftToggle.getBoundingClientRect();
+                    _ftDropdown.style.top   = r.bottom + 'px';
+                    _ftDropdown.style.left  = '';
+                    _ftDropdown.style.right = (window.innerWidth - r.right) + 'px';
+                }
+                _ftDropdown.style.display = open ? 'none' : 'flex';
+                _ftToggle.textContent = open ? 'File Type \u25BC' : 'File Type \u25B2';
+                if (!open && _impDropdown) { _impDropdown.style.display = 'none'; _impToggle.textContent = 'Import \u25BC'; }
+                if (!open && _capDropdown) { _capDropdown.style.display = 'none'; _capToggle.textContent = 'Capitalize \u25BC'; }
+                const isDark = localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
+                _ftDropdown.style.background  = isDark ? '#1f2224' : '#fff';
+                _ftDropdown.style.borderColor = isDark ? '#444' : '#ccc';
+                _ftDropdown.style.color       = isDark ? '#ddd' : '#111';
+                _ftDropdown.querySelectorAll('select').forEach(sel => {
+                    sel.style.background  = isDark ? '#2a2d30' : '#fff';
+                    sel.style.color       = isDark ? '#ddd' : '#111';
+                    sel.style.borderColor = isDark ? '#444' : '#ccc';
+                });
+            });
+            document.addEventListener('click', () => {
+                _ftDropdown.style.display = 'none';
+                _ftToggle.textContent = 'File Type \u25BC';
+            });
+            _ftDropdown.addEventListener('click', e => e.stopPropagation());
         }
         const _capToggleAll = document.getElementById('cfg-cap-toggle-all');
         if (_capToggleAll) {
@@ -4231,6 +4298,7 @@
                 _impDropdown.style.display = open ? 'none' : 'flex';
                 _impToggle.textContent = open ? 'Import \u25BC' : 'Import \u25B2';
                 if (!open && _capDropdown) { _capDropdown.style.display = 'none'; _capToggle.textContent = 'Capitalize \u25BC'; }
+                if (!open && _ftDropdown) { _ftDropdown.style.display = 'none'; _ftToggle.textContent = 'File Type \u25BC'; }
                 const isDark = localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
                 _impDropdown.style.background  = isDark ? '#1f2224' : '#fff';
                 _impDropdown.style.borderColor = isDark ? '#444' : '#ccc';
@@ -5093,7 +5161,6 @@
         'bandcamp.com':         'Bandcamp',
         'prestomusic.com':      'Presto Music',
         'nativedsd.com':        'NativeDSD',
-        'junodownload.com':     'Juno Download',
         'hdtracks.com':         'HDtracks',
         'prostudiomasters.com': 'ProStudioMasters',
         '7digital.com':         '7digital',
@@ -5146,20 +5213,31 @@
         return `Anti-bot verification required for ${domain}.\n<a href="${url}" target="_blank" style="color:#00e6ff;font-weight:bold;">Open the page in your browser</a>, complete the check, return and "Fetch" again.`;
     }
 
-    function wiIsAntiBotPage(html) {
+    const WI_CHALLENGE_MARKERS = ['cf-challenge', 'cf-browser-verification', '_cf_chl_opt', 'captcha-delivery', 'px-captcha', 'fastly is verifying', 'is verifying your browser', 'checking your browser before accessing'];
+    const WI_CHALLENGE_TEXT = /just a moment|attention required|access denied|client challenge|security check|are you (a )?(human|robot)|robot or human|verify(ing)? (that )?you are (a )?human|enable javascript|one more step|pardon our interruption|ddos protection|fastly\s*error/i;
+    const WI_CHALLENGE_MAX_TEXT = 2500;
+
+    function wiAntiBotReason(html) {
+        if (!html) return null;
+        if (/music-grid-item|data-tralbum=/i.test(html)) return null;
+        const visible = html
+            .replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, ' ')
+            .replace(/<[^>]*>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        if (visible.length >= WI_CHALLENGE_MAX_TEXT) return null;
         const lower = html.toLowerCase();
-        return lower.includes('is verifying your browser') ||
-               lower.includes('fastly is verifying') ||
-               lower.includes('cf-challenge') ||
-               lower.includes('cf-browser-verification') ||
-               lower.includes('are you human') ||
-               lower.includes('enable javascript') ||
-               lower.includes('just a moment') ||
-               lower.includes('security check') ||
-               lower.includes('attention required') ||
-               lower.includes('access denied') ||
-               lower.includes('client challenge') ||
-               /fastly\s*error/i.test(html);
+        const marker = WI_CHALLENGE_MARKERS.find(m => lower.includes(m));
+        if (marker) return `marker "${marker}"`;
+        const title = (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '';
+        const hit = (title + ' ' + visible).match(WI_CHALLENGE_TEXT);
+        return hit ? `text "${hit[0]}"` : null;
+    }
+
+    function wiIsAntiBotPage(html) {
+        const reason = wiAntiBotReason(html);
+        if (reason) console.warn(`[DEH] anti-bot page detected: ${reason}`);
+        return !!reason;
     }
 
     function wiCrossFetch(url, options = {}) {
@@ -5169,7 +5247,6 @@
                 const domain = urlObj.hostname.replace('www.', '');
                 const is7Digital      = urlObj.hostname.includes('7digital.com');
                 const isBoomkat       = urlObj.hostname.includes('boomkat.com');
-                const isJuno          = urlObj.hostname.includes('junodownload.com');
                 const isTraxsource    = urlObj.hostname.includes('traxsource.com');
                 const isBeatport      = urlObj.hostname.includes('beatport.com');
                 const isBandcamp      = urlObj.hostname.includes('bandcamp.com');
@@ -5209,10 +5286,6 @@
                     headers['Sec-Fetch-User'] = '?1';
                 }
 
-                if (isJuno) {
-                    headers['Referer'] = 'https://www.junodownload.com/';
-                }
-
                 if (isQobuz) {
                     headers['Referer'] = 'https://www.qobuz.com/';
                 }
@@ -5236,6 +5309,7 @@
                         method: options.method || 'GET',
                         url: url,
                         headers: finalHeaders,
+                        data: options.body,
                         anonymous: false,
                         revalidate: true,
                         responseType: options.responseType || 'text',
@@ -5246,7 +5320,7 @@
                                 return;
                             }
                             if (response.status === 403) {
-                                if (isJuno || isBoomkat || isTraxsource || isBeatport ||
+                                if (isBoomkat || isTraxsource || isBeatport ||
                                     is7Digital || isBandcamp || isAppleMusic || isBleep ||
                                     isEClassical || isHDtracks || isHighResAudio || isKompakt ||
                                     isMora || isNativeDSD || isOtotoy || isProStudio ||
@@ -5296,7 +5370,7 @@
                     });
                 };
 
-                if ((isBoomkat || isJuno || isDiscogs || isBandcamp || isPresto) && typeof GM_cookie !== 'undefined' && typeof GM_cookie.list === 'function') {
+                if ((isBoomkat || isDiscogs || isBandcamp || isPresto) && typeof GM_cookie !== 'undefined' && typeof GM_cookie.list === 'function') {
                     GM_cookie.list({ url: urlObj.origin }, (cookies, error) => {
                         if (!error && cookies && cookies.length) {
                             const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
@@ -5315,6 +5389,7 @@
                 credentials: 'include',
                 headers: options.headers || {},
                 method: options.method || 'GET',
+                body: options.body,
                 signal: typeof AbortSignal.timeout === 'function'
                     ? AbortSignal.timeout(options.timeout || 30000)
                     : (() => { const c = new AbortController(); setTimeout(() => c.abort(), options.timeout || 30000); return c.signal; })(),
@@ -5410,7 +5485,7 @@
         }
 
         return { artist, ...(artists ? { artists } : {}), title, label, catno: null,
-                 date, tracks, imageUrl, fileType: 'AAC', freeText: '256 kbps',
+                 date, tracks, imageUrl, fileType: 'ALAC', freeText: null,
                  storeName: 'Apple Music' };
     }
 
@@ -5472,7 +5547,7 @@
                         date: album.releaseDate?.slice(0, 10) || '',
                         tracks,
                         imageUrl: (album.artworkUrl100 || '').replace(/\d+x\d+/, '1400x1400'),
-                        fileType: 'AAC', freeText: '256 kbps',
+                        fileType: 'ALAC', freeText: null,
                         storeName: 'Apple Music',
                     };
                 }
@@ -7152,7 +7227,9 @@
         if (backLabelHref) {
             try {
                 const labelUrl = new URL(backLabelHref, url).origin;
-                const labelHtml = await withTimeout(wiCrossFetch(labelUrl), 8000, 'Label page fetch');
+                const labelHtml = wiBcLabelCache.get(labelUrl)
+                    || await withTimeout(wiCrossFetch(labelUrl), 8000, 'Label page fetch');
+                wiBcLabelCache.set(labelUrl, labelHtml);
                 const labelDoc = wiParseHTML(labelHtml);
                 const labelLocationText = labelDoc.querySelector('p#band-name-location > span.location')?.textContent?.trim() || '';
                 country = parseCountryFromLocationText(labelLocationText);
@@ -7649,8 +7726,9 @@
         wiCloseBeatportCatnoSearch();
 
         const esc = s => (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const escAttr = s => esc(s).replace(/"/g, '&quot;');
 
-        const bg        = isDark ? '#1c1d24' : '#ffffff';
+        const bg        = isDark ? '#1a1c1f' : '#f8f9fa';
         const border     = isDark ? 'rgba(255,255,255,0.12)' : '#e0e0e0';
         const textColor  = isDark ? '#f0f2f7' : '#1c2230';
         const subColor   = isDark ? '#9aa0b0' : '#6b7280';
@@ -7679,8 +7757,10 @@
             overflow: hidden;
         `;
         panel.innerHTML = `
-            <div style="padding:7px 8px;border-bottom:1px solid ${border};flex-shrink:0;">
+            <style>@keyframes dh-bp-slide{0%{transform:translateX(-100%)}100%{transform:translateX(300%)}}@keyframes dh-bp-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}@media (prefers-reduced-motion:reduce){#dh-wi-beatport-panel i{animation:none!important}}</style>
+            <div style="position:relative;padding:7px 8px;border-bottom:1px solid ${border};flex-shrink:0;">
                 <input type="text" id="dh-bp-query" value="${esc(`${artist || ''} ${title || ''}`.trim())}" placeholder="Search Beatport..." style="width:100%;font-size:11px;padding:5px 7px;border:1px solid ${inputBorder};border-radius:4px;background:${inputBg};color:${inputColor};box-sizing:border-box;outline:none;">
+                <div id="dh-bp-bar" style="position:absolute;left:0;right:0;bottom:-1px;height:2px;overflow:hidden;opacity:0;pointer-events:none;transition:opacity .15s;"><i style="display:block;height:100%;width:35%;background:${accentColor};border-radius:2px;animation:dh-bp-slide 1.3s ease-in-out infinite;"></i></div>
             </div>
             <div id="dh-bp-results" style="overflow-y:auto;flex:1;"></div>
         `;
@@ -7702,6 +7782,11 @@
 
         const queryInput = panel.querySelector('#dh-bp-query');
         const resultsEl   = panel.querySelector('#dh-bp-results');
+        const barEl       = panel.querySelector('#dh-bp-bar');
+        const setBusy = (on) => {
+            barEl.style.opacity = on ? '1' : '0';
+            resultsEl.setAttribute('aria-busy', on ? 'true' : 'false');
+        };
 
         const openSiteLinkHtml = (q) => {
             const href = q ? wiBeatportSearchPageUrl(q) : 'https://www.beatport.com/search/releases';
@@ -7716,6 +7801,7 @@
         };
 
         const renderStatus = (msg, showLink = true) => {
+            setBusy(false);
             resultsEl.innerHTML = `<div style="padding:12px 10px;font-size:11px;color:${subColor};text-align:center;">${esc(msg)}</div>${showLink ? openSiteLinkHtml(queryInput.value.trim()) : ''}`;
             if (showLink) bindOpenSiteLink();
         };
@@ -7723,6 +7809,7 @@
         let imageFetchToken = 0;
 
         const renderResults = (results) => {
+            setBusy(false);
             if (!results.length) {
                 renderStatus('Search returned no results.');
                 return;
@@ -7732,9 +7819,9 @@
                     <a class="dh-bp-open" data-idx="${i}" href="${esc(r.url)}" title="Open on Beatport in a new window" style="position:absolute;top:1px;left:1px;width:13px;height:13px;line-height:13px;font-size:10px;font-weight:600;text-align:center;text-decoration:none;color:${textColor};background:${inputBg};border:1px solid ${border};border-radius:3px;z-index:1;opacity:0.7;cursor:pointer;">\u2197</a>
                     <div class="dh-bp-thumb" data-idx="${i}" style="width:34px;height:34px;border-radius:4px;flex-shrink:0;background:${inputBg};overflow:hidden;"></div>
                     <div style="min-width:0;flex:1;line-height:1.28;">
-                        <div style="font-size:11.5px;font-weight:600;color:${textColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(r.artists) || '\u2014'}</div>
-                        <div style="font-size:11px;color:${textColor};opacity:0.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(r.title) || '\u2014'}</div>
-                        <div style="font-size:10.5px;color:${subColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${[r.label ? esc(r.label) : '', `<span style="color:${accentColor};font-weight:600;">${esc(r.catno)}</span>`, r.date ? esc(r.date) : ''].filter(Boolean).join(' <span style="opacity:0.6;">\u00b7</span> ')}</div>
+                        <div title="${escAttr(r.artists)}" style="font-size:11.5px;font-weight:600;color:${textColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(r.artists) || '\u2014'}</div>
+                        <div title="${escAttr(r.title)}" style="font-size:11px;color:${textColor};opacity:0.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(r.title) || '\u2014'}</div>
+                        <div title="${escAttr([r.label, r.catno, r.date].filter(Boolean).join(' \u00b7 '))}" style="font-size:10.5px;color:${subColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${[r.label ? esc(r.label) : '', `<span style="color:${accentColor};font-weight:600;">${esc(r.catno)}</span>`, r.date ? esc(r.date) : ''].filter(Boolean).join(' <span style="opacity:0.6;">\u00b7</span> ')}</div>
                     </div>
                 </div>
             `).join('') + openSiteLinkHtml(queryInput.value.trim());
@@ -7777,11 +7864,18 @@
             });
         };
 
+        const renderLoading = () => {
+            setBusy(true);
+            const sk = 'display:block;border-radius:3px;background:linear-gradient(90deg,rgba(128,128,128,.14) 25%,rgba(128,128,128,.26) 50%,rgba(128,128,128,.14) 75%);background-size:200% 100%;animation:dh-bp-shimmer 1.6s linear infinite;';
+            const row = ([a, b, c]) => `<div style="display:flex;gap:7px;align-items:center;padding:4px 9px;"><i style="${sk}width:34px;height:34px;border-radius:4px;flex-shrink:0;"></i><div style="min-width:0;flex:1;display:flex;flex-direction:column;gap:5px;"><i style="${sk}height:9px;width:${a}%;"></i><i style="${sk}height:8px;width:${b}%;"></i><i style="${sk}height:7px;width:${c}%;"></i></div></div>`;
+            resultsEl.innerHTML = `<div style="pointer-events:none;user-select:none;-webkit-mask-image:linear-gradient(to bottom,#000 55%,transparent 100%);mask-image:linear-gradient(to bottom,#000 55%,transparent 100%);">${[[58, 74, 42], [46, 68, 36], [64, 80, 48], [52, 62, 40], [60, 76, 34], [44, 70, 46], [56, 66, 38]].map(row).join('')}</div>`;
+        };
+
         let searchToken = 0;
         const runSearch = async (q) => {
             const myToken = ++searchToken;
             if (!q.trim()) { renderStatus('Type an artist / title to search.', false); return; }
-            renderStatus('Searching Beatport…', false);
+            renderLoading();
             try {
                 const results = await wiSearchBeatport(q.trim());
                 if (myToken !== searchToken) return;
@@ -7814,165 +7908,6 @@
         };
         setTimeout(() => document.addEventListener('mousedown', _wiBeatportPanelCloseHandler, true), 0);
     }
-
-    async function wiParseJunoDownload(url) {
-    const html = await wiCrossFetch(url);
-    const doc = wiParseHTML(html);
-
-    const artistEl = doc.querySelector('h2.product-artist');
-    const artistLinks = artistEl
-        ? Array.from(artistEl.querySelectorAll('a')).map(a => a.textContent.trim()).filter(Boolean)
-        : [];
-    const artist = artistLinks.join(', ')
-        || artistEl?.textContent?.trim()
-        || wiGetMeta(doc, 'og:title').split(' - ')[0] || '';
-    const artists = artistLinks.length > 1 ? artistLinks : undefined;
-
-    const title = doc.querySelector('h2.product-title > a, h2.product-title')?.textContent?.trim()
-        || wiGetMeta(doc, 'og:title') || '';
-
-    const label = doc.querySelector('h3.product-label > a, .product-label a')?.textContent?.trim() || '';
-
-    let catno = null;
-    for (const strong of doc.querySelectorAll('div.mb-3 > strong, .mb-3 strong')) {
-        if (strong.textContent.startsWith('Cat:') || strong.textContent.startsWith('Catalogue:')) {
-            const sibling = strong.nextSibling;
-            if (sibling?.nodeType === Node.TEXT_NODE) {
-                catno = sibling.textContent.trim() || null;
-            }
-            break;
-        }
-    }
-
-    const dateEl = doc.querySelector('span[itemprop="datePublished"]');
-    let date = '';
-    if (dateEl?.firstChild?.data) {
-        date = wiNormalizeDate(dateEl.firstChild.data.trim());
-    } else if (dateEl?.textContent) {
-        date = wiNormalizeDate(dateEl.textContent.trim());
-    }
-
-    const imageUrl = wiGetMeta(doc, 'og:image') || '';
-
-    const rawTracks = [];
-    const trackDivs = doc.querySelectorAll('div.product-tracklist > div[itemprop="track"]');
-
-    let junoId = null;
-    const idMatch = url.match(/\/([a-z0-9\-]+)\/?(?:\?|$)/i);
-    if (idMatch) {
-        junoId = idMatch[1];
-    }
-
-    const apiDataByPos = new Map();
-    if (junoId) {
-        try {
-            const apiUrl = `https://www.junodownload.com/api/1.2/playlist/getplaylistdetails/?product_key=${encodeURIComponent(junoId)}`;
-            const apiHtml = await wiCrossFetch(apiUrl);
-            const apiDoc = wiParseHTML(apiHtml);
-
-            Array.from(apiDoc.querySelectorAll('track')).forEach((trackEl, idx) => {
-                const isrc = trackEl.querySelector('isrc')?.textContent?.trim() || '';
-                const lengthSecs = trackEl.querySelector('length')?.textContent?.trim();
-                let duration = '';
-                if (lengthSecs) {
-                    const secs = parseInt(lengthSecs, 10);
-                    duration = wiFormatDuration(secs);
-                }
-                apiDataByPos.set(idx, { isrc, duration });
-            });
-        } catch (e) {
-            log(`Juno API fetch failed for ${junoId}: ${e.message}`, 'warning');
-        }
-    }
-
-    Array.from(trackDivs).forEach((tr, i) => {
-        let pos = String(i + 1);
-
-        const titleCol = tr.querySelector('.col.track-title');
-        if (titleCol) {
-            for (const node of titleCol.childNodes) {
-                if (node.nodeType === Node.TEXT_NODE && node.data.trim()) {
-                    const text = node.data.trim();
-                    const numMatch = text.match(/^(\d+|[A-Za-z]\d+)/);
-                    if (numMatch) {
-                        pos = numMatch[1];
-                        break;
-                    }
-                }
-            }
-        }
-
-        const trackArtist = tr.querySelector('meta[itemprop="byArtist"]')?.content?.trim()
-            || tr.querySelector('span.track-artist')?.textContent?.trim() || '';
-
-        let trackTitle = tr.querySelector('span[itemprop="name"]')?.textContent?.trim() || '';
-        if (trackArtist && trackTitle.startsWith(trackArtist + ' - ')) {
-            trackTitle = trackTitle.slice(trackArtist.length + 3).trim();
-        }
-
-        let duration = '';
-
-        const durMeta = tr.querySelector('meta[itemprop="duration"]');
-        if (durMeta?.content) {
-            duration = wiNormalizeDuration(durMeta.content.trim());
-        }
-
-        if (!duration && apiDataByPos.has(i)) {
-            duration = apiDataByPos.get(i).duration || '';
-        }
-
-        if (!duration) {
-            const timeEl = tr.querySelector('[class*="duration"], time, .track-time');
-            if (timeEl?.textContent) {
-                duration = wiNormalizeDuration(timeEl.textContent.trim());
-            }
-        }
-
-        if (trackTitle) {
-            rawTracks.push({ position: pos, title: trackTitle, duration, trackArtist });
-        }
-    });
-
-    const uniqueArtistGroups = [...new Set(rawTracks.map(t => t.trackArtist.toLowerCase()).filter(Boolean))];
-    const isVAPerTrack = uniqueArtistGroups.length > 1;
-
-    const tracks = rawTracks.map(t => ({
-        position: t.position,
-        title: t.title,
-        duration: t.duration,
-        ...(isVAPerTrack && t.trackArtist ? { artists: [t.trackArtist] } : {}),
-    }));
-
-    const genreMeta = doc.querySelector('meta[itemprop="genre"]');
-    const genreRaw = genreMeta?.getAttribute('content')?.trim() || '';
-    const tags = genreRaw ? genreRaw.split('/').map(g => g.trim()).filter(Boolean) : [];
-
-    if (tags.length === 0) {
-        const genreLinks = Array.from(doc.querySelectorAll('div.mb-3 a[href*="/genre/"]'));
-        genreLinks.forEach(a => {
-            const genreText = a.textContent.trim();
-            if (genreText) {
-                genreText.split('/').forEach(g => {
-                    const s = g.trim();
-                    if (s && !tags.includes(s)) tags.push(s);
-                });
-            }
-        });
-    }
-
-    return {
-        artist,
-        artists,
-        title,
-        label,
-        catno,
-        date,
-        tracks,
-        ...(tags.length ? { tags } : {}),
-        imageUrl,
-        storeName: 'Juno Download',
-    };
-}
 
     async function wiParseTraxsource(url) {
     const html = await wiCrossFetch(url);
@@ -8869,71 +8804,85 @@
         return { artist, title, label, catno, date, tracks, imageUrl, storeName: 'Bleep' };
     }
 
-    async function wiParseBoomkat(url) {
-        const html = await wiCrossFetch(url);
+    async function wiParseBoomkat(url, preloadedHtml = null) {
+        const html = preloadedHtml || await wiCrossFetch(url);
         const doc  = wiParseHTML(html);
-        const artistEls = doc.querySelectorAll('div#right_content > h1.detail--artists > a, h1.detail--artists > a');
-        const artist = Array.from(artistEls).map(a => a.textContent.trim()).filter(Boolean).join(', ')
-            || doc.querySelector('h1.detail--artists')?.textContent?.trim()
-            || wiGetMeta(doc, 'og:title').split(' - ')[0] || '';
-        const title  = doc.querySelector('div#right_content > h2.detail_album, h2.detail_album')?.textContent?.trim()
-            || wiGetMeta(doc, 'og:title') || '';
-        const imgEl  = doc.querySelector('img[itemprop="image"]');
-        const imageUrl = imgEl?.src?.replace(/\/(?:large)\//i, '/original/') || wiGetMeta(doc, 'og:image');
+        const text = el => (el?.textContent || '').replace(/\s+/g, ' ').trim();
 
-        let label = '', catno = null, date = '';
-        const firstTab = doc.querySelector('li.tab-title > a[data-release-date], li.tab-title > a[data-label]');
-        if (firstTab) {
-            date  = wiNormalizeDate(firstTab.dataset.releaseDate || firstTab.dataset.release_date || '');
-            label = firstTab.dataset.label || '';
-            catno = firstTab.dataset.catalogueNumber || firstTab.dataset.catalogue_number || null;
-        }
+        const ogTitle = wiGetMeta(doc, 'og:title');
+        const artist = Array.from(doc.querySelectorAll('h1 a[data-role="artist"]')).map(text).filter(Boolean).join(', ')
+            || text(doc.querySelector('h1'))
+            || ogTitle.split(' - ')[0] || '';
+        const title = text(doc.querySelector('h2[data-role="title"]'))
+            || ogTitle.split(' - ').slice(1).join(' - ') || ogTitle;
 
-        const allTabs = Array.from(doc.querySelectorAll('ul.tabs.product-page-tabs li.tab-title > a'));
-        const tabTexts = allTabs.map(a => a.textContent.trim().toUpperCase());
+        const details = doc.querySelector('[data-role="release-details"]');
+        const label   = text(details?.querySelector('a[href*="/labels/"]'));
+
+        const containers = Array.from(doc.querySelectorAll('.tracklisting-container'));
+        const options    = Array.from(doc.querySelectorAll('#tracklisting_format_selection option'));
+        const picked     = options.find(o => /download/i.test(o.textContent)) || options.find(o => o.hasAttribute('selected')) || options[0] || null;
+        const container  = (picked && containers.find(c => c.getAttribute('data-switcher-id') === picked.value)) || containers[0] || null;
+
+        const allVariants = Array.from(doc.querySelectorAll('[data-role="product-variant"]'));
+        let variants = picked ? allVariants.filter(v => v.getAttribute('data-product-id') === picked.value) : [];
+        if (!variants.length) variants = allVariants.filter(v => /mp3|aac|lossless|flac|wav|download/i.test(text(v.querySelector('h4'))));
+        if (!variants.length) variants = allVariants;
+
+        const variantLines = variants.map(v => text(v.querySelector('p'))).filter(Boolean);
+        const variantLine  = variantLines.find(l => /Release date:/i.test(l)) || variantLines[0] || '';
+        const navCatno = details ? Array.from(details.children).reverse().find(el => el.tagName === 'SPAN' && text(el) && text(el) !== '|' && !/:/.test(text(el))) : null;
+        const catno = /^([^|]+?)\s*\|/.exec(variantLine)?.[1]?.trim() || text(navCatno) || null;
+        const dateMatch = /Release date:\s*(.+)$/i.exec(variantLine);
+        const date = dateMatch ? wiNormalizeDate(dateMatch[1].replace(/(\d)(?:st|nd|rd|th)\b/i, '$1')) : '';
+
+        const offerText = variants.map(v => `${text(v.querySelector('h4'))} ${text(v.querySelector('.mt-3 > div'))}`).join(' ');
         let fileType = null, freeText = null;
-        if (tabTexts.includes('FLAC')) {
-            fileType = 'FLAC';
-        } else if (tabTexts.includes('WAV')) {
-            fileType = 'WAV';
-        } else if (tabTexts.includes('MP3')) {
+        if (/lossless|flac/i.test(offerText)) {
+            fileType = /flac/i.test(offerText) ? 'FLAC' : 'WAV';
+        } else if (/mp3/i.test(offerText)) {
             fileType = 'MP3';
             freeText = '320 kbps';
         }
-        if (fileType === 'MP3' || (fileType === null && firstTab)) {
-            fileType = fileType || 'MP3';
-            freeText = '320 kbps';
+
+        const isArtistPage = a => {
+            try { return /^\/artists\/[^\/]+\/?$/.test(new URL(a.getAttribute('href') || '', url).pathname); } catch (e) { return false; }
+        };
+        const rawTracks = (container ? Array.from(container.querySelectorAll('ul > li')) : []).map((li, i) => {
+            const posMatch = /^([A-Za-z]{0,2}\d+)/.exec(text(li.querySelector('.truncate .opacity-50')));
+            const position = posMatch ? (/^\d+$/.test(posMatch[1]) ? String(parseInt(posMatch[1], 10)) : posMatch[1]) : String(i + 1);
+            const artists  = Array.from(li.querySelectorAll('a[href*="/artists/"]')).filter(isArtistPage).map(text).filter(Boolean);
+            return {
+                position,
+                title: text(li.querySelector('a[href*="/tracks/"]')),
+                duration: wiNormalizeDuration(text(li.querySelector('.font-regular'))),
+                artists,
+            };
+        }).filter(t => t.title);
+        const uniqueArtistGroups = [...new Set(rawTracks.map(t => t.artists.join('|').toLowerCase()).filter(Boolean))];
+        const isVAPerTrack = uniqueArtistGroups.length > 1;
+        const tracks = rawTracks.map(t => ({
+            position: t.position, title: t.title, duration: t.duration,
+            ...(isVAPerTrack && t.artists.length > 0 ? { artists: t.artists } : {}),
+        }));
+
+        const tags = [];
+        const seenGenres = new Set();
+        for (const a of details ? details.querySelectorAll('a[href*="/genres/"]') : []) {
+            const key = a.getAttribute('href');
+            if (seenGenres.has(key)) continue;
+            seenGenres.add(key);
+            for (const g of text(a).replace(/^#\s*/, '').split('/').map(s => s.trim()).filter(Boolean)) {
+                if (!tags.includes(g)) tags.push(g);
+            }
         }
 
-        const prodListing = doc.querySelector('[data-release-format-id]');
-        let tracks = [];
-        if (prodListing?.dataset?.releaseFormatId) {
-            try {
-                const tHtml = await wiCrossFetch(`https://boomkat.com/tracklist/${prodListing.dataset.releaseFormatId}`);
-                const tDoc  = wiParseHTML(tHtml);
-                const rawTracks = Array.from(tDoc.querySelectorAll('div.table.tracklist > div.track, div.tracklist > div.track')).map((div, i) => {
-                    const titleSpan = div.querySelector('span.title');
-                    const raw   = titleSpan?.textContent?.trim() || '';
-                    const m     = /^(?:(\d+)\.\s*)?(.+)$/.exec(raw);
-                    const pos   = m?.[1] ? String(parseInt(m[1])) : String(i + 1);
-                    const name  = m?.[2]?.trim() || raw;
-                    const duration = wiNormalizeDuration(div.querySelector('span.time, span.duration')?.textContent?.trim() || '');
-                    const artistAttr = div.querySelector('a[data-artist]')?.dataset?.artist?.trim() || '';
-                    const artists = artistAttr ? [artistAttr] : [];
-                    return { position: pos, title: name, duration, artists };
-                }).filter(t => t.title);
-                const uniqueArtistGroups = [...new Set(rawTracks.map(t => t.artists.join('|').toLowerCase()).filter(Boolean))];
-                const isVAPerTrack = uniqueArtistGroups.length > 1;
-                tracks = rawTracks.map(t => ({
-                    position: t.position, title: t.title, duration: t.duration,
-                    ...(isVAPerTrack && t.artists.length > 0 ? { artists: t.artists } : {}),
-                }));
-            } catch(e) {}
+        const gallerySrc = doc.querySelector('[id^="release_gallery_image"] img')?.getAttribute('src') || '';
+        let imageUrl = '';
+        if (gallerySrc && !/^data:/i.test(gallerySrc)) {
+            try { imageUrl = new URL(gallerySrc, url).href; } catch (e) {}
         }
-        const genreLinks = Array.from(doc.querySelectorAll('span > a[href*="/t/genre/"]'));
-        const tags = genreLinks.flatMap(a =>
-            a.textContent.trim().split('/').map(g => g.trim()).filter(Boolean)
-        );
+        imageUrl = imageUrl || wiGetMeta(doc, 'og:image');
 
         return { artist, title, label, catno, date, tracks, imageUrl, fileType, freeText, ...(tags.length ? { tags } : {}), storeName: 'Boomkat' };
     }
@@ -9403,7 +9352,167 @@
         return wiGenericOG(doc, url, storeName || detectStoreName(url));
     }
 
-    async function wiFetchReleaseData(url) {
+    const WI_FILE_TYPE_VALUES = ['AAC', 'AIFC', 'AIFF', 'ALAC', 'AMR', 'APE', 'AVI', 'DFF', 'Disc Image', 'DSF', 'FLAC', 'FLV', 'MOV', 'MP1', 'MP2', 'MP3', 'MPEG Video', 'MPEG-4 Video', 'ogg-vorbis', 'Opus', 'RA', 'RM', 'SHN', 'SPX', 'SWF', 'TTA', 'WAV', 'WavPack', 'WMA', 'WMV', 'MP3 Surround'];
+    const WI_LOSSLESS_TYPES = ['FLAC', 'ALAC', 'WAV', 'AIFF'];
+    const WI_FILE_TYPE_LABELS = { 'ogg-vorbis': 'Ogg' };
+    const WI_FILE_TYPE_TABLE = {
+        'Qobuz':            ['FLAC', 'ALAC', 'WAV', 'AIFF', ['MP3', '320 kbps'], ['AAC', '320 kbps'], 'DFF'],
+        'Bandcamp':         [['MP3', '320 kbps'], ['AAC', 'VBR'], ['ogg-vorbis', 'VBR'], 'FLAC', 'ALAC', 'WAV', 'AIFF'],
+        'HighResAudio':     ['FLAC', 'DFF'],
+        'Presto Music':     ['FLAC', 'ALAC', 'WAV', ['MP3', '320 kbps']],
+        'NativeDSD':        ['FLAC', 'DFF'],
+        'HDtracks':         ['FLAC', 'AIFF', 'ALAC', 'WAV', 'DFF'],
+        'ProStudioMasters': ['FLAC', 'AIFF', 'DFF'],
+        '7digital':         [['MP3', '320 kbps'], 'FLAC'],
+        'Beatport':         [['MP3', '320 kbps'], 'WAV', 'AIFF', 'FLAC'],
+        'Traxsource':       [['MP3', '320 kbps'], 'WAV', 'AIFF', 'FLAC'],
+        'Apple Music':      [['AAC', '256 kbps'], 'ALAC'],
+        'OTOTOY':           ['WAV', 'ALAC', 'FLAC', ['MP3', '320 kbps'], ['AAC', '320 kbps'], 'DFF'],
+        'Mora':             ['FLAC', 'ALAC', 'WAV', ['AAC', '320 kbps'], ['MP3', '320 kbps']],
+        'Bleep':            [['MP3', '320 kbps'], 'WAV', 'FLAC'],
+        'Boomkat':          [['MP3', '320 kbps'], ['AAC', '256 kbps'], 'FLAC', 'ALAC', 'WAV', 'AIFF'],
+        'Kompakt':          [['MP3', '320 kbps'], 'AIFF'],
+        'eClassical':       ['FLAC', ['MP3', '320 kbps']],
+    };
+
+    function wiFileTypeLabel(type) {
+        return WI_FILE_TYPE_LABELS[type] || type;
+    }
+
+    function wiFileTypeCheckboxes() {
+        const root = document.querySelector('.format_descriptions_type[type="File Type"]');
+        const all = Array.from((root || document).querySelectorAll('input[type="checkbox"][value]'));
+        if (root) return all;
+        const known = new Set([...WI_FILE_TYPE_VALUES, 'OGG', 'DSD'].map(v => v.toUpperCase()));
+        return all.filter(cb => known.has((cb.value || '').toUpperCase()));
+    }
+
+    function wiResolutionText(data) {
+        if (data?.bitdepth && data?.samplerate) return `${data.bitdepth}-bit/${data.samplerate / 1000} kHz`;
+        return data?.freeText || '';
+    }
+
+    function wiBuildFileTypeOptions(data) {
+        const entries = WI_FILE_TYPE_TABLE[data?.storeName];
+        if (!entries) return null;
+        const baseType = String(data.fileType || 'FLAC');
+        const baseLossless = WI_LOSSLESS_TYPES.includes(baseType.toUpperCase());
+        const original = { freeText: data.freeText ?? null, bitdepth: data.bitdepth ?? null, samplerate: data.samplerate ?? null };
+        const make = (type, bracket) => {
+            const isBase = type.toUpperCase() === baseType.toUpperCase();
+            let fields;
+            if (isBase) {
+                fields = { fileType: data.fileType || type, ...original };
+            } else if (WI_LOSSLESS_TYPES.includes(type.toUpperCase())) {
+                fields = { fileType: type, freeText: baseLossless ? original.freeText : null, bitdepth: baseLossless ? original.bitdepth : null, samplerate: baseLossless ? original.samplerate : null };
+            } else if (bracket) {
+                fields = { fileType: type, freeText: bracket, bitdepth: null, samplerate: null };
+            } else {
+                fields = { fileType: type, freeText: null, bitdepth: null, samplerate: null };
+            }
+            return { type, label: wiFileTypeLabel(type), bracket: bracket || '', ...fields };
+        };
+        const options = entries.map(e => Array.isArray(e) ? make(e[0], e[1]) : make(e, ''));
+        if (!options.some(o => o.type.toUpperCase() === baseType.toUpperCase())) {
+            options.unshift({ type: baseType, label: baseType, bracket: '', fileType: data.fileType || baseType, ...original });
+        }
+        return options;
+    }
+
+    function wiApplyFileTypeChoice(data, type) {
+        const opt = (data?.fileTypeOptions || []).find(o => o.type === type);
+        if (!opt) return false;
+        data.fileType       = opt.fileType;
+        data.freeText       = opt.freeText;
+        data.bitdepth       = opt.bitdepth;
+        data.samplerate     = opt.samplerate;
+        data.fileTypeChoice = opt.type;
+        return true;
+    }
+
+    function wiAttachFileTypeOptions(data) {
+        if (!data || typeof data !== 'object') return data;
+        const options = wiBuildFileTypeOptions(data);
+        if (!options) return data;
+        data.fileTypeOptions = options;
+        const baseType = String(data.fileType || 'FLAC').toUpperCase();
+        data.fileTypeChoice = (options.find(o => o.type.toUpperCase() === baseType) || options[0]).type;
+        const preferred = state.preferredFileTypes && state.preferredFileTypes[data.storeName];
+        if (preferred && preferred !== data.fileTypeChoice) wiApplyFileTypeChoice(data, preferred);
+        data.fileTypeBase = data.fileTypeChoice;
+        return data;
+    }
+
+    function wiFileTypeSlotHtml(data, esc) {
+        const type = data.fileType || 'FLAC';
+        const res = wiResolutionText(data);
+        const resHtml = res ? ` · ${esc(res)}` : '';
+        const options = Array.isArray(data.fileTypeOptions) ? data.fileTypeOptions : [];
+        const current = options.find(o => o.type.toUpperCase() === String(type).toUpperCase());
+        const shown = current ? current.label : wiFileTypeLabel(type);
+        if (options.length < 2) return `${esc(shown)}${resHtml}`;
+        const changed = !!(data.fileTypeBase && data.fileTypeChoice && data.fileTypeChoice !== data.fileTypeBase);
+        const baseOpt = options.find(o => o.type === data.fileTypeBase);
+        const tip = changed ? `Changed from ${baseOpt ? baseOpt.label : data.fileTypeBase}\nClick to change file type` : 'Click to change file type';
+        const caret = '<span class="dh-wi-ft-caret" style="cursor:pointer;display:inline-block;flex-shrink:0;width:11px;height:11px;vertical-align:-1px;margin-left:3px;color:inherit;"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block;pointer-events:none;"><path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>';
+        return `<span class="dh-wi-ft-pick" title="${esc(tip).replace(/"/g, '&quot;')}" style="cursor:pointer;">${esc(shown)}${caret}</span>${resHtml}`;
+    }
+
+    function wiOpenFileTypeMenu(anchor, data, isDark, onPick) {
+        const prev = document.getElementById('dh-ft-menu');
+        if (prev) prev.remove();
+        const options = Array.isArray(data.fileTypeOptions) ? data.fileTypeOptions : [];
+        if (options.length < 2) return;
+        const c = isDark
+            ? { bg: '#1a1c1f', border: '#444', fg: '#ddd', dim: '#8f95a8', hover: 'rgba(127,178,245,0.16)', accent: '#7fb2f5' }
+            : { bg: '#f8f9fa', border: '#d0d4da', fg: '#1c2230', dim: '#828b98', hover: 'rgba(29,99,179,0.10)', accent: '#1d63b3' };
+        const menu = document.createElement('div');
+        menu.id = 'dh-ft-menu';
+        menu.setAttribute('role', 'listbox');
+        menu.style.cssText = `position:fixed;z-index:2147483000;width:42px;box-sizing:border-box;max-height:180px;overflow-y:auto;background:${c.bg};border:1px solid ${c.border};border-radius:5px;box-shadow:0 4px 12px rgba(0,0,0,0.08);padding:2px;font-size:10.5px;line-height:1.35;color:${c.fg};`;
+        menu.style.fontFamily = getComputedStyle(anchor).fontFamily;
+        const onDoc = (e) => { if (!menu.contains(e.target)) close(); };
+        const onKey = (e) => { if (e.key === 'Escape') close(); };
+        function close() {
+            menu.remove();
+            document.removeEventListener('mousedown', onDoc, true);
+            document.removeEventListener('keydown', onKey, true);
+            window.removeEventListener('resize', close);
+        }
+        for (const o of options) {
+            const selected = o.type === data.fileTypeChoice;
+            const row = document.createElement('div');
+            row.setAttribute('role', 'option');
+            row.setAttribute('aria-selected', selected ? 'true' : 'false');
+            row.dataset.type = o.type;
+            row.style.cssText = `display:flex;align-items:center;justify-content:center;gap:0;padding:2px 0;border-radius:3px;cursor:pointer;white-space:nowrap;${selected ? `color:${c.accent};font-weight:600;` : ''}`;
+            const name = document.createElement('span');
+            name.textContent = o.label;
+            row.append(name);
+            row.addEventListener('mouseenter', () => { row.style.background = c.hover; });
+            row.addEventListener('mouseleave', () => { row.style.background = ''; });
+            row.addEventListener('click', (e) => { e.stopPropagation(); close(); onPick(o.type); });
+            menu.appendChild(row);
+        }
+        document.body.appendChild(menu);
+        const r = anchor.getBoundingClientRect();
+        let left = r.left + r.width / 2 - menu.offsetWidth / 2;
+        let top = r.bottom + 4;
+        if (left + menu.offsetWidth > window.innerWidth - 8) left = window.innerWidth - menu.offsetWidth - 8;
+        if (left < 8) left = 8;
+        if (top + menu.offsetHeight > window.innerHeight - 8) top = Math.max(8, r.top - menu.offsetHeight - 4);
+        menu.style.left = left + 'px';
+        menu.style.top = top + 'px';
+        document.addEventListener('mousedown', onDoc, true);
+        document.addEventListener('keydown', onKey, true);
+        window.addEventListener('resize', close);
+    }
+
+    async function wiFetchReleaseData(...args) {
+        return wiAttachFileTypeOptions(await wiFetchReleaseDataRaw(...args));
+    }
+
+    async function wiFetchReleaseDataRaw(url) {
         const u = new URL(url);
         const host = u.hostname.replace(/^www\./, '');
         if (host.endsWith('discogs.com'))
@@ -9415,7 +9524,6 @@
             return wiParseBandcamp(url);
         if (host.endsWith('traxsource.com'))       return wiParseTraxsource(url);
         if (host.endsWith('volumo.com'))           return wiParseVolumo(url);
-        if (host.endsWith('junodownload.com'))     return wiParseJunoDownload(url);
         if (host.endsWith('qobuz.com'))            return wiParseQobuz(url);
         if (host.endsWith('prestomusic.com'))      return wiParsePrestoMusic(url);
         if (host.endsWith('highresaudio.com'))     return wiParseHighResAudio(url);
@@ -9956,8 +10064,9 @@
 
     const cb = await wiWaitForElement(`input[type="checkbox"][value="${fileType}"]`, 6000);
     if (cb) {
-        const cbContainer = cb.closest('ul, div, fieldset, section') || document.body;
-        const allTypeCbs = cbContainer.querySelectorAll('input[type="checkbox"]');
+        const allTypeCbs = cb.closest('.format_descriptions_type[type="File Type"]')
+            ? wiFileTypeCheckboxes()
+            : (cb.closest('ul, div, fieldset, section') || document.body).querySelectorAll('input[type="checkbox"]');
         for (const other of allTypeCbs) {
             if (other !== cb && other.checked) other.click();
         }
@@ -10300,10 +10409,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
         }
 
         const incomingType = (incomingData.fileType || 'FLAC').toUpperCase();
-        const checkedTypeCbs = Array.from(
-            document.querySelectorAll('input[type="checkbox"][value]')
-        ).filter(cb => cb.checked && cb.value.toUpperCase() !== incomingType
-            && ['FLAC','MP3','AAC','ALAC','WAV','AIFF','OGG','OPUS','DSD'].includes(cb.value.toUpperCase()));
+        const checkedTypeCbs = wiFileTypeCheckboxes().filter(cb => cb.checked && cb.value.toUpperCase() !== incomingType);
         for (const cb of checkedTypeCbs) cb.click();
         if (checkedTypeCbs.length > 0)
             log(`Smart cleanup: unchecked file type(s) ${checkedTypeCbs.map(c=>c.value).join(', ')}`, 'info');
@@ -10795,8 +10901,438 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
         return attempt(0);
     }
 
-    async function wiSaveReleaseAsDraft(data, sourceUrl, dateFieldUsed = 'date') {
-        await setInfoProcessing();
+    const wiBcLabelCache = new Map();
+
+    function wiBcIsNonReleasePage(url) {
+        try {
+            const u = new URL(url);
+            if (!/\.bandcamp\.com$/i.test(u.hostname) || /^www\./i.test(u.hostname)) return false;
+            return /^\/(merch|video|community|artists)(\/|$)/i.test(u.pathname);
+        } catch (e) { return false; }
+    }
+
+    function wiBcWrongPageMessage(url) {
+        const esc = x => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        let msg = "It appears you're on a non-release page. Navigate to an album or track page and try again.";
+        try {
+            const u = new URL(url);
+            if (/\.bandcamp\.com$/i.test(u.hostname) && !/^www\./i.test(u.hostname)) {
+                const music = esc(u.origin + '/music');
+                msg += ` Or use <a href="${music}" target="_blank" rel="noopener" data-try-url="${music}" style="color:#1a6fbf;font-weight:bold;">the /music page</a> to import all of its releases in batch.`;
+            }
+        } catch (e) { /* no link */ }
+        return msg;
+    }
+
+    function wiLoadingHtml() {
+        const base = 'all:initial;display:block;box-sizing:border-box;margin:0;padding:0;';
+        const ring = delay => `<div style="${base}position:absolute;top:50%;left:50%;width:6px;height:6px;transform:translate(-50%,-50%);border:1px solid #1a6fbf;border-radius:50%;opacity:0;animation:dh-wi-ripple 3s cubic-bezier(.25,.8,.25,1) infinite;animation-delay:${delay}s;"></div>`;
+        return `<style>@keyframes dh-wi-ripple{0%{width:6px;height:6px;opacity:.6}100%{width:36px;height:36px;opacity:0}}@media (prefers-reduced-motion:reduce){[data-l="load"] div{animation:none!important}}</style>` +
+            `<div data-l="load" style="display:flex;align-items:center;justify-content:center;gap:10px;min-height:43px;">` +
+                `<div style="${base}display:flex;align-items:center;justify-content:center;width:38px;height:38px;flex-shrink:0;pointer-events:none;">` +
+                    `<div style="${base}position:relative;width:8px;height:8px;border-radius:50%;background:#1a6fbf;box-shadow:0 0 6px #1a6fbf;opacity:.8;">` +
+                        ring(0) + ring(1) + ring(2) +
+                    `</div>` +
+                `</div>` +
+                `<span style="color:#888;font-size:11px;">Loading…</span>` +
+            `</div>`;
+    }
+
+
+
+    function wiPreviewErrorHtml(messageHtml) {
+        return `<div data-l="error" style="display:flex;align-items:center;justify-content:center;min-height:43px;text-align:center;color:#dc3545;font-size:11px;line-height:1.3;"><div>${messageHtml}</div></div>`;
+    }
+
+    function wiBcLoadingHtml(url) {
+        let kind = 'releases';
+        try {
+            const u = new URL(url);
+            if (/^(www\.)?bandcamp\.com$/i.test(u.hostname)) kind = /\/wishlist\/?$/i.test(u.pathname) ? 'wishlist' : 'collection';
+        } catch (e) { /* keep default */ }
+        const sk = 'display:block;border-radius:3px;background:linear-gradient(90deg,rgba(128,128,128,.14) 25%,rgba(128,128,128,.26) 50%,rgba(128,128,128,.14) 75%);background-size:200% 100%;animation:dh-wi-shimmer 1.6s linear infinite;';
+        const rowsHtml = [62, 48, 74, 55, 68, 44, 58].map(w =>
+            `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;">` +
+                `<i style="${sk}width:13px;height:13px;flex-shrink:0;"></i>` +
+                `<i style="${sk}height:8px;width:${w}%;"></i>` +
+                `<i style="${sk}width:30px;height:11px;margin-left:auto;flex-shrink:0;"></i>` +
+            `</div>`).join('');
+        return `<style>@keyframes dh-wi-slide{0%{transform:translateX(-100%)}100%{transform:translateX(300%)}}@keyframes dh-wi-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}@media (prefers-reduced-motion:reduce){[data-l],[data-l] *{animation:none!important}}</style>` +
+            `<div data-l="head" data-kind="${kind}" style="position:relative;display:flex;align-items:center;gap:8px;padding:0 0 5px;margin-bottom:3px;border-bottom:1px solid rgba(128,128,128,.3);font-size:11px;">` +
+                `<span style="width:13px;margin:0 -2px 0 0;flex-shrink:0;"></span>` +
+                `<strong data-l="count" style="flex:1;font-weight:600;">Loading ${kind}…</strong>` +
+                `<a data-l="stop" style="color:#1a6fbf;cursor:pointer;text-decoration:none;font-size:10.5px;display:none;">Stop</a>` +
+                `<div style="position:absolute;left:0;right:0;bottom:-1px;height:2px;overflow:hidden;pointer-events:none;"><i data-l="bar" style="display:block;height:100%;width:35%;background:#1a6fbf;border-radius:2px;animation:dh-wi-slide 1.3s ease-in-out infinite;"></i></div>` +
+            `</div>` +
+            `<div data-l="skeleton" style="pointer-events:none;user-select:none;-webkit-mask-image:linear-gradient(to bottom,#000 55%,transparent 100%);mask-image:linear-gradient(to bottom,#000 55%,transparent 100%);">${rowsHtml}</div>`;
+    }
+
+    function wiIsBandcampListingUrl(url) {
+        try {
+            if (wiBcIsNonReleasePage(url)) return false;
+            const u = new URL(url);
+            if (!/(^|\.)bandcamp\.com$/i.test(u.hostname)) return false;
+            if (/^(www\.)?bandcamp\.com$/i.test(u.hostname)) return wiBcIsCollectionPath(u.pathname);
+            return !/\/(album|track)\//i.test(u.pathname);
+        } catch (e) { return false; }
+    }
+
+    function wiParseBandcampListing(html, pageUrl) {
+        const doc = wiParseHTML(html);
+        const tralbumEl = doc.querySelector('script[data-tralbum]');
+        if (tralbumEl) {
+            let tb = null;
+            try { tb = JSON.parse(tralbumEl.getAttribute('data-tralbum')); } catch (e) { /* ignore */ }
+            if (tb && (Array.isArray(tb.trackinfo) || tb.id || tb.current)) return [];
+        }
+        const items = [];
+        const seen = new Set();
+        const pageArtist = (
+            doc.querySelector('#band-name-location .title')?.textContent
+            || doc.querySelector('meta[property="og:site_name"]')?.getAttribute('content')
+            || (doc.title.includes('|') ? doc.title.split('|').pop() : '')
+            || ''
+        ).replace(/\s+/g, ' ').trim();
+        const push = (href, title, artist, img) => {
+            if (!href) return;
+            let abs;
+            try { abs = new URL(href, pageUrl); } catch (e) { return; }
+            if (!/\/(album|track)\//i.test(abs.pathname)) return;
+            abs.hash = '';
+            abs.search = '';
+            const full = abs.href;
+            if (seen.has(full)) return;
+            seen.add(full);
+            items.push({
+                url: full,
+                title: (title || '').replace(/\s+/g, ' ').trim() || abs.pathname.split('/').pop(),
+                artist: (artist || pageArtist || '').replace(/\s+/g, ' ').trim(),
+                type: /\/track\//i.test(abs.pathname) ? 'track' : 'album',
+                img: img || ''
+            });
+        };
+
+        doc.querySelectorAll('#music-grid li.music-grid-item, ol.music-grid li.music-grid-item').forEach(li => {
+            const a = li.querySelector('a[href]');
+            const p = li.querySelector('p.title');
+            let title = '', artist = '';
+            if (p) {
+                const clone = p.cloneNode(true);
+                clone.querySelectorAll('.artist-override, .new-release-marker').forEach(n => n.remove());
+                title = clone.textContent;
+                artist = p.querySelector('.artist-override')?.textContent || '';
+            }
+            const im = li.querySelector('img');
+            let img = im ? (im.getAttribute('data-original') || im.getAttribute('src') || '') : '';
+            if (/^data:/i.test(img)) img = '';
+            push(a?.getAttribute('href'), title, artist, img);
+        });
+
+        const raw = doc.querySelector('#music-grid')?.getAttribute('data-client-items');
+        if (raw) {
+            try {
+                const arr = JSON.parse(raw);
+                if (Array.isArray(arr)) arr.forEach(o => {
+                    const img = o.art_id ? `https://f4.bcbits.com/img/a${o.art_id}_2.jpg` : '';
+                    push(o.page_url || o.url, o.title, o.artist || o.band_name, img);
+                });
+            } catch (e) { /* ignore malformed JSON */ }
+        }
+        return items;
+    }
+
+    function wiBcIsCollectionPath(p) { return /^\/[^\/]+(\/wishlist)?\/?$/i.test(p); }
+
+    function wiBcCollectionItem(it) {
+        if (!it || it.hidden) return null;
+        let url = String(it.item_url || '');
+        if (!/\/(album|track)\//i.test(url)) return null;
+        const hints = it.url_hints;
+        if (hints && hints.subdomain && hints.slug) {
+            let onBandcamp = false;
+            try { onBandcamp = /(^|\.)bandcamp\.com$/i.test(new URL(url).hostname); } catch (e) { /* ignore */ }
+            if (!onBandcamp) url = `https://${hints.subdomain}.bandcamp.com/${hints.item_type === 't' ? 'track' : 'album'}/${hints.slug}`;
+        }
+        const clean = url.split('#')[0].split('?')[0];
+        return {
+            url: clean,
+            title: String(it.item_title || '').replace(/\s+/g, ' ').trim() || clean.split('/').pop(),
+            artist: String(it.band_name || '').replace(/\s+/g, ' ').trim(),
+            type: /\/track\//i.test(clean) ? 'track' : 'album',
+            img: it.item_art_id ? `https://f4.bcbits.com/img/a${it.item_art_id}_2.jpg` : ''
+        };
+    }
+
+    function wiBcParseCollection(html, pageUrl) {
+        const doc = wiParseHTML(html);
+        const raw = doc.getElementById('pagedata')?.getAttribute('data-blob');
+        if (!raw) return null;
+        let blob;
+        try { blob = JSON.parse(raw); } catch (e) { return null; }
+        if (!blob || !blob.fan_data || !blob.fan_data.fan_id) return null;
+        let path = '';
+        try { path = new URL(pageUrl).pathname; } catch (e) { /* ignore */ }
+        const tab = /\/wishlist\/?$/i.test(path) ? 'wishlist' : 'collection';
+        const data = blob[tab + '_data'];
+        if (!data) return null;
+        const cache = (blob.item_cache && blob.item_cache[tab]) || {};
+        const keys = [...(data.sequence || []), ...(data.pending_sequence || [])];
+        const entries = keys.length ? keys.map(k => cache[k]).filter(Boolean) : Object.values(cache);
+        const items = [];
+        const seen = new Set();
+        entries.forEach(e => {
+            const m = wiBcCollectionItem(e);
+            if (m && !seen.has(m.url)) { seen.add(m.url); items.push(m); }
+        });
+        return {
+            tab,
+            fanId: blob.fan_data.fan_id,
+            total: data.item_count || items.length,
+            token: data.last_token || null,
+            batch: data.batch_size || 20,
+            items
+        };
+    }
+
+    function wiBcNewCollectionLoader(col) {
+        const items = col.items.slice();
+        return {
+            col, items,
+            seen: new Set(items.map(i => i.url)),
+            token: (col.total && items.length >= col.total) ? null : col.token,
+            guard: 0, stop: false, done: false, failed: false, cancelled: false
+        };
+    }
+
+    function wiBcPost(api, body) {
+        return wiCrossFetch(api, {
+            method: 'POST', body, timeout: 30000,
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        });
+    }
+
+    async function wiBcAdvanceCollection(ld, onPage) {
+        const col = ld.col;
+        const api = 'https://bandcamp.com/api/fancollection/1/' + (col.tab === 'wishlist' ? 'wishlist_items' : 'collection_items');
+        ld.stop = false; ld.failed = false; ld.guard = 0;
+        onPage([], ld.items.length, col.total);
+        while (ld.token && !ld.stop && ld.guard++ < 400) {
+            let j;
+            try {
+                const txt = await wiBcPost(api, JSON.stringify({ fan_id: col.fanId, older_than_token: ld.token, count: col.batch }));
+                j = JSON.parse(txt);
+            } catch (e) {
+                console.warn('[DEH] collection batch failed:', e && e.message);
+                ld.failed = true;
+                break;
+            }
+            const fresh = [];
+            (Array.isArray(j.items) ? j.items : []).forEach(e => {
+                const m = wiBcCollectionItem(e);
+                if (m && !ld.seen.has(m.url)) { ld.seen.add(m.url); ld.items.push(m); fresh.push(m); }
+            });
+            ld.token = (!j.more_available || !j.last_token || j.last_token === ld.token) ? null : j.last_token;
+            onPage(fresh, ld.items.length, col.total);
+            if (!ld.token) break;
+            await new Promise(r => setTimeout(r, 150));
+        }
+        if (!ld.token) ld.done = true;
+        return ld;
+    }
+
+    async function wiLoadBandcampListing(url, onProgress) {
+        const html = await wiCrossFetch(url);
+        try {
+            if (/^(www\.)?bandcamp\.com$/i.test(new URL(url).hostname)) {
+                const col = wiBcParseCollection(html || '', url);
+                if (!col) return [];
+                const ld = wiBcNewCollectionLoader(col);
+                await wiBcAdvanceCollection(ld, (fresh, n, t) => { onProgress && onProgress(n, t, ld); });
+                const items = ld.items.slice();
+                items.partial = !ld.done;
+                items.loader  = ld;
+                return items;
+            }
+        } catch (e) {
+            if (/^(www\.)?bandcamp\.com$/i.test(new URL(url).hostname)) throw e;
+        }
+        return wiParseBandcampListing(html || '', url);
+    }
+
+    function wiRenderBandcampBatch(previewEl, items, onChange) {
+        const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        const rows = items.map(it => ({ ...it, selected: true, state: 'idle', id: null, error: '', coverFailed: false }));
+        let running = false, aborted = false;
+        let loadingMore = false;
+        const ld = items.loader || null;
+        const kindLabel = (ld && ld.col && ld.col.tab === 'wishlist') ? 'wishlist' : 'collection';
+        const linkCss = 'color:#1a6fbf;cursor:pointer;text-decoration:none;font-size:10.5px;';
+        const headLinkCss = linkCss + 'white-space:nowrap;';
+
+        previewEl.style.display = 'block';
+        previewEl.innerHTML =
+            `<style>@keyframes dh-wi-slide{0%{transform:translateX(-100%)}100%{transform:translateX(300%)}}[data-b='albums']:hover,[data-b='tracks']:hover,[data-b='open']:hover,[data-b='stop']:hover,[data-b='more']:hover{text-decoration:underline!important}</style>` +
+            `<div style="position:relative;display:flex;align-items:center;gap:6px;padding:0 0 5px;margin-bottom:3px;border-bottom:1px solid rgba(128,128,128,.3);font-size:11px;">` +
+                `<input type="checkbox" data-b="master" title="Select / deselect all" style="margin:0 -2px 0 0;flex-shrink:0;cursor:pointer;">` +
+                `<strong data-b="count" style="flex:1;min-width:0;margin-right:10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></strong>` +
+                `<a data-b="albums" style="${headLinkCss}">Albums Only</a>` +
+                `<a data-b="tracks" style="${headLinkCss}">Tracks Only</a>` +
+                `<a data-b="open" style="${headLinkCss}display:none;">Open Drafts</a>` +
+                `<a data-b="stop" style="${headLinkCss}display:none;">Stop</a>` +
+                `<div style="position:absolute;left:0;right:0;bottom:-1px;height:2px;overflow:hidden;pointer-events:none;"><i data-b="bar" style="display:block;height:100%;width:0;background:#1a6fbf;border-radius:2px;opacity:0;"></i></div>` +
+            `</div>` +
+            `<div data-b="morebar" style="display:none;align-items:center;gap:8px;padding:0 0 4px;margin-bottom:2px;border-bottom:1px solid rgba(128,128,128,.3);font-size:10.5px;">` +
+                `<span data-b="moretext" style="flex:1;min-width:0;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></span>` +
+                `<a data-b="more" style="${linkCss}font-weight:600;white-space:nowrap;">Load more</a>` +
+            `</div>` +
+            `<div data-b="list" style="max-height:216px;overflow-y:auto;scrollbar-gutter:stable;margin:-3px -7px -3px -6px;padding:3px 8px 3px 6px;"></div>`;
+
+        const q = k => previewEl.querySelector(`[data-b="${k}"]`);
+        const listEl = q('list');
+
+        const buildRow = (r, i) => {
+            const row = document.createElement('div');
+            row.dataset.i = i;
+            row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:3px 0;font-size:11px;cursor:pointer;';
+            row.innerHTML =
+                `<input type="checkbox" style="margin:0;flex-shrink:0;">` +
+                `<span style="flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc((r.artist ? r.artist + ' – ' : '') + r.title)}">` +
+                    `${r.artist ? `<span style="opacity:.6;">${esc(r.artist)} – </span>` : ''}${esc(r.title)}</span>` +
+                `<span style="box-sizing:border-box;padding:0 5px;font-size:9px;line-height:13px;opacity:.7;border:1px solid rgba(128,128,128,.45);border-radius:3px;flex-shrink:0;">${r.type === 'track' ? 'Track' : 'Album'}</span>` +
+                `<span data-b="st" style="margin-left:auto;min-width:38px;text-align:right;flex-shrink:0;font-size:10.5px;"></span>`;
+            listEl.appendChild(row);
+            r.el = row;
+            row.addEventListener('click', (e) => {
+                if (e.target.closest('a') || running || loadingMore || r.state === 'done') return;
+                if (e.target.tagName !== 'INPUT') r.el.querySelector('input').checked = !r.el.querySelector('input').checked;
+                r.selected = r.el.querySelector('input').checked;
+                paint(); onChange && onChange();
+            });
+        };
+        rows.forEach(buildRow);
+
+        const appendRows = fresh => fresh.forEach(it => {
+            const r = { ...it, selected: true, state: 'idle', id: null, error: '', coverFailed: false };
+            rows.push(r);
+            buildRow(r, rows.length - 1);
+        });
+
+        const openDraft = id => {
+            const u = `https://www.discogs.com/release/edit/${id}`;
+            if (typeof GM_openInTab !== 'undefined') GM_openInTab(u, true); else window.open(u, '_blank');
+        };
+
+        function paint() {
+            rows.forEach(r => {
+                const cb = r.el.querySelector('input');
+                cb.checked = r.selected;
+                cb.disabled = running || loadingMore || r.state === 'done';
+                r.el.style.opacity = (!r.selected && r.state !== 'done') ? '.55' : '1';
+                const st = r.el.querySelector('[data-b="st"]');
+                st.style.opacity = '';
+                if (r.state === 'working') { st.style.color = '#1a6fbf'; st.textContent = 'Saving'; }
+                else if (r.state === 'queued') { st.style.color = ''; st.textContent = 'Queued'; }
+                else if (r.state === 'done') {
+                    st.style.color = '#28a745';
+                    st.innerHTML = `✓ <a href="https://www.discogs.com/release/edit/${r.id}" target="_blank" style="color:#28a745;">Draft</a>${r.coverFailed ? ' <span title="Cover upload failed — add it manually" style="color:#e0a100;">⚠</span>' : ''}`;
+                } else if (r.state === 'error') { st.style.color = '#dc3545'; st.textContent = '✕ Failed'; st.title = r.error; }
+                else { st.style.opacity = '.5'; st.textContent = 'Ready'; }
+            });
+            const sel = rows.filter(r => r.selected && r.state !== 'done').length;
+            const done = rows.filter(r => r.state === 'done').length;
+            const failed = rows.filter(r => r.state === 'error').length;
+            q('count').textContent = (loadingMore && ld)
+                ? `Loading ${kindLabel}… ${ld.items.length}${ld.col.total ? '/' + ld.col.total : ''}`
+                : `${rows.length} / ${sel} selected${done ? ` · ${done} saved` : ''}${failed ? ` · ${failed} failed` : ''}`;
+            q('open').textContent = `Open ${done} Draft${done !== 1 ? 's' : ''}`;
+            q('open').style.display = (done > 0 && sel > 0 && !running && !loadingMore) ? '' : 'none';
+            const mixed = rows.some(r => r.type === 'album') && rows.some(r => r.type === 'track');
+            const selectable = rows.filter(r => r.state !== 'done');
+            const master = q('master');
+            master.checked       = selectable.length > 0 && sel === selectable.length;
+            master.indeterminate = sel > 0 && sel < selectable.length;
+            master.disabled      = running || loadingMore || selectable.length === 0;
+            ['albums', 'tracks'].forEach(k => { q(k).style.display = (running || loadingMore || !mixed) ? 'none' : ''; });
+
+            q('stop').style.display = loadingMore ? '' : 'none';
+            const bar = q('bar');
+            if (loadingMore && ld) {
+                const t = ld.col.total;
+                bar.style.opacity = '1';
+                bar.style.transition = 'width .25s ease';
+                bar.style.width = t ? Math.min(100, Math.round(ld.items.length / t * 100)) + '%' : '35%';
+            } else { bar.style.opacity = '0'; }
+            const more = !!(ld && !ld.done && !loadingMore);
+            q('morebar').style.display = more ? 'flex' : 'none';
+            if (more) {
+                const t = ld.col.total;
+                q('moretext').textContent = (ld.failed ? "Couldn't load the rest. Showing " : 'Showing ') + ld.items.length + (t ? ` of ${t}` : '');
+                q('more').textContent = ld.failed ? 'Retry' : 'Load more';
+                q('more').style.display = running ? 'none' : '';
+            }
+            onChange && onChange();
+        }
+
+        const setSel = fn => { if (running) return; rows.forEach(r => { if (r.state !== 'done') r.selected = fn(r); }); paint(); onChange && onChange(); };
+        q('master').onchange = () => setSel(() => q('master').checked);
+        q('albums').onclick = () => setSel(r => r.type === 'album');
+        q('tracks').onclick = () => setSel(r => r.type === 'track');
+        const openAll = () => rows.filter(r => r.state === 'done' && r.id).forEach(r => openDraft(r.id));
+        q('open').onclick   = openAll;
+        q('stop').onclick   = () => {
+            if (!ld || ld.stop) return;
+            ld.stop = true;
+            q('stop').textContent = 'Stopping…';
+        };
+        const loadMore = async () => {
+            if (!ld || ld.done || loadingMore || running) return;
+            loadingMore = true;
+            q('stop').textContent = 'Stop';
+            paint();
+            await wiBcAdvanceCollection(ld, (fresh) => {
+                if (ld.cancelled || !listEl.isConnected) { ld.cancelled = true; ld.stop = true; return; }
+                if (fresh.length) appendRows(fresh);
+                paint();
+            });
+            if (ld.cancelled) return;
+            loadingMore = false;
+            paint();
+        };
+        q('more').onclick = loadMore;
+        let runSet = new Set();
+        paint();
+
+        return {
+            getSelected: () => rows.filter(r => r.selected && r.state !== 'done'),
+            isRunning: () => running,
+            isLoadingMore: () => loadingMore,
+            cancel: () => { if (ld) { ld.stop = true; ld.cancelled = true; } },
+            isAborted: () => aborted,
+            isStopping: () => running && aborted,
+            abort: () => { aborted = true; paint(); },
+            openAll,
+            getCounts: () => ({
+                sel:  rows.filter(r => r.selected && r.state !== 'done').length,
+                done: rows.filter(r => r.state === 'done').length,
+            }),
+            progress: () => ({
+                finished: rows.filter(r => runSet.has(r) && (r.state === 'done' || r.state === 'error')).length,
+                total: runSet.size,
+            }),
+            setRunning: b => {
+                running = b; if (b) aborted = false;
+                rows.forEach(r => { if (b && r.selected && r.state !== 'done') { r.state = 'queued'; r.error = ''; } if (!b && r.state === 'queued') r.state = 'idle'; });
+                if (b) runSet = new Set(rows.filter(r => r.state === 'queued'));
+                paint();
+            },
+            markWorking: r => { r.state = 'working'; paint(); },
+            markDone:    (r, id, coverFailed) => { r.state = 'done'; r.id = id; r.coverFailed = !!coverFailed; r.selected = false; paint(); },
+            markError:   (r, msg) => { r.state = 'error'; r.error = msg || 'Unknown error'; paint(); },
+        };
+    }
+
+    async function wiSaveReleaseAsDraft(data, sourceUrl, dateFieldUsed = 'date', opts = {}) {
+        if (!opts.quiet) await setInfoProcessing();
         log(`Saving release from ${data.storeName || 'store'} as draft...`, 'info');
 
         try {
@@ -10863,24 +11399,29 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
             }
 
             const draftUrl = `https://www.discogs.com/release/edit/${releaseId}`;
-            if (typeof GM_openInTab !== 'undefined') {
-                GM_openInTab(draftUrl, true);
-            } else {
-                window.open(draftUrl, '_blank');
+            if (opts.result) opts.result.coverFailed = coverUploadFailed;
+            if (opts.openTab !== false) {
+                if (typeof GM_openInTab !== 'undefined') {
+                    GM_openInTab(draftUrl, true);
+                } else {
+                    window.open(draftUrl, '_blank');
+                }
             }
 
-            await clearInfoProcessing();
-            setInfoSingleLine('Done! Draft created in new tab', true);
+            if (!opts.quiet) {
+                await clearInfoProcessing();
+                setInfoSingleLine('Done! Draft created in new tab', true);
+            }
 
             if (coverUploadFailed) {
                 log('Done! Draft created, but cover upload failed — please review before publishing', 'warning');
             } else {
-                log('Done! Draft created in new tab', 'success');
+                log(opts.openTab === false ? `Done! Draft ${releaseId} created` : 'Done! Draft created in new tab', 'success');
             }
             return releaseId;
 
         } catch (err) {
-            await clearInfoProcessing();
+            if (!opts.quiet) await clearInfoProcessing();
             throw err;
         }
     }
@@ -10998,8 +11539,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
             const countryEl = document.querySelector('#release-country-select');
             const wiPreImageReactIds = new Set(Array.from(document.querySelectorAll('span.thumbnail_link[data-reactid]')).map(el => el.dataset.reactid));
 
-            const _formatCbs = Array.from(document.querySelectorAll('input[type="checkbox"][value]'))
-                .filter(cb => ['FLAC','MP3','AAC','ALAC','WAV','AIFF','OGG','OPUS','DSD'].includes((cb.value||'').toUpperCase()));
+            const _formatCbs = wiFileTypeCheckboxes();
             for (const cb of _formatCbs) snapCb(cb);
             const _formatSelect = document.querySelector('#release-format-select');
             if (_formatSelect) snap(_formatSelect);
@@ -11400,6 +11940,9 @@ wiIsAntiBotPage(html)) {
 
             const isDiscogsImport = /discogs\.com\/release\/\d+|discogs\.com\/.*\/release\/\d+|^\d{5,}$/.test(urlInput.value.trim());
 
+            const hasDurations = (fetchedData?.tracks || []).some(t => t && t.duration);
+            const hasCredits = ((getFilteredFetchedData() || {}).credits || []).length > 0;
+
             const menuItems = [
                 {
                     label: 'Without Capitalization Rules',
@@ -11418,13 +11961,13 @@ wiIsAntiBotPage(html)) {
                         {
                             label: 'Durations',
                             title: 'Import only track durations, skipping all other fields. Matches by track position; if none match but the track counts are equal, falls back to row order',
-                            disabled: isDiscogsImport,
+                            disabled: isDiscogsImport || !hasDurations,
                             onClick: () => { _durationsOnlyMode = true; if (_isDiscogsUrl(urlInput.value)) _discogsApply(); else _storeApply(); }
                         },
                         {
                             label: 'Credits Only',
                             title: 'Import only credits, skipping all other fields',
-                            disabled: isDiscogsImport,
+                            disabled: isDiscogsImport || !hasCredits,
                             onClick: () => { _creditsOnlyMode = true; if (_isDiscogsUrl(urlInput.value)) _discogsApply(); else _storeApply(); }
                         },
                     ]
@@ -11459,7 +12002,7 @@ wiIsAntiBotPage(html)) {
                             display: flex;
                             align-items: center;
                             justify-content: center;
-                            cursor: ${sub.disabled ? 'not-allowed' : 'pointer'};
+                            cursor: ${sub.disabled ? 'default' : 'pointer'};
                             font-size: 10px;
                             font-weight: bold;
                             color: ${sub.disabled ? 'rgba(255,255,255,0.45)' : '#fff'};
@@ -11662,17 +12205,116 @@ wiIsAntiBotPage(html)) {
 
         urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') fetchBtn.click(); });
 
+        previewEl.addEventListener('click', e => {
+            const a = e.target.closest && e.target.closest('a[data-try-url]');
+            if (!a) return;
+            if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+            e.preventDefault();
+            urlInput.value = a.getAttribute('data-try-url');
+            urlInput.dispatchEvent(new Event('input', { bubbles: true }));
+            fetchBtn.click();
+        });
+
         let _discogsData = null;
+
+        let batchCtl = null;
+
+        const _syncBatchUi = () => {
+            if (!batchCtl) return;
+            const { sel, done } = batchCtl.getCounts();
+            const running = batchCtl.isRunning();
+            const loadingMore = !!(batchCtl.isLoadingMore && batchCtl.isLoadingMore());
+            let html, active, arrowActive, bg = '#28a745';
+            if (running) {
+                const p = batchCtl.progress();
+                const stopping = batchCtl.isStopping();
+                html = `${stopping ? 'Stopping' : 'Stop...'}<br>${p.finished}/${p.total}`;
+                active = !stopping;
+                arrowActive = false;
+            } else if (done > 0 && sel === 0) {
+                html = `Open ${done}<br>Draft${done !== 1 ? 's' : ''}`;
+                bg = '#218838';
+                active = true;
+                arrowActive = false;
+            } else {
+                html = sel > 0 ? `Save ${sel}<br>Draft${sel !== 1 ? 's' : ''}` : 'Save To<br>Draft';
+                active = arrowActive = sel > 0 && !loadingMore;
+            }
+            const idle = !running && !(done > 0 && sel === 0);
+            savedraftWrap.style.opacity = (idle && !active) ? '0.45' : '1';
+            savedraftWrap.style.pointerEvents = active ? 'auto' : 'none';
+            savedraftBtn.innerHTML = html;
+            const widestLine = Math.max(...html.split('<br>').map(l => l.length));
+            savedraftBtn.style.fontSize = widestLine <= 8 ? '10px' : widestLine === 9 ? '9px' : '8px';
+            savedraftBtn.style.whiteSpace = 'nowrap';
+            savedraftBtn.style.background = bg;
+            draftArrow.style.background = bg;
+            draftArrow.style.pointerEvents = arrowActive ? '' : 'none';
+            applyWrap.style.opacity = '0.45';
+            applyWrap.style.pointerEvents = 'none';
+        };
+
+        const _saveBatch = async () => {
+            const ctl = batchCtl;
+            const sel = ctl ? ctl.getSelected() : [];
+            if (!sel.length) return;
+            if (ctl.isLoadingMore && ctl.isLoadingMore()) return;
+            draftMenu.style.display = 'none';
+            fetchBtn.disabled = true;
+            const _savedCap = _noCapMode ? state.capitalizeFields : null;
+            if (_noCapMode) state.capitalizeFields = { ..._noCapFields };
+            const _savedSplit    = _noSplitMode ? state.splitImport        : null;
+            const _savedAutoFeat = _noSplitMode ? state.importAutoFeat     : null;
+            const _savedAutoRmx  = _noSplitMode ? state.importAutoRemixers : null;
+            if (_noSplitMode) { state.splitImport = false; state.importAutoFeat = false; state.importAutoRemixers = false; }
+            ctl.setRunning(true);
+            _syncBatchUi();
+            await setInfoProcessing();
+            let made = 0, failed = 0;
+            try {
+                for (const row of sel) {
+                    if (ctl.isAborted()) break;
+                    ctl.markWorking(row);
+                    try {
+                        const data = await wiFetchReleaseData(row.url);
+                        if (!data) throw new Error('No data returned');
+                        const swap = !!(data.preferPublishDate && data.publishDate);
+                        const toSave = swap ? { ...data, date: data.publishDate, publishDate: data.date } : data;
+                        const res = {};
+                        const id = await wiSaveReleaseAsDraft(toSave, row.url, swap ? 'publishDate' : 'date', { openTab: false, quiet: true, result: res });
+                        ctl.markDone(row, id, res.coverFailed);
+                        made++;
+                    } catch (e) {
+                        failed++;
+                        const msg = String(e && e.message || e).replace(/<[^>]+>/g, ' ');
+                        ctl.markError(row, msg);
+                        log(`Batch: "${row.title}" failed — ${msg}`, 'error');
+                        if (/not logged in|log in to discogs/i.test(msg)) break;
+                    }
+                    await new Promise(r => setTimeout(r, 400));
+                }
+            } finally {
+                if (_savedCap) state.capitalizeFields = _savedCap;
+                if (_noSplitMode) { state.splitImport = _savedSplit; state.importAutoFeat = _savedAutoFeat; state.importAutoRemixers = _savedAutoRmx; }
+                _noCapMode = false;
+                _noSplitMode = false;
+                await clearInfoProcessing();
+                setInfoSingleLine(made ? `Done! ${made} draft${made !== 1 ? 's' : ''} created${failed ? `, ${failed} failed` : ''}` : 'Batch finished — no drafts created', made > 0);
+                fetchBtn.disabled = false;
+                ctl.setRunning(false);
+                _syncBatchUi();
+            }
+        };
 
         const _storeFetch = async () => {
             const url = urlInput.value.trim();
             if (!url) return;
             let u;
-            try { u = new URL(url); } catch(e) { previewEl.innerHTML = '<span style="color:#dc3545">Invalid URL</span>'; previewEl.style.display = 'block'; return; }
+            try { u = new URL(url); } catch(e) { previewEl.innerHTML = wiPreviewErrorHtml('Invalid URL'); previewEl.style.display = 'block'; return; }
             fetchBtn.disabled = true;
             fetchBtn.textContent = 'Fetching…';
             previewEl.style.display = 'block';
-            previewEl.innerHTML = '<span style="color:#888;">Loading…</span>';
+            previewEl.innerHTML = wiIsBandcampListingUrl(url) ? wiBcLoadingHtml(url) : wiLoadingHtml();
             disabledCreditIndices = new Set();
             disabledCreditRoles = new Set();
             manuallyDisabledCredits = new Set();
@@ -11682,7 +12324,49 @@ wiIsAntiBotPage(html)) {
             selectedDateField = 'date';
             applyBtn.disabled = true; applyWrap.style.opacity = '0.45'; applyWrap.style.pointerEvents = 'none'; savedraftWrap.style.opacity = '0.45'; savedraftWrap.style.pointerEvents = 'none';
             try {
-                fetchedData = await wiFetchReleaseData(url);
+                if (batchCtl) {
+                    savedraftBtn.style.background = '#28a745';
+                    draftArrow.style.background = '#28a745';
+                    draftArrow.style.pointerEvents = '';
+                    savedraftBtn.innerHTML = 'Save To<br>Draft';
+                }
+                if (batchCtl && batchCtl.cancel) batchCtl.cancel();
+                batchCtl = null;
+                if (wiBcIsNonReleasePage(url)) throw new Error(wiBcWrongPageMessage(url));
+                let _bcUrl = url;
+                if (wiIsBandcampListingUrl(url)) {
+                    let listing = null;
+                    let _bcLoader = null;
+                    const _bcStopLink = previewEl.querySelector('[data-l="stop"]');
+                    if (_bcStopLink) _bcStopLink.onclick = () => {
+                        if (!_bcLoader || _bcLoader.stop) return;
+                        _bcLoader.stop = true;
+                        _bcStopLink.textContent = 'Stopping…';
+                    };
+                    try {
+                        listing = await wiLoadBandcampListing(url, (n, t, ld) => {
+                            _bcLoader = ld;
+                            const head = previewEl.querySelector('[data-l="head"]');
+                            const cnt  = previewEl.querySelector('[data-l="count"]');
+                            if (!head || !cnt) return;
+                            cnt.textContent = `Loading ${head.dataset.kind}… ${n}${t ? '/' + t : ''}`;
+                            const bar = previewEl.querySelector('[data-l="bar"]');
+                            if (t && bar) { bar.style.animation = 'none'; bar.style.transition = 'width .25s ease'; bar.style.width = Math.min(100, Math.round(n / t * 100)) + '%'; }
+                            if (_bcStopLink) _bcStopLink.style.display = (t && n < t) ? '' : 'none';
+                        });
+                    } catch (e) { listing = null; }
+                    if (listing && listing.length > 1) {
+                        fetchedData = null;
+                        batchCtl = wiRenderBandcampBatch(previewEl, listing, _syncBatchUi);
+                        _syncBatchUi();
+                        fetchBtn.disabled = false;
+                        fetchBtn.textContent = 'Fetch';
+                        return;
+                    }
+                    if (listing && listing.length === 1) { _bcUrl = listing[0].url; urlInput.value = _bcUrl; }
+                }
+                if (previewEl.querySelector('[data-l="skeleton"]')) previewEl.innerHTML = wiLoadingHtml();
+                fetchedData = await wiFetchReleaseData(_bcUrl);
                 if (!fetchedData) throw new Error('No data returned');
 
                 try {
@@ -11783,13 +12467,17 @@ wiIsAntiBotPage(html)) {
                 }).join('\n');
 
                 if (fetchedData.tracks.length === 0) {
-                    previewEl.innerHTML = `<span style="color:#dc3545;">${wiAntiBotError(urlInput.value.trim()).replace(/\n/g, '<br>')}</span>`;
+                    const _isBandcampPage = /bandcamp/i.test(fetchedData.storeName || '') || /\.bandcamp\.com$/i.test((() => { try { return new URL(_bcUrl).hostname; } catch (e) { return ''; } })());
+                    previewEl.innerHTML = wiPreviewErrorHtml(_isBandcampPage
+                        ? `${wiBcWrongPageMessage(_bcUrl)}<br><span style="opacity:.75;">If this is a release page, refresh it and try again.</span>`
+                        : wiAntiBotError(urlInput.value.trim()).replace(/\n/g, '<br>'));
                 } else {
                     const overflowStyle = 'overflow-y:auto;';
                     const tabActiveStyle   = 'background:none;border:none;cursor:pointer;font-size:10.5px;font-weight:600;padding:3px 8px 5px;color:#1a6fbf;border-bottom:2px solid #1a6fbf;margin-bottom:-1px;box-sizing:border-box;';
                     const tabInactiveStyle = 'background:none;border:none;cursor:pointer;font-size:10.5px;font-weight:600;padding:3px 8px 5px;color:#888;border-bottom:2px solid transparent;margin-bottom:-1px;box-sizing:border-box;';
-                    const creditRowsHtml = creditRows || '<div style="color:#888;font-size:10px;padding:4px 0;">No credits found</div>';
-                    const styleRowsHtml = styleRows || '<div style="color:#888;font-size:10px;padding:4px 0;">No styles found</div>';
+                    const emptyPanelHtml = (icon, text) => `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:162px;box-sizing:border-box;padding:12px;color:#888;text-align:center;user-select:none;-webkit-user-select:none;"><div style="font-size:20px;margin-bottom:5px;opacity:.45;line-height:1.2;">${icon}</div><p style="margin:0;font-size:11px;line-height:1.6;">${text}</p></div>`;
+                    const creditRowsHtml = creditRows || emptyPanelHtml('👤', 'No credits found');
+                    const styleRowsHtml = styleRows || emptyPanelHtml('🎶', 'No styles found');
                     const _datePart = wiNormalizeDate(fetchedData.date);
                     const _publishPart = fetchedData.publishDate ? wiNormalizeDate(fetchedData.publishDate) : '';
                     if (fetchedData.preferPublishDate && _publishPart) selectedDateField = 'publishDate';
@@ -11837,7 +12525,7 @@ wiIsAntiBotPage(html)) {
                     const wiCatnoLookupHtml = `<span class="dh-wi-catno-lookup" title="Search Beatport for the catalog number" style="${wiBpSearchIconStyle}"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block;"><path d="M11.5 11.5L14.5 14.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M2 7C2 4.23858 4.23858 2 7 2C9.76142 2 12 4.23858 12 7C12 9.76142 9.76142 12 7 12C4.23858 12 2 9.76142 2 7Z" stroke="currentColor" stroke-width="1.5"/><rect x="6.5" y="6.5" width="1" height="1" rx="0.5" fill="currentColor"/><path d="M6.5 7H5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M7 6.5V5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>`;
                     const buildMetaLineTextHtmlEsc = (labelText) => [esc(fitLabelForWiMeta(wiDisplayLabelFor(labelText), fetchedData.catno)), wiCatnoHtml].filter(Boolean).join(' · ');
                     const metaLineClampStyle = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
-                    const line3Base = [`${fetchedData.tracks.length} track${fetchedData.tracks.length !== 1 ? 's' : ''}`, fetchedData.fileType || 'FLAC', (fetchedData.bitdepth && fetchedData.samplerate) ? `${fetchedData.bitdepth}-bit/${fetchedData.samplerate / 1000} kHz` : (fetchedData.freeText || null)].filter(Boolean).map(esc).join(' · ');
+                    const line3Base = [esc(`${fetchedData.tracks.length} track${fetchedData.tracks.length !== 1 ? 's' : ''}`), `<span class="dh-wi-ft-slot">${wiFileTypeSlotHtml(fetchedData, esc)}</span>`].join(' · ');
                     const line3Html = dateSegmentHtml ? `${line3Base}${line3Base ? ' · ' : ''}${dateSegmentHtml}` : line3Base;
                     const wiTitleColor = wiPreviewIsDark ? '#f0f2f7' : '#1c2230';
                     const wiMetaColor = wiPreviewIsDark ? '#c7ccdb' : '#5c6470';
@@ -11850,6 +12538,7 @@ wiIsAntiBotPage(html)) {
                                 <div style="display:flex;align-items:center;gap:0;color:${wiMetaColor};font-weight:500;font-size:10.5px;overflow:hidden;">
                                     <span id="dh-wi-meta-line" style="min-width:0;${metaLineClampStyle}">${buildMetaLineTextHtmlEsc(fetchedData.label)}</span>${wiCatnoLookupHtml}<span style="flex-shrink:0;white-space:nowrap;">${wiResolvedCountry ? ` · ${esc(wiResolvedCountry)}` : ''}</span>
                                 </div>
+                                <style>.dh-wi-ft-pick:hover{color:${wiPreviewIsDark ? '#a8cdfa' : '#0f4a8c'};text-decoration:underline}</style>
                                 <div style="color:${wiLine3Color};font-weight:500;font-size:10.25px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${line3Html}</div>
                             </div>
                         </div>
@@ -11880,6 +12569,20 @@ wiIsAntiBotPage(html)) {
                         });
                     }
 
+                    if (!previewEl.dataset.dhFileTypeBound) {
+                        previewEl.dataset.dhFileTypeBound = '1';
+                        previewEl.addEventListener('click', (e) => {
+                            const pick = e.target.closest('.dh-wi-ft-pick');
+                            if (!pick || !previewEl.contains(pick)) return;
+                            e.stopPropagation();
+                            const isDark = localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
+                            wiOpenFileTypeMenu(pick, fetchedData, isDark, (type) => {
+                                if (!wiApplyFileTypeChoice(fetchedData, type)) return;
+                                const slot = previewEl.querySelector('.dh-wi-ft-slot');
+                                if (slot) slot.innerHTML = wiFileTypeSlotHtml(fetchedData, esc);
+                            });
+                        });
+                    }
                     panelCrdEl.style.height = panelTrkEl.offsetHeight + 'px';
                     panelStyEl.style.height = panelTrkEl.offsetHeight + 'px';
                     const crdTabBtn = previewEl.querySelector('.dh-wi-preview-tab[data-tab="crd"]');
@@ -12197,7 +12900,7 @@ wiIsAntiBotPage(html)) {
                 }
             } catch(err) {
                 fetchedData = null;
-                previewEl.innerHTML = `<span style="color:#dc3545;">${err.message.replace(/\n/g, '<br>')}</span>`;
+                previewEl.innerHTML = wiPreviewErrorHtml(err.message.replace(/\n/g, '<br>'));
             }
             fetchBtn.disabled = false;
             fetchBtn.textContent = 'Fetch';
@@ -12347,7 +13050,7 @@ wiIsAntiBotPage(html)) {
             fetchBtn.disabled = true;
             fetchBtn.textContent = 'Fetching…';
             previewEl.style.display = 'block';
-            previewEl.innerHTML = '<span style="color:#888;">Loading…</span>';
+            previewEl.innerHTML = wiLoadingHtml();
             applyBtn.disabled = true; applyWrap.style.opacity = '0.45'; applyWrap.style.pointerEvents = 'none'; savedraftWrap.style.opacity = '0.45'; savedraftWrap.style.pointerEvents = 'none';
             _discogsData = null;
             disabledDiscogsCreditIndices = new Set();
@@ -12594,6 +13297,12 @@ wiIsAntiBotPage(html)) {
         closeBtn.onclick  = close;
 
         const _saveDraft = async () => {
+            if (batchCtl && !fetchedData) {
+                if (batchCtl.isRunning()) { if (!batchCtl.isStopping()) batchCtl.abort(); return; }
+                const c = batchCtl.getCounts();
+                if (c.done > 0 && c.sel === 0) return batchCtl.openAll();
+                return _saveBatch();
+            }
             if (!fetchedData) return;
             savedraftWrap.style.opacity = '0.45'; savedraftWrap.style.pointerEvents = 'none';
             applyWrap.style.opacity     = '0.45'; applyWrap.style.pointerEvents     = 'none';
