@@ -18,8 +18,21 @@ extracts info from titles and assigns data to the appropriate fields*
 
 ## Features
 
-- **🌐 Web Store Import** - Fetch and populate release metadata and artwork from digital platforms by pasting a URL.
-Supported stores: *7digital, Apple Music, Bandcamp, Beatport, Bleep, Boomkat, eClassical, HDtracks, HighResAudio, Kompakt, Mora, NativeDSD, OTOTOY, Presto Music, ProStudioMasters, Qobuz, Traxsource, Volumo.*
+- **🌐 Web Store Import** - Fetch release metadata and artwork from a store page and fill in the Discogs form, or save straight to a draft
+
+  **Imports:**
+  - ⚡ Title, artists, label, catalog number, release date, country, and cover art
+  - ⚡ Tracklist with durations and track-level artists (with joiners) on compilations
+  - ⚡ Remixers and feat. artists from track titles, entered as track-level credits
+  - ⚡ Credits (roles and names) from Bandcamp
+  - ⚡ Genres and styles from store tags
+  - ⚡ File type, bit depth/sample rate, and format descriptions (EP, Single, etc.)
+
+  - ⚡ Beatport catalog lookup: When a store doesn't provide a catalog number, search from the popup to find and apply it
+  - ⚡ Bandcamp batch mode: Import many releases at once from label, artist, or user collection pages and save each as a draft
+
+  - ⚡ Supports 18 digital music stores, covering streaming, hi-res downloads, and electronic music shops: *7digital, Apple Music, Bandcamp, Beatport, Bleep, Boomkat, eClassical, HDtracks, HighResAudio, Kompakt, Mora, NativeDSD, OTOTOY, Presto Music, ProStudioMasters, Qobuz, Traxsource, Volumo.*
+
 - **📝 Tracklist Import** - Paste a tracklist in plain text and automatically populate positions, titles, and durations
 - **🔠 Capitalization** - Capitalizes artists, joiners and titles (including Unicode / non-Latin)
 - **🔢 Position Extraction** - Extracts and assigns track positions (e.g., “01”, “A1”) to position fields
@@ -75,6 +88,6 @@ This userscript is available under the [MIT License](LICENSE).
 ---
 
 ## Disclaimer
-This tool does not automate or submit data on your behalf.  
-It assists with import, formatting and extraction, and errors may occur.  
+This tool does not publish releases on your behalf. Web imports can be saved as Discogs drafts, but you must review and submit them yourself.
+It assists with import, formatting and extraction, and errors may occur.
 You are solely responsible for reviewing and submitting accurate information.  
