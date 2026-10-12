@@ -18,32 +18,32 @@ extracts info from titles and assigns data to the appropriate fields*
 
 ## Features
 
-- **🌐 Web Store Import** - Fetch release metadata and artwork from a store page and fill in the Discogs form, or save straight to a draft
-  
-  **Imports:**<br>
-  ⚡ Title, artists, label, catalog number, release date, country, and cover art<br>
-  ⚡ Tracklist with durations and track-level artists (with joiners) on compilations<br>
-  ⚡ Remixers and feat. artists from track titles, entered as track-level credits<br>
-  ⚡ Credits (roles and names) from Bandcamp<br>
-  ⚡ Genres and styles from store tags<br>
-  ⚡ File type, bit depth/sample rate, and format descriptions (EP, Single, etc.)<br>
-  
-  ⚡ Beatport catalog lookup: When a store doesn't provide a catalog number, search from the popup to find and apply it<br>
-  ⚡ Bandcamp batch mode: Import many releases at once from label, artist, or user collection pages and save each as a draft<br>
-  
-  ⚡ Supports 18 digital music stores, covering streaming, hi-res downloads, and electronic music shops: *7digital, Apple Music, Bandcamp, Beatport, Bleep, Boomkat, eClassical, HDtracks, HighResAudio, Kompakt, Mora, NativeDSD, OTOTOY, Presto Music, ProStudioMasters, Qobuz, Traxsource, Volumo.*
+**🌐 Web Store Import** - Fetch release metadata and artwork from a store page and fill in the Discogs form, or save straight to a draft
 
-- **📝 Tracklist Import** - Paste a tracklist in plain text and automatically populate positions, titles, and durations
-- **🔠 Capitalization** - Capitalizes artists, joiners and titles (including Unicode / non-Latin)
-- **🔢 Position Extraction** - Extracts and assigns track positions (e.g., “01”, “A1”) to position fields
-- **🕛 Duration Extraction** - Extracts and assigns track durations (e.g., “3:45”) to duration fields
-- **✂️ Clean Titles** - Removes redundant bracket content from titles (e.g., “(Original Mix)”, “(Bonus Track)”)
-- **👤 Artist Extraction** - Extracts and assigns track level artists from the “Artist - Title” format
-- **👥 Feat Artist Extraction** - Extracts and assigns featuring artists (e.g., “featuring”, “feat.”, etc.) to credits
-- **🎶 Remixer Extraction** - Extracts and assigns remixers (e.g., “remix”, “rmx”, etc.) to credits
-- **↩️ Undo Support** - Revert any action with a single click
-- **⚙️ Config Panel** - Fully customizable patterns for artist splitters, featuring, remix and capitalization rules
-- **🌓 Dark/Light Theme** - Toggle between dark and light themes
+**Imports:**<br>
+⚡ Title, artists, label, catalog number, release date, country, and cover art<br>
+⚡ Tracklist with durations and track-level artists (with joiners) on compilations<br>
+⚡ Remixers and feat. artists from track titles, entered as track-level credits<br>
+⚡ Credits (roles and names) from Bandcamp<br>
+⚡ Genres and styles from store tags<br>
+⚡ File type, bit depth/sample rate, and format descriptions (EP, Single, etc.)<br>
+
+⚡ Beatport catalog lookup: When a store doesn't provide a catalog number, search from the popup to find and apply it<br>
+⚡ Bandcamp batch mode: Import many releases at once from label, artist, or user collection pages and save each as a draft<br>
+
+⚡ Supports 18 digital music stores, covering streaming, hi-res downloads, and electronic music shops: **7digital, Apple Music, Bandcamp, Beatport, Bleep, Boomkat, eClassical, HDtracks, HighResAudio, Kompakt, Mora, NativeDSD, OTOTOY, Presto Music, ProStudioMasters, Qobuz, Traxsource, Volumo**
+
+**📝 Tracklist Import** - Paste a tracklist in plain text and automatically populate positions, titles, and durations<br>
+**🔠 Capitalization** - Capitalizes artists, joiners and titles (including Unicode / non-Latin)<br>
+**🔢 Position Extraction** - Extracts and assigns track positions (e.g., “01”, “A1”) to position fields<br>
+**🕛 Duration Extraction** - Extracts and assigns track durations (e.g., “3:45”) to duration fields<br>
+**✂️ Clean Titles** - Removes redundant bracket content from titles (e.g., “(Original Mix)”, “(Bonus Track)”)<br>
+**👤 Artist Extraction** - Extracts and assigns track-level artists from the “Artist - Title” format<br>
+**👥 Feat Artist Extraction** - Extracts and assigns featuring artists (e.g., “featuring”, “feat.”, etc.) to credits<br>
+**🎶 Remixer Extraction** - Extracts and assigns remixers (e.g., “remix”, “rmx”, etc.) to credits<br>
+**↩️ Undo Support** - Revert any action with a single click<br>
+**⚙️ Config Panel** - Fully customizable patterns for artist splitters, featuring, remix and capitalization rules<br>
+**🌓 Dark/Light Theme** - Toggle between dark and light themes
 
 ---
 
