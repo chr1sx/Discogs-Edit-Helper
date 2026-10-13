@@ -31,7 +31,7 @@ extracts info from titles and assigns data to the appropriate fields*
 ⚡ Beatport catalog lookup: When a store doesn't provide a catalog number, search from the popup to find and apply it<br>
 ⚡ Bandcamp batch mode: Import many releases at once from label, artist, or user collection pages and save each as a draft<br>
 
-⚡ Supports 18 digital music stores, covering streaming, hi-res downloads, and electronic music shops: **7digital, Apple Music, Bandcamp, Beatport, Bleep, Boomkat, eClassical, HDtracks, HighResAudio, Kompakt, Mora, NativeDSD, OTOTOY, Presto Music, ProStudioMasters, Qobuz, Traxsource, Volumo**
+⚡ Supports 18 digital music stores, including general music retailers, hi-res audio stores, and electronic music shops: **7digital, Apple Music, Bandcamp, Beatport, Bleep, Boomkat, eClassical, HDtracks, HighResAudio, Kompakt, Mora, NativeDSD, OTOTOY, Presto Music, ProStudioMasters, Qobuz, Traxsource, Volumo**
 
 **📝 Tracklist Import** - Paste a tracklist in plain text and automatically populate positions, titles, and durations<br>
 **🔠 Capitalization** - Capitalizes artists, joiners and titles (including Unicode / non-Latin)<br>
