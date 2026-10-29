@@ -33,11 +33,16 @@ extracts info from titles and assigns data to the appropriate fields*
 
 ⚡ Supports 18 digital music stores, including general music retailers, hi-res audio stores, and electronic music shops: **7digital, Apple Music, Bandcamp, Beatport, Bleep, Boomkat, eClassical, HDtracks, HighResAudio, Kompakt, Mora, NativeDSD, OTOTOY, Presto Music, ProStudioMasters, Qobuz, Traxsource, Volumo**
 
-**📝 Tracklist Import** - Paste a tracklist in plain text and automatically populate positions, titles, and durations<br>
+**📝 Tracklist Import** - Paste a tracklist in plain text and automatically populate positions, titles, and durations. 
+Two extra modes fill in only what’s missing:<br>
+⚡ Missing Artists mode - Fills in track-level artists only. The input format is auto-detected: a single artist applied to every track that has none, a tracklist matched by position (“1 - Artist - Track Title 3:45”), per-position lines (“1 Artist”), or line by line (one artist per track row, blank line to skip)<br>
+⚡ Missing Durations mode - Fills in durations only. The input format is auto-detected: a tracklist matched by position (“1 - Track Title 3:45”), per-position lines (“1 3:45”), or line by line (one duration per track row, blank line to skip)<br>
+
 **🔠 Capitalization** - Capitalizes artists, joiners and titles (including Unicode / non-Latin)<br>
 **🔢 Position Extraction** - Extracts and assigns track positions (e.g., “01”, “A1”) to position fields<br>
+**🔁 Bulk Rename** - Find and replace text across the fields you choose in one step<br>
 **🕛 Duration Extraction** - Extracts and assigns track durations (e.g., “3:45”) to duration fields<br>
-**✂️ Clean Titles** - Removes redundant bracket content from titles (e.g., “(Original Mix)”, “(Bonus Track)”)<br>
+**✂️ Cleanup Tools** - One menu for tidying titles: Standard Removal strips redundant bracket content (e.g., “(Original Mix)”, “(Bonus Track)”), Custom Removal strips any text you specify from all track titles, and Trim Whitespace removes leading and trailing spaces from all fields<br>
 **👤 Artist Extraction** - Extracts and assigns track-level artists from the “Artist - Title” format<br>
 **👥 Feat Artist Extraction** - Extracts and assigns featuring artists (e.g., “featuring”, “feat.”, etc.) to credits<br>
 **🎶 Remixer Extraction** - Extracts and assigns remixers (e.g., “remix”, “rmx”, etc.) to credits<br>
