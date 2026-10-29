@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      2.0
+// @version      2.1
 // @description  Imports metadata from web stores and plain-text tracklists, extracts info from titles and assigns data to the appropriate fields
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
@@ -10,10 +10,12 @@
 // @match        https://www.discogs.com/*/release/add
 // @grant        GM_xmlhttpRequest
 // @grant        GM_openInTab
+// @grant        GM_registerMenuCommand
 // @grant        GM_cookie.list
 // @grant        unsafeWindow
 // @connect      *
 // @run-at       document-idle
+// @inject-into  content
 // @license      MIT
 // @icon         https://raw.githubusercontent.com/chr1sx/Discogs-Edit-Helper/refs/heads/main/Images/icon-64.png
 // @downloadURL https://update.greasyfork.org/scripts/562100/Discogs%20Edit%20Helper.user.js
@@ -88,6 +90,8 @@
         REMIX_OPTIONAL_KEY: 'discogs_helper_remix_optional',
         CFG_TIMEOUT:        'discogs_helper_cfg_timeout',
         CFG_START_COLLAPSED:'discogs_helper_cfg_start_collapsed',
+        CFG_START_HIDDEN:   'discogs_helper_cfg_start_hidden',
+        CFG_HOTKEY:         'discogs_helper_cfg_hotkey',
         CFG_SPLITTER:       'discogs_helper_cfg_splitter',
         CFG_CREDIT_SEP:     'discogs_helper_cfg_credit_sep',
         CFG_FEATURING:      'discogs_helper_cfg_featuring',
@@ -121,7 +125,11 @@
         processingStartTime: null,
         actionHistory: [],
         isCollapsed: false,
+        isHidden: false,
         startCollapsed: false,
+        startHidden: false,
+        hotkey: { ctrl: true, alt: true, shift: false, meta: false, code: 'KeyD' },
+        capturingHotkey: false,
         capitalizeFields: { albumArtists: true, albumTitle: true, label: true, vaArtists: true, trackTitles: true, joiners: true, creditNames: true, trackCredits: true },
         capitalizeBtnFields: { albumArtists: true, albumTitle: true, label: true, vaArtists: true, trackTitles: true, joiners: true, creditNames: true, trackCredits: true },
         splitImport: true,
@@ -226,6 +234,13 @@
             if (storedTimeout) { const t = parseInt(storedTimeout, 10); if (t > 0) CONFIG.INACTIVITY_TIMEOUT_MS = t * 1000; }
             const storedCollapsed = localStorage.getItem(STORAGE_KEYS.CFG_START_COLLAPSED);
             if (storedCollapsed !== null) state.startCollapsed = (storedCollapsed === '1');
+            const storedHidden = localStorage.getItem(STORAGE_KEYS.CFG_START_HIDDEN);
+            if (storedHidden !== null) state.startHidden = (storedHidden === '1');
+            const storedHotkey = localStorage.getItem(STORAGE_KEYS.CFG_HOTKEY);
+            if (storedHotkey) {
+                const hk = JSON.parse(storedHotkey);
+                if (hk && typeof hk.code === 'string' && hk.code) state.hotkey = { ctrl: !!hk.ctrl, alt: !!hk.alt, shift: !!hk.shift, meta: !!hk.meta, code: hk.code };
+            }
             try {
                 const storedCapFields = localStorage.getItem(STORAGE_KEYS.CFG_CAPITALIZE_FIELDS);
                 if (storedCapFields) {
@@ -685,32 +700,6 @@
         }
     }
 
-    function updatePanelLog() {
-        const logContainer = document.getElementById('log-container');
-        if (!logContainer) return;
-        const colors = { info: '#9aa0a6', success: '#28a745', warning: '#ffc107', error: '#dc3545' };
-        logContainer.innerHTML = state.logMessages
-            .slice(-CONFIG.MAX_LOG_MESSAGES)
-            .map(entry => `<div style="color: ${colors[entry.type]}; margin: 2px 0;">[${entry.timestamp}] ${escapeHtml(entry.message)}</div>`)
-            .join('');
-        logContainer.scrollTop = logContainer.scrollHeight;
-    }
-
-    function setInfoSingleLine(text, success = true) {
-        const infoDiv = document.getElementById('track-info');
-        if (!infoDiv) return;
-        infoDiv.style.display = 'block';
-        infoDiv.style.whiteSpace = 'nowrap';
-        infoDiv.style.overflow = 'hidden';
-        infoDiv.style.textOverflow = 'ellipsis';
-        infoDiv.style.padding = '8px';
-        infoDiv.style.borderRadius = '4px';
-        infoDiv.style.fontSize = '12px';
-        infoDiv.style.textAlign = 'center';
-        infoDiv.style.color = CONFIG.INFO_TEXT_COLOR;
-        infoDiv.textContent = text;
-    }
-
     async function setInfoProcessing() {
         if (state.processingTimeout) {
             clearTimeout(state.processingTimeout);
@@ -870,7 +859,6 @@
                 lastSep = undefined; expectName = false;
             }
         }
-        return result.length > 0 ? result : [{ name: str.trim() }];
         return result.length > 0 ? result : [{ name: str.trim() }];
     }
 
@@ -1088,7 +1076,19 @@
         return null;
     }
 
+    function captureSavedContext(change) {
+        const input = change && change.titleInput;
+        if (!input || !input.isConnected || change.oldTitle === undefined || change.savedContainer) return;
+        const td = input.closest('td');
+        change.savedContainer = td || input.closest('li.editable_item') || input.parentElement;
+        change.savedRow = input.closest('tr');
+        change.savedCellClass = td ? td.className : undefined;
+        if (change.newTitle === undefined) change.newTitle = input.value || '';
+    }
+
     function addActionToHistory(action) {
+        const tracked = action.type === 'webImport' ? action.tracklistAction : action;
+        if (tracked && tracked.changes) for (const change of tracked.changes) captureSavedContext(change);
         state.actionHistory.push(action);
         if (state.actionHistory.length > CONFIG.MAX_HISTORY_STATES) {
             state.actionHistory.shift();
@@ -1795,15 +1795,6 @@
         return CONFIG.REMIX_PATTERNS.slice();
     }
 
-    function updateRemixToggleUI() {
-        const toggle = document.getElementById('toggle-remix-optional');
-        if (!toggle) return;
-        toggle.textContent = state.remixOptionalEnabled ? '✓' : '';
-        toggle.removeAttribute('title');
-        toggle.title = wrapTitle(`Automatically extract optional patterns:\n${CONFIG_RAW.REMIX_PATTERNS_OPTIONAL.map(patternToDisplay).join(', ')}`);
-        updateRemixButtonTitle();
-    }
-
     function updateRemixButtonTitle() {
         const remixBtn = document.getElementById('extract-remixers');
         if (!remixBtn) return;
@@ -2178,14 +2169,14 @@
         ].join(';');
         overlay.innerHTML = [
             `<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 8px 7px;border-bottom:1px solid ${isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.09)'};flex-shrink:0;">`,
-            `<strong style="font-size:13px;font-weight:600;color:${isDark ? '#ddd' : '#111'};user-select:none;-webkit-user-select:none;cursor:default;white-space:nowrap;letter-spacing:0.01em;"><span style="font-weight:normal;margin-right:4px;">✂️</span>Custom Text Removal</strong>`,
-            `<button id="dh-ct-close" style="background:none;border:none;cursor:pointer;font-size:13px;padding:1px 4px;opacity:0.65;color:${isDark ? '#aaa' : '#555'};">✕</button>`,
+            `<strong style="font-size:13px;font-weight:600;color:${isDark ? '#ddd' : '#111'};user-select:none;-webkit-user-select:none;cursor:default;white-space:nowrap;letter-spacing:0.01em;"><span style="font-weight:normal;margin-right:5px;">${dhIcon('eraser', 14)}</span>Custom Text Removal</strong>`,
+            `<button id="dh-ct-close" style="background:none;border:none;cursor:pointer;font-size:13px;padding:1px 4px;opacity:0.65;color:${isDark ? '#aaa' : '#555'};">${dhIcon('close', 14)}</button>`,
             '</div>',
             '<div style="padding:6px 10px 7px;flex-shrink:0;">',
             `<input type="text" id="dh-ct-custom-input" placeholder="Enter text to remove from track titles (including outside brackets)" style="width:100%;font-size:11px;border:1px solid ${isDark ? '#333' : '#ccc'};border-radius:4px;padding:5px 7px;box-sizing:border-box;background:${isDark ? '#1a1c1f' : '#fff'};color:${isDark ? '#ddd' : '#222'};">`,
             '</div>',
             `<div style="display:flex;align-items:center;gap:6px;padding:7px 10px 8px;border-top:1px solid ${isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)'};flex-shrink:0;">`,
-            '<button id="dh-ct-apply" style="flex:1;background:#28a745;color:#fff;border:1px solid transparent;border-radius:5px;padding:0;height:34px;box-sizing:border-box;font-size:12px;cursor:pointer;font-weight:600;">Apply</button>',
+            '<button id="dh-ct-apply" style="flex:1;background:#28a745;color:#fff;border:1px solid transparent;border-radius:5px;padding:0;height:34px;box-sizing:border-box;font-size:12px;cursor:pointer;font-weight:600;">' + dhBtnLabel('check', 'Apply') + '</button>',
             `<button id="dh-ct-cancel" style="flex:1;background:${isDark ? '#2a2c2f' : '#f0f0f0'};color:${isDark ? '#ccc' : '#444'};border:1px solid ${isDark ? '#444' : '#ccc'};border-radius:5px;padding:0;height:34px;box-sizing:border-box;font-size:12px;cursor:pointer;">Cancel</button>`,
             '</div>',
         ].join('');
@@ -2194,8 +2185,14 @@
         overlay.querySelector('#dh-ct-close').onclick  = close;
         overlay.querySelector('#dh-ct-cancel').onclick = close;
         overlay.querySelector('#dh-ct-apply').onclick  = () => {
-            const val = (overlay.querySelector('#dh-ct-custom-input')?.value || '').trim();
-            if (!val) return;
+            const ctInput = overlay.querySelector('#dh-ct-custom-input');
+            const val = (ctInput?.value || '').trim();
+            if (!val) {
+                ctInput.setAttribute('aria-invalid', 'true');
+                ctInput.focus();
+                log('Nothing to remove — enter the text to remove', 'warning');
+                return;
+            }
             close();
             cleanTitlesCustom(val);
         };
@@ -2203,6 +2200,7 @@
             if (e.key === 'Enter')  overlay.querySelector('#dh-ct-apply').click();
             if (e.key === 'Escape') close();
         });
+        overlay.querySelector('#dh-ct-custom-input').addEventListener('input', e => e.target.removeAttribute('aria-invalid'));
         overlay.querySelector('#dh-ct-custom-input').focus();
     }
 
@@ -3230,6 +3228,36 @@
         return false;
     }
 
+    async function restoreSavedField(change) {
+        if (change.oldTitle === undefined) return false;
+        const panel = document.getElementById('helper-panel');
+        const inputSel = 'input[data-type="artist-name"], input.credit-artist-name-input, input[data-type="artist-name-credits"], input[size="10"], input[id^="label-name-input"], input[data-type="track-title"], input[id*="track-title"], #release-title-input, #artist-name-input';
+        let box = change.savedContainer;
+        if (!box?.isConnected && change.savedRow?.isConnected && change.savedCellClass)
+            box = Array.from(change.savedRow.querySelectorAll('td')).find(td => td.className === change.savedCellClass) || null;
+        if (!box?.isConnected) return false;
+        const norm = (v) => (v || '').trim();
+        const findInput = () => Array.from(box.querySelectorAll(inputSel))
+            .find(i => i.isConnected && norm(i.value) === norm(change.newTitle) && i !== change.titleInput) || null;
+        let input = findInput();
+        if (!input) {
+            const pencil = Array.from(box.querySelectorAll('button'))
+                .find(b => (!panel || !panel.contains(b)) && b.querySelector('i.icon-pencil'));
+            if (!pencil) return false;
+            try { pencil.click(); } catch (e) { return false; }
+            const deadline = Date.now() + 3000;
+            while (!input && Date.now() < deadline) {
+                await new Promise(r => setTimeout(r, 80));
+                input = findInput();
+            }
+            if (!input) return false;
+            await new Promise(r => setTimeout(r, 150));
+        }
+        setReactValue(input, change.oldTitle);
+        change.titleInput = input;
+        return true;
+    }
+
     async function revertLastAction() {
     if (state.actionHistory.length === 0) {
         log('No action to revert', 'warning');
@@ -3273,10 +3301,15 @@
         return;
     }
 
-    if (lastAction.type === 'cleanTitles' || lastAction.type === 'capitalization' || lastAction.type === 'bracketsToParen' || lastAction.type === 'stripWhitespace') {
-        let restored = 0;
+    if (lastAction.type === 'cleanTitles' || lastAction.type === 'capitalization' || lastAction.type === 'bracketsToParen' || lastAction.type === 'stripWhitespace' || lastAction.type === 'bulkRename') {
+        let restored = 0, failedRestore = 0;
         for (const change of lastAction.changes) {
             if (change.titleInput && change.oldTitle !== undefined) {
+                if (!change.titleInput.isConnected) {
+                    if (await restoreSavedField(change)) restored++;
+                    else { failedRestore++; log('Could not find saved field to revert: "' + change.newTitle + '"', 'warning'); }
+                    continue;
+                }
                 setReactValue(change.titleInput, change.oldTitle);
                 restored++;
             }
@@ -3287,7 +3320,9 @@
         const verb = lastAction.type === 'bracketsToParen'  ? `bracket title${plural}`
                    : lastAction.type === 'cleanTitles'      ? `cleaned title${plural}`
                    : lastAction.type === 'stripWhitespace'  ? `stripped field${plural}`
+                   : lastAction.type === 'bulkRename'       ? `renamed field${plural}`
                    :                                          `capitalized field${plural}`;
+        if (failedRestore > 0 && restored === 0) { setInfoSingleLine(`Could not revert ${failedRestore} saved field${failedRestore !== 1 ? 's' : ''}`, false); return; }
         setInfoSingleLine(`Done! Reverted ${restored} ${verb}`, true);
         log(`Done! Reverted ${restored} ${verb}`, 'success');
         return;
@@ -3469,6 +3504,7 @@
             for (const change of historyToRevert) {
                 if (change.trackPositionInput?.isConnected) setReactValue(change.trackPositionInput, change.oldTrackPosition || '');
                 if (change.titleInput?.isConnected)         setReactValue(change.titleInput,         change.oldTitle        || '');
+                else if (change.savedContainer)             await restoreSavedField(change);
                 if (change.durationInput?.isConnected)      setReactValue(change.durationInput,      change.oldDuration     || '');
             }
 
@@ -3582,7 +3618,13 @@
         if (change.artistInput        && change.oldArtist        !== undefined && !originalArtists.has(change.artistInput))
             originalArtists.set(change.artistInput, change.oldArtist);
     }
-    for (const [el, val] of originalTitles)         if (el.isConnected) setReactValue(el, val);
+    for (const [el, val] of originalTitles) {
+        if (el.isConnected) setReactValue(el, val);
+    }
+    for (const ch of [...allChanges].reverse()) {
+        if (ch.titleInput && !ch.titleInput.isConnected && ch.oldTitle !== undefined && ch.savedContainer)
+            await restoreSavedField(ch);
+    }
     for (const [el, val] of originalDurations)      if (el.isConnected) setReactValue(el, val);
     for (const [el, val] of originalTrackPositions) if (el.isConnected) setReactValue(el, val);
     for (const [el, val] of originalArtists)        if (el.isConnected) setReactValue(el, val);
@@ -3725,37 +3767,6 @@
     if (failedRemovals > 0) log(`${failedRemovals} removal(s) failed during revert all`, 'warning');
 }
 
-    function updateRevertButtons() {
-        const revertLastBtn = document.getElementById('revert-last');
-        const revertAllBtn = document.getElementById('revert-all');
-        const count = state.actionHistory.filter(a => a.type !== 'webImport').length;
-
-        if (revertLastBtn) {
-            revertLastBtn.textContent = `↩️ Revert (${count})`;
-            if (count > 0) {
-                revertLastBtn.disabled = false;
-                revertLastBtn.style.opacity = '1';
-                revertLastBtn.style.cursor = 'pointer';
-            } else {
-                revertLastBtn.disabled = true;
-                revertLastBtn.style.opacity = '0.6';
-                revertLastBtn.style.cursor = 'default';
-            }
-        }
-
-        if (revertAllBtn) {
-            if (count > 0) {
-                revertAllBtn.disabled = false;
-                revertAllBtn.style.opacity = '1';
-                revertAllBtn.style.cursor = 'pointer';
-            } else {
-                revertAllBtn.disabled = true;
-                revertAllBtn.style.opacity = '0.6';
-                revertAllBtn.style.cursor = 'default';
-            }
-        }
-    }
-
     function openConfigPanel() {
         const existing = document.getElementById('dh-config-overlay');
         if (existing) {
@@ -3883,29 +3894,45 @@
         overlay.innerHTML = `
             <div class="dh-cfg-header" style="display:flex; align-items:center; justify-content:space-between; padding:5px 8px 7px; border-bottom:1px solid rgba(0,0,0,0.09); flex-shrink:0; gap:6px;">
                 <div style="display:flex; align-items:center; gap:6px; min-width:0;">
-                    <strong style="font-size:13px; font-weight:600; color:#111; user-select:none; -webkit-user-select:none; cursor:default; white-space:nowrap; letter-spacing:0.01em; flex-shrink:0;"><span style="font-weight:normal; margin-right:4px;">⚙️</span>Config</strong>
+                    <strong style="font-size:13px; font-weight:600; color:#111; user-select:none; -webkit-user-select:none; cursor:default; white-space:nowrap; letter-spacing:0.01em; flex-shrink:0;"><span style="font-weight:normal; margin-right:5px;">${dhIcon('config', 14)}</span>Config</strong>
                     <span class="dh-cfg-hint" style="font-size:10px; color:#555; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; user-select:none; -webkit-user-select:none; pointer-events:none;">Patterns are semicolon-separated, changes take effect on save.</span>
                 </div>
-                <button id="dh-config-close" title="Close" style="background:none; border:none; cursor:pointer; font-size:13px; padding:1px 4px; line-height:1; flex-shrink:0; opacity:0.65; color:#555;">✕</button>
+                <button id="dh-config-close" title="Close" style="background:none; border:none; cursor:pointer; font-size:13px; padding:1px 4px; line-height:1; flex-shrink:0; opacity:0.65; color:#555;">${dhIcon('close', 14)}</button>
             </div>
             <div class="dh-cfg-top-row" style="display:flex; align-items:center; gap:10px; padding:5px 9px 5px; border-bottom:1px solid rgba(0,0,0,0.07); flex-shrink:0; flex-wrap:wrap;">
-                <label style="display:flex; align-items:center; gap:5px; font-size:11px; cursor:pointer; user-select:none; white-space:nowrap;"
-                    title="Time before the side panel collapses due to inactivity">
-                    <span class="dh-cfg-top-label" style="font-weight:600;">Timeout (s):</span>
-                    <input type="number" id="cfg-timeout" min="5" max="3600"
-                        value="${Math.round(CONFIG.INACTIVITY_TIMEOUT_MS / 1000)}"
-                        style="width:54px; font-size:12px; border:1px solid #ccc; border-radius:4px; padding:2px 5px; box-sizing:border-box; color:#222;">
-                </label>
-                <label style="display:flex; align-items:center; gap:5px; font-size:11px; cursor:pointer; user-select:none; white-space:nowrap;"
-                    title="Start the side panel collapsed every time the page loads">
-                    <input type="checkbox" id="cfg-start-collapsed" ${state.startCollapsed ? 'checked' : ''}>
-                    <span class="dh-cfg-top-label" style="font-weight:600;">Collapsed</span>
-                </label>
+                <div style="position:relative; display:inline-block;">
+                    <button id="cfg-panel-toggle" type="button"
+                        title="Panel behavior: inactivity timeout, start collapsed or hidden, hotkey"
+                        style="display:flex; align-items:center; gap:4px; font-size:11px; font-weight:600; cursor:pointer; user-select:none; white-space:nowrap; background:none; border:none; padding:0; color:inherit;">
+                        Panel ${dhIcon('chevdown', 10, true)}
+                    </button>
+                    <div id="cfg-panel-dropdown" style="display:none; position:fixed; z-index:9999; background:#fff; border:1px solid #ccc; border-radius:5px; padding:7px 10px 8px 8px; box-shadow:0 3px 10px rgba(0,0,0,0.15); flex-direction:column; gap:6px; width:max-content;">
+                        <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:11px;white-space:nowrap;" title="Time before the side panel collapses (or hides) due to inactivity">
+                            <span>Timeout (s)</span>
+                            <input type="number" id="cfg-timeout" min="5" max="3600"
+                                value="${Math.round(CONFIG.INACTIVITY_TIMEOUT_MS / 1000)}"
+                                style="width:54px; font-size:12px; border:1px solid #ccc; border-radius:4px; padding:2px 5px; box-sizing:border-box; color:#222;">
+                        </label>
+                        <label style="display:flex;align-items:center;gap:5px;font-size:11px;cursor:pointer;white-space:nowrap;" title="Start the side panel collapsed every time the page loads">
+                            <input type="checkbox" id="cfg-start-collapsed" ${state.startCollapsed && !state.startHidden ? 'checked' : ''}>
+                            <span>Start collapsed</span>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:5px;font-size:11px;cursor:pointer;white-space:nowrap;" title="Start with the side panel hidden; show or hide it with the hotkey\n(inactivity timeout hides it completely)">
+                            <input type="checkbox" id="cfg-start-hidden" ${state.startHidden ? 'checked' : ''}>
+                            <span>Start hidden</span>
+                        </label>
+                        <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:11px;white-space:nowrap;" title="Show or hide the panel\nClick the box, then press the new key combination (Esc to cancel)">
+                            <span>Hotkey</span>
+                            <input type="text" id="cfg-hotkey" readonly value="${dhFormatHotkey(state.hotkey)}" data-hotkey='${JSON.stringify(state.hotkey)}'
+                                style="width:104px; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:2px 5px; box-sizing:border-box; color:#222; text-align:center; cursor:pointer;">
+                        </label>
+                    </div>
+                </div>
                 <div style="position:relative; display:inline-block;">
                     <button id="cfg-import-toggle" type="button"
                         title="Web import options"
                         style="display:flex; align-items:center; gap:4px; font-size:11px; font-weight:600; cursor:pointer; user-select:none; white-space:nowrap; background:none; border:none; padding:0; color:inherit;">
-                        Import &#9660;
+                        Import ${dhIcon('chevdown', 10, true)}
                     </button>
                     <div id="cfg-import-dropdown" style="display:none; position:fixed; z-index:9999; background:#fff; border:1px solid #ccc; border-radius:5px; padding:6px 13px 6px 8px; box-shadow:0 3px 10px rgba(0,0,0,0.15); flex-direction:column; gap:4px; width:max-content; max-height:60vh; overflow-y:auto;">
                         <label style="display:flex;align-items:center;gap:5px;font-size:11px;cursor:pointer;white-space:nowrap;" title="Split artists when importing from web stores">
@@ -3946,7 +3973,7 @@
                     <button id="cfg-capitalize-toggle" type="button"
                         title="Controls which fields are included when using Everything button"
                         style="display:flex; align-items:center; gap:4px; font-size:11px; font-weight:600; cursor:pointer; user-select:none; white-space:nowrap; background:none; border:none; padding:0; color:inherit;">
-                        Capitalize &#9660;
+                        Capitalize ${dhIcon('chevdown', 10, true)}
                     </button>
                     <div id="cfg-capitalize-dropdown" style="display:none; position:fixed; z-index:9999; background:#fff; border:1px solid #ccc; border-radius:5px; padding:6px 13px 6px 8px; box-shadow:0 3px 10px rgba(0,0,0,0.15); flex-direction:column; gap:4px; width:max-content; max-height:60vh; overflow-y:auto;">
                         <label style="display:flex;align-items:center;gap:5px;font-size:11px;cursor:pointer;white-space:nowrap;" title="Preserve mixed-case words as-is (e.g. DnB, iTunes)">
@@ -3961,7 +3988,7 @@
                     <button id="cfg-filetype-toggle" type="button"
                         title="Preferred file type per platform"
                         style="display:flex; align-items:center; gap:4px; font-size:11px; font-weight:600; cursor:pointer; user-select:none; white-space:nowrap; background:none; border:none; padding:0; color:inherit;">
-                        File Type &#9660;
+                        File Type ${dhIcon('chevdown', 10, true)}
                     </button>
                     <div id="cfg-filetype-dropdown" style="display:none; position:fixed; z-index:9999; background:#fff; border:1px solid #ccc; border-radius:5px; padding:6px 10px 8px 8px; box-shadow:0 3px 10px rgba(0,0,0,0.15); flex-direction:column; gap:4px; width:max-content; max-height:60vh; overflow-y:auto; scrollbar-gutter:stable;">
                         ${(() => Object.keys(WI_FILE_TYPE_TABLE).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase())).map(store => {
@@ -3980,7 +4007,7 @@
                 ${fieldsHtml}
             </div>
             <div class="dh-cfg-footer" style="display:flex; align-items:center; gap:6px; padding:7px 10px 8px; flex-shrink:0; border-top:1px solid rgba(0,0,0,0.07);">
-                <button id="dh-config-save"    style="flex:2; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600; box-sizing:border-box;">Save</button>
+                <button id="dh-config-save"    style="flex:2; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600; box-sizing:border-box;">${dhBtnLabel('save', 'Save')}</button>
                 <button id="dh-config-reset"   style="flex:1; height:34px; background:#f1f3f5; color:#c00; border:1px solid #e4e6e8; border-radius:5px; cursor:pointer; font-size:13px; box-sizing:border-box;">Reset defaults</button>
                 <button id="dh-config-cancel"  style="flex:1; height:34px; background:#f1f3f5; color:#111; border:1px solid #ccc; border-radius:5px; cursor:pointer; font-size:13px; box-sizing:border-box;">Cancel</button>
             </div>
@@ -4009,6 +4036,21 @@
             if (startCollapsedEl) {
                 state.startCollapsed = startCollapsedEl.checked;
                 try { localStorage.setItem(STORAGE_KEYS.CFG_START_COLLAPSED, state.startCollapsed ? '1' : '0'); } catch(e) {}
+            }
+            const startHiddenEl = document.getElementById('cfg-start-hidden');
+            if (startHiddenEl) {
+                state.startHidden = startHiddenEl.checked;
+                try { localStorage.setItem(STORAGE_KEYS.CFG_START_HIDDEN, state.startHidden ? '1' : '0'); } catch(e) {}
+            }
+            const hotkeyEl = document.getElementById('cfg-hotkey');
+            if (hotkeyEl && hotkeyEl.dataset.hotkey) {
+                try {
+                    const hk = JSON.parse(hotkeyEl.dataset.hotkey);
+                    if (hk && hk.code) {
+                        state.hotkey = { ctrl: !!hk.ctrl, alt: !!hk.alt, shift: !!hk.shift, meta: !!hk.meta, code: hk.code };
+                        localStorage.setItem(STORAGE_KEYS.CFG_HOTKEY, JSON.stringify(state.hotkey));
+                    }
+                } catch(e) {}
             }
             document.querySelectorAll('.cfg-cap-field').forEach(cb => {
                 state.capitalizeFields[cb.dataset.field] = cb.checked;
@@ -4140,6 +4182,8 @@
             CONFIG.NOT_ON_LABEL_SKIPLIST    = [...CONFIG_DEFAULTS.NOT_ON_LABEL_SKIPLIST];
             CONFIG.INACTIVITY_TIMEOUT_MS    = CONFIG_DEFAULTS.INACTIVITY_TIMEOUT_MS;
             state.startCollapsed            = false;
+            state.startHidden               = false;
+            state.hotkey                    = { ctrl: true, alt: true, shift: false, meta: false, code: 'KeyD' };
             state.capitalizeFields          = { albumArtists: true, albumTitle: true, label: true, vaArtists: true, trackTitles: true, joiners: true, creditNames: true, trackCredits: true };
             state.capitalizeBtnFields       = { albumArtists: true, albumTitle: true, label: true, vaArtists: true, trackTitles: true, joiners: true, creditNames: true, trackCredits: true };
             state.splitImport               = true;
@@ -4161,6 +4205,7 @@
                 STORAGE_KEYS.CFG_TIMEOUT, STORAGE_KEYS.CFG_START_COLLAPSED, STORAGE_KEYS.CFG_CAPITALIZE_FIELDS, STORAGE_KEYS.CFG_CAPITALIZE_BTN_FIELDS, STORAGE_KEYS.CFG_SPLIT_IMPORT, STORAGE_KEYS.CFG_IMPORT_CREDITS, STORAGE_KEYS.CFG_IMPORT_STYLES, STORAGE_KEYS.CFG_IMPORT_AUTO_REMIXERS, STORAGE_KEYS.CFG_IMPORT_AUTO_FEAT, STORAGE_KEYS.CFG_CAPITALIZE_MIXED, STORAGE_KEYS.CFG_IMPORT_AUTO_DESCR, STORAGE_KEYS.CFG_IMPORT_COUNTRY
             ];
             keys.forEach(k => { try { localStorage.removeItem(k); } catch(e) {} });
+            try { localStorage.removeItem(STORAGE_KEYS.CFG_START_HIDDEN); localStorage.removeItem(STORAGE_KEYS.CFG_HOTKEY); } catch(e) {}
             try { localStorage.removeItem(STORAGE_KEYS.CFG_PREFERRED_FILE_TYPES); } catch(e) {}
             fields.forEach(f => {
                 const el = document.getElementById(f.id);
@@ -4170,6 +4215,13 @@
             if (tEl) tEl.value = Math.round(CONFIG_DEFAULTS.INACTIVITY_TIMEOUT_MS / 1000);
             const scEl = document.getElementById('cfg-start-collapsed');
             if (scEl) scEl.checked = false;
+            const shEl = document.getElementById('cfg-start-hidden');
+            if (shEl) shEl.checked = false;
+            const hkResetEl = document.getElementById('cfg-hotkey');
+            if (hkResetEl) {
+                hkResetEl.dataset.hotkey = JSON.stringify(state.hotkey);
+                hkResetEl.value = dhFormatHotkey(state.hotkey);
+            }
             document.querySelectorAll('.cfg-cap-field').forEach(cb => { cb.checked = true; });
             document.querySelectorAll('.cfg-cap-btn-field').forEach(cb => { cb.checked = true; });
             const capMixedEl = document.getElementById('cfg-capitalize-mixed');
@@ -4221,9 +4273,10 @@
                     _capDropdown.style.right = (window.innerWidth - r.right) + 'px';
                 }
                 _capDropdown.style.display = open ? 'none' : 'flex';
-                _capToggle.textContent = open ? 'Capitalize \u25BC' : 'Capitalize \u25B2';
-                if (!open && _impDropdown) { _impDropdown.style.display = 'none'; _impToggle.textContent = 'Import \u25BC'; }
-                  if (!open && _ftDropdown) { _ftDropdown.style.display = 'none'; _ftToggle.textContent = 'File Type \u25BC'; }
+                _capToggle.innerHTML = dhArrowLabel('Capitalize', open);
+                if (!open && _panelDropdown) { _panelDropdown.style.display = 'none'; _panelToggle.innerHTML = dhArrowLabel('Panel', true); }
+                if (!open && _impDropdown) { _impDropdown.style.display = 'none'; _impToggle.innerHTML = dhArrowLabel('Import', true); }
+                  if (!open && _ftDropdown) { _ftDropdown.style.display = 'none'; _ftToggle.innerHTML = dhArrowLabel('File Type', true); }
                 const isDark = localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
                 _capDropdown.style.background  = isDark ? '#1f2224' : '#fff';
                 _capDropdown.style.borderColor = isDark ? '#444' : '#ccc';
@@ -4236,7 +4289,7 @@
             });
             document.addEventListener('click', () => {
                 _capDropdown.style.display = 'none';
-                _capToggle.textContent = 'Capitalize \u25BC';
+                _capToggle.innerHTML = dhArrowLabel('Capitalize', true);
             });
             _capDropdown.addEventListener('click', e => e.stopPropagation());
         }
@@ -4253,9 +4306,10 @@
                     _ftDropdown.style.right = (window.innerWidth - r.right) + 'px';
                 }
                 _ftDropdown.style.display = open ? 'none' : 'flex';
-                _ftToggle.textContent = open ? 'File Type \u25BC' : 'File Type \u25B2';
-                if (!open && _impDropdown) { _impDropdown.style.display = 'none'; _impToggle.textContent = 'Import \u25BC'; }
-                if (!open && _capDropdown) { _capDropdown.style.display = 'none'; _capToggle.textContent = 'Capitalize \u25BC'; }
+                _ftToggle.innerHTML = dhArrowLabel('File Type', open);
+                if (!open && _panelDropdown) { _panelDropdown.style.display = 'none'; _panelToggle.innerHTML = dhArrowLabel('Panel', true); }
+                if (!open && _impDropdown) { _impDropdown.style.display = 'none'; _impToggle.innerHTML = dhArrowLabel('Import', true); }
+                if (!open && _capDropdown) { _capDropdown.style.display = 'none'; _capToggle.innerHTML = dhArrowLabel('Capitalize', true); }
                 const isDark = localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
                 _ftDropdown.style.background  = isDark ? '#1f2224' : '#fff';
                 _ftDropdown.style.borderColor = isDark ? '#444' : '#ccc';
@@ -4268,7 +4322,7 @@
             });
             document.addEventListener('click', () => {
                 _ftDropdown.style.display = 'none';
-                _ftToggle.textContent = 'File Type \u25BC';
+                _ftToggle.innerHTML = dhArrowLabel('File Type', true);
             });
             _ftDropdown.addEventListener('click', e => e.stopPropagation());
         }
@@ -4281,6 +4335,66 @@
                 boxes.forEach(cb => { cb.checked = !allChecked; });
                 _capToggleAll.textContent = allChecked ? 'Select All' : 'Deselect All';
             });
+        }
+
+        const _panelToggle   = document.getElementById('cfg-panel-toggle');
+        const _panelDropdown = document.getElementById('cfg-panel-dropdown');
+        if (_panelToggle && _panelDropdown) {
+            _panelToggle.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const open = _panelDropdown.style.display !== 'none';
+                if (!open) {
+                    const r = _panelToggle.getBoundingClientRect();
+                    _panelDropdown.style.top   = r.bottom + 'px';
+                    _panelDropdown.style.right = '';
+                    _panelDropdown.style.left  = r.left + 'px';
+                }
+                _panelDropdown.style.display = open ? 'none' : 'flex';
+                _panelToggle.innerHTML = dhArrowLabel('Panel', open);
+                if (!open && _impDropdown) { _impDropdown.style.display = 'none'; _impToggle.innerHTML = dhArrowLabel('Import', true); }
+                if (!open && _capDropdown) { _capDropdown.style.display = 'none'; _capToggle.innerHTML = dhArrowLabel('Capitalize', true); }
+                if (!open && _ftDropdown) { _ftDropdown.style.display = 'none'; _ftToggle.innerHTML = dhArrowLabel('File Type', true); }
+                const isDark = localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
+                _panelDropdown.style.background  = isDark ? '#1f2224' : '#fff';
+                _panelDropdown.style.borderColor = isDark ? '#444' : '#ccc';
+                _panelDropdown.style.color       = isDark ? '#ddd' : '#111';
+            });
+            document.addEventListener('click', () => {
+                _panelDropdown.style.display = 'none';
+                _panelToggle.innerHTML = dhArrowLabel('Panel', true);
+            });
+            _panelDropdown.addEventListener('click', e => e.stopPropagation());
+
+            const _startCollapsedBox = document.getElementById('cfg-start-collapsed');
+            const _startHiddenBox    = document.getElementById('cfg-start-hidden');
+            if (_startCollapsedBox && _startHiddenBox) {
+                _startCollapsedBox.addEventListener('change', () => { if (_startCollapsedBox.checked) _startHiddenBox.checked = false; });
+                _startHiddenBox.addEventListener('change', () => { if (_startHiddenBox.checked) _startCollapsedBox.checked = false; });
+            }
+
+            const _hotkeyBox = document.getElementById('cfg-hotkey');
+            if (_hotkeyBox) {
+                const showCurrent = () => {
+                    try { _hotkeyBox.value = dhFormatHotkey(JSON.parse(_hotkeyBox.dataset.hotkey)); } catch(e) {}
+                };
+                _hotkeyBox.addEventListener('focus', () => {
+                    state.capturingHotkey = true;
+                    _hotkeyBox.value = 'Press keys...';
+                });
+                _hotkeyBox.addEventListener('blur', () => {
+                    state.capturingHotkey = false;
+                    showCurrent();
+                });
+                _hotkeyBox.addEventListener('keydown', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (['Control', 'Alt', 'Shift', 'Meta', 'AltGraph'].includes(e.key)) return;
+                    if (e.key === 'Escape') { _hotkeyBox.blur(); return; }
+                    if (!(e.ctrlKey || e.altKey || e.metaKey)) return;
+                    _hotkeyBox.dataset.hotkey = JSON.stringify({ ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey, meta: e.metaKey, code: e.code });
+                    _hotkeyBox.blur();
+                });
+            }
         }
 
         const _impToggle   = document.getElementById('cfg-import-toggle');
@@ -4296,9 +4410,10 @@
                     _impDropdown.style.right = (window.innerWidth - r.right) + 'px';
                 }
                 _impDropdown.style.display = open ? 'none' : 'flex';
-                _impToggle.textContent = open ? 'Import \u25BC' : 'Import \u25B2';
-                if (!open && _capDropdown) { _capDropdown.style.display = 'none'; _capToggle.textContent = 'Capitalize \u25BC'; }
-                if (!open && _ftDropdown) { _ftDropdown.style.display = 'none'; _ftToggle.textContent = 'File Type \u25BC'; }
+                _impToggle.innerHTML = dhArrowLabel('Import', open);
+                if (!open && _panelDropdown) { _panelDropdown.style.display = 'none'; _panelToggle.innerHTML = dhArrowLabel('Panel', true); }
+                if (!open && _capDropdown) { _capDropdown.style.display = 'none'; _capToggle.innerHTML = dhArrowLabel('Capitalize', true); }
+                if (!open && _ftDropdown) { _ftDropdown.style.display = 'none'; _ftToggle.innerHTML = dhArrowLabel('File Type', true); }
                 const isDark = localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
                 _impDropdown.style.background  = isDark ? '#1f2224' : '#fff';
                 _impDropdown.style.borderColor = isDark ? '#444' : '#ccc';
@@ -4313,7 +4428,7 @@
             });
             document.addEventListener('click', () => {
                 _impDropdown.style.display = 'none';
-                _impToggle.textContent = 'Import \u25BC';
+                _impToggle.innerHTML = dhArrowLabel('Import', true);
             });
             _impDropdown.addEventListener('click', e => e.stopPropagation());
         }
@@ -4438,80 +4553,6 @@
         }
     }
 
-    function applyTheme(theme) {
-        const panel = document.getElementById('helper-panel');
-        if (!panel) return;
-        const panelContent = panel.querySelector('#panel-content');
-        const styleButtons = panel.querySelectorAll('.dh-btn');
-        const themeBtn = panel.querySelector('#theme-toggle');
-        const collapseBtn = panel.querySelector('#collapse-panel');
-        const closeBtn = panel.querySelector('#close-panel');
-        const configBtn = panel.querySelector('#config-panel');
-        const logContainer = panel.querySelector('#log-container');
-        const infoDiv = panel.querySelector('#track-info');
-        const headerTitle = panel.querySelector('.panel-header strong');
-        const featToggle = document.getElementById('toggle-feat-remove');
-        const mainToggle = document.getElementById('toggle-main-remove');
-        const remixToggle = document.getElementById('toggle-remix-optional');
-        const activeBlueLight = '#1e66d6';
-        const activeBlueDark = '#0b5fd6';
-        const inactiveBgLight = 'rgba(0,0,0,0.05)';
-        const inactiveBgDark = 'rgba(255,255,255,0.04)';
-        const borderColLight = 'rgba(0,0,0,0.12)';
-        const borderColDark = 'rgba(255,255,255,0.08)';
-        const miniButtons = panel.querySelectorAll('#extract-remixers-optional-only, #remove-main-from-title, #remove-feat-from-title, #swap-artist-title');
-        const configOverlay = document.getElementById('dh-config-overlay');
-
-        if (theme === 'dark') {
-            panel.style.background = '#0f1112';
-            panel.style.color = '#ddd';
-            if (panelContent) panelContent.style.background = '#111216';
-            styleButtons.forEach(btn => { btn.style.background = '#1f2224'; btn.style.color = '#ddd'; btn.style.border = '1px solid #262626'; });
-            if (infoDiv) { infoDiv.style.background = '#161718'; infoDiv.style.color = CONFIG.INFO_TEXT_COLOR; }
-            if (logContainer) { logContainer.style.background = '#0e0f10'; logContainer.style.color = '#cfcfcf'; }
-            if (themeBtn)   { themeBtn.textContent = '☀'; themeBtn.style.color = '#fff'; }
-            if (collapseBtn) collapseBtn.style.color = '#fff';
-            if (closeBtn)    closeBtn.style.color = '#fff';
-            if (configBtn)   configBtn.style.color = '#fff';
-            if (headerTitle) { headerTitle.style.color = '#fff'; headerTitle.style.whiteSpace = 'nowrap'; headerTitle.style.overflow = 'hidden'; headerTitle.style.textOverflow = 'ellipsis'; }
-            if (featToggle)  { featToggle.style.background = state.removeFeatFromTitle ? activeBlueDark : inactiveBgDark;  featToggle.style.color = '#fff'; featToggle.style.border = `0.5px solid ${state.removeFeatFromTitle ? '#1b446f' : borderColDark}`; }
-            if (mainToggle)  { mainToggle.style.background = state.removeMainFromTitle ? activeBlueDark : inactiveBgDark;  mainToggle.style.color = '#fff'; mainToggle.style.border = `0.5px solid ${state.removeMainFromTitle ? '#1b446f' : borderColDark}`; }
-            if (remixToggle) { remixToggle.style.background = state.remixOptionalEnabled ? activeBlueDark : inactiveBgDark; remixToggle.style.color = '#fff'; remixToggle.style.border = `0.5px solid ${state.remixOptionalEnabled ? '#1b446f' : borderColDark}`; }
-            miniButtons.forEach(mb => { mb.style.background = inactiveBgDark; mb.style.borderColor = borderColDark; });
-            panel.querySelectorAll('.dh-divider').forEach(d => { d.style.background = 'rgba(255,255,255,0.07)'; });
-            const ph = panel.querySelector('.panel-header'); if (ph) ph.style.borderBottomColor = 'rgba(255,255,255,0.07)';
-
-            _applyThemeToConfigOverlay(configOverlay, true);
-            _applyThemeToImporterOverlay(document.getElementById('dh-importer-overlay'), true);
-            _applyThemeToWebImporter(document.getElementById('dh-web-importer-overlay'), true);
-        } else {
-            panel.style.background = '#fff';
-            panel.style.color = '#111';
-            if (panelContent) panelContent.style.background = '#fff';
-            styleButtons.forEach(btn => { btn.style.background = '#f1f3f5'; btn.style.color = '#111'; btn.style.border = '1px solid #e4e6e8'; });
-            if (infoDiv) { infoDiv.style.background = '#f8f9fa'; infoDiv.style.color = CONFIG.INFO_TEXT_COLOR; }
-            if (logContainer) { logContainer.style.background = '#f8f9fa'; logContainer.style.color = '#6b6b6b'; }
-            if (themeBtn)   { themeBtn.textContent = '☾'; themeBtn.style.color = '#111'; }
-            if (collapseBtn) collapseBtn.style.color = '#111';
-            if (closeBtn)    closeBtn.style.color = '#555';
-            if (configBtn)   configBtn.style.color = '#111';
-            if (headerTitle) { headerTitle.style.color = '#111'; headerTitle.style.whiteSpace = 'nowrap'; headerTitle.style.overflow = 'hidden'; headerTitle.style.textOverflow = 'ellipsis'; }
-            if (featToggle)  { featToggle.style.background = state.removeFeatFromTitle ? activeBlueLight : inactiveBgLight; featToggle.style.color = state.removeFeatFromTitle ? '#fff' : '#111'; featToggle.style.border = `0.5px solid ${state.removeFeatFromTitle ? '#bfcfe8' : borderColLight}`; }
-            if (mainToggle)  { mainToggle.style.background = state.removeMainFromTitle ? activeBlueLight : inactiveBgLight; mainToggle.style.color = state.removeMainFromTitle ? '#fff' : '#111'; mainToggle.style.border = `0.5px solid ${state.removeMainFromTitle ? '#bfcfe8' : borderColLight}`; }
-            if (remixToggle) { remixToggle.style.background = state.remixOptionalEnabled ? activeBlueLight : inactiveBgLight; remixToggle.style.color = state.remixOptionalEnabled ? '#fff' : '#111'; remixToggle.style.border = `0.5px solid ${state.remixOptionalEnabled ? '#bfcfe8' : borderColLight}`; }
-            miniButtons.forEach(mb => { mb.style.background = inactiveBgLight; mb.style.borderColor = borderColLight; });
-            panel.querySelectorAll('.dh-divider').forEach(d => { d.style.background = 'rgba(0,0,0,0.08)'; });
-            const ph2 = panel.querySelector('.panel-header'); if (ph2) ph2.style.borderBottomColor = 'rgba(0,0,0,0.08)';
-
-            _applyThemeToConfigOverlay(configOverlay, false);
-            _applyThemeToImporterOverlay(document.getElementById('dh-importer-overlay'), false);
-            _applyThemeToWebImporter(document.getElementById('dh-web-importer-overlay'), false);
-        }
-        if (featToggle)  { featToggle.title = 'Automatically remove feat artists from titles'; featToggle.textContent  = state.removeFeatFromTitle  ? '✓' : ''; }
-        if (mainToggle)  { mainToggle.title = 'Automatically remove main artists from titles'; mainToggle.textContent  = state.removeMainFromTitle  ? '✓' : ''; }
-        if (remixToggle) updateRemixToggleUI();
-    }
-
     function initThemeFromStorage() {
         let theme = 'light';
         try {
@@ -4535,127 +4576,6 @@
             if (cur) out += (out ? '\n' : '') + cur;
             return out;
         }).join('\n');
-    }
-
-    function addPanelStyles() {
-        if (document.getElementById('discogs-helper-panel-styles')) return;
-        const css = `
-            .dh-btn {
-                height: 34px !important;
-                line-height: 1 !important;
-                display: flex !important;
-                align-items: center !important;
-                justify-content: flex-start !important;
-                white-space: nowrap !important;
-                padding: 0 10px !important;
-                margin-bottom: 5px !important;
-                font-size: 14px !important;
-                border-radius: 5px !important;
-                gap: 6px !important;
-                letter-spacing: 0.01em !important;
-                transition: opacity 0.1s !important;
-            }
-            .dh-btn:hover { opacity: 0.85 !important; }
-            .dh-btn:active { opacity: 0.7 !important; }
-            #capitalize-all-wrap {
-                flex: 1 1 0 !important;
-                min-width: 0 !important;
-                background: transparent !important;
-            }
-            #capitalize-all-wrap #capitalize-all {
-                width: 100% !important;
-            }
-            .dh-icon-btn {
-                height: 34px !important;
-                flex: 1 1 0 !important;
-                min-width: 0 !important;
-                width: auto !important;
-                max-width: none !important;
-                justify-content: center !important;
-                font-size: 18px !important;
-                padding: 0 !important;
-                margin-bottom: 0 !important;
-                border-radius: 5px !important;
-            }
-            .dh-divider {
-                height: 1px; margin: 5px 0; border: none;
-                background: rgba(0,0,0,0.07); border-radius: 1px;
-            }
-            #revert-last, #revert-all {
-                margin-bottom: 0 !important;
-                font-size: 14px !important;
-                height: 34px !important;
-                padding: 0 10px !important;
-            }
-            #dh-importer-textarea::-webkit-resizer { width: 15px; height: 15px; }
-            #dh-importer-textarea { resize: vertical; }
-            #helper-panel {
-                border-radius: 8px !important; overflow: hidden !important;
-                box-sizing: border-box !important;
-            }
-            #helper-panel .panel-header strong {
-                white-space: nowrap; overflow: hidden;
-                text-overflow: ellipsis; display: inline-block; vertical-align: middle;
-            }
-            #helper-panel #panel-content { box-sizing: border-box; background: transparent; }
-            #helper-panel #log-container {
-                border-bottom-left-radius: 8px; border-bottom-right-radius: 8px;
-                box-sizing: border-box;
-            }
-            #helper-panel, #helper-panel * { box-sizing: border-box; }
-            #track-info {
-                font-size: 13px !important;
-                padding: 4px 8px !important;
-                border-radius: 4px !important;
-                margin-top: 5px !important;
-            }
-            #extract-remixers-optional-only, #remove-main-from-title, #remove-feat-from-title, #swap-artist-title,
-            #toggle-feat-remove, #toggle-remix-optional, #toggle-main-remove {
-                width: 30px !important; height: 30px !important;
-                display: inline-flex; align-items: center; justify-content: center;
-                border-radius: 5px; cursor: pointer; user-select: none;
-                transition: all 0.1s ease-in-out;
-                border-width: 0.5px !important; border-style: solid; flex-shrink: 0;
-            }
-            #toggle-feat-remove, #toggle-remix-optional, #toggle-main-remove { font-size: 16px !important; }
-            #extract-remixers-optional-only { font-size: 18px !important; }
-            #remove-main-from-title, #remove-feat-from-title { font-size: 16px !important; }
-            #swap-artist-title { font-size: 20px !important; }
-            #extract-remixers-optional-only:hover, #remove-main-from-title:hover,
-            #remove-feat-from-title:hover, #swap-artist-title:hover, #toggle-feat-remove:hover,
-            #toggle-remix-optional:hover, #toggle-main-remove:hover { transform: scale(1.12); }
-            #extract-remixers-optional-only:active, #remove-main-from-title:active,
-            #remove-feat-from-title:active, #swap-artist-title:active, #toggle-feat-remove:active,
-            #toggle-remix-optional:active, #toggle-main-remove:active { transform: scale(0.9); }
-            #toggle-feat-remove:focus, #toggle-remix-optional:focus, #toggle-main-remove:focus {
-                outline: 2px solid rgba(30,102,214,0.3);
-            }
-            #dh-config-overlay input[type="text"]:focus,
-            #dh-wi-url:focus,
-            #dh-ct-custom-input:focus,
-            #dh-bp-query:focus,
-            #dh-importer-textarea:focus {
-                outline: none !important;
-                box-shadow:
-                    0 0 0 1px rgba(30,102,214,0.50),
-                    0 0 0 2px rgba(30,102,214,0.24),
-                    0 0 0 3px rgba(30,102,214,0.16),
-                    0 0 0 4px rgba(30,102,214,0.09),
-                    0 0 0 5px rgba(30,102,214,0.05),
-                    0 0 0 6px rgba(30,102,214,0.03) !important;
-            }
-            #dh-config-overlay input[type="text"], #dh-wi-url, #dh-ct-custom-input, #dh-bp-query, #dh-importer-textarea {
-                box-shadow: none !important;
-            }
-            #dh-config-overlay .dh-cfg-scroll > div {
-                border: none !important;
-                box-shadow: none !important;
-            }
-        `;
-        const style = document.createElement('style');
-        style.id = 'discogs-helper-panel-styles';
-        style.appendChild(document.createTextNode(css));
-        document.head.appendChild(style);
     }
 
     function getTrackInputRows() {
@@ -5370,7 +5290,7 @@
                     });
                 };
 
-                if ((isBoomkat || isDiscogs || isBandcamp || isPresto) && typeof GM_cookie !== 'undefined' && typeof GM_cookie.list === 'function') {
+                if ((isBoomkat || isDiscogs || isBandcamp || isPresto || isNativeDSD) && typeof GM_cookie !== 'undefined' && typeof GM_cookie.list === 'function') {
                     GM_cookie.list({ url: urlObj.origin }, (cookies, error) => {
                         if (!error && cookies && cookies.length) {
                             const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
@@ -7746,8 +7666,7 @@
             width: 290px;
             height: 380px;
             box-sizing: border-box;
-            background: ${bg};
-            border: 1px solid ${border};
+            border: 1px solid transparent;
             border-radius: 7px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.08);
             z-index: 2147483000;
@@ -7758,9 +7677,9 @@
         `;
         panel.innerHTML = `
             <style>@keyframes dh-bp-slide{0%{transform:translateX(-100%)}100%{transform:translateX(300%)}}@keyframes dh-bp-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}@media (prefers-reduced-motion:reduce){#dh-wi-beatport-panel i{animation:none!important}}</style>
-            <div style="position:relative;padding:7px 8px;border-bottom:1px solid ${border};flex-shrink:0;">
-                <input type="text" id="dh-bp-query" value="${esc(`${artist || ''} ${title || ''}`.trim())}" placeholder="Search Beatport..." style="width:100%;font-size:11px;padding:5px 7px;border:1px solid ${inputBorder};border-radius:4px;background:${inputBg};color:${inputColor};box-sizing:border-box;outline:none;">
-                <div id="dh-bp-bar" style="position:absolute;left:0;right:0;bottom:-1px;height:2px;overflow:hidden;opacity:0;pointer-events:none;transition:opacity .15s;"><i style="display:block;height:100%;width:35%;background:${accentColor};border-radius:2px;animation:dh-bp-slide 1.3s ease-in-out infinite;"></i></div>
+            <div class="dh-bp-sep" style="position:relative;padding:7px 8px;border-bottom:1px solid transparent;flex-shrink:0;">
+                <input type="text" id="dh-bp-query" value="${esc(`${artist || ''} ${title || ''}`.trim())}" placeholder="Search Beatport..." style="width:100%;font-size:11px;padding:5px 7px;border:1px solid transparent;border-radius:4px;box-sizing:border-box;outline:none;">
+                <div id="dh-bp-bar" style="position:absolute;left:0;right:0;bottom:-1px;height:2px;overflow:hidden;opacity:0;pointer-events:none;transition:opacity .15s;"><i class="dh-bp-accentbg" style="display:block;height:100%;width:35%;border-radius:2px;animation:dh-bp-slide 1.3s ease-in-out infinite;"></i></div>
             </div>
             <div id="dh-bp-results" style="overflow-y:auto;flex:1;"></div>
         `;
@@ -7790,19 +7709,17 @@
 
         const openSiteLinkHtml = (q) => {
             const href = q ? wiBeatportSearchPageUrl(q) : 'https://www.beatport.com/search/releases';
-            return `<div style="border-top:1px solid ${border};padding:7px 8px;text-align:center;"><a href="${esc(href)}" id="dh-bp-open-site" target="_blank" rel="noopener noreferrer" style="font-size:10px;color:${subColor};text-decoration:none;">Open search on Beatport ↗</a></div>`;
+            return `<div class="dh-bp-sep" style="border-top:1px solid transparent;padding:7px 8px;text-align:center;"><a class="dh-bp-sub" href="${esc(href)}" id="dh-bp-open-site" target="_blank" rel="noopener noreferrer" style="font-size:10px;text-decoration:none;">Open search on Beatport ${dhIcon('external', 10)}</a></div>`;
         };
         const bindOpenSiteLink = () => {
             const el = resultsEl.querySelector('#dh-bp-open-site');
             if (!el) return;
             el.addEventListener('click', e => e.stopPropagation());
-            el.addEventListener('mouseenter', () => { el.style.color = accentColor; });
-            el.addEventListener('mouseleave', () => { el.style.color = subColor; });
         };
 
         const renderStatus = (msg, showLink = true) => {
             setBusy(false);
-            resultsEl.innerHTML = `<div style="padding:12px 10px;font-size:11px;color:${subColor};text-align:center;">${esc(msg)}</div>${showLink ? openSiteLinkHtml(queryInput.value.trim()) : ''}`;
+            resultsEl.innerHTML = `<div class="dh-bp-sub" style="padding:12px 10px;font-size:11px;text-align:center;">${esc(msg)}</div>${showLink ? openSiteLinkHtml(queryInput.value.trim()) : ''}`;
             if (showLink) bindOpenSiteLink();
         };
 
@@ -7816,12 +7733,12 @@
             }
             resultsEl.innerHTML = results.map((r, i) => `
                 <div class="dh-bp-item" data-idx="${i}" style="position:relative;display:flex;gap:7px;align-items:center;padding:4px 9px;cursor:pointer;">
-                    <a class="dh-bp-open" data-idx="${i}" href="${esc(r.url)}" title="Open on Beatport in a new window" style="position:absolute;top:1px;left:1px;width:13px;height:13px;line-height:13px;font-size:10px;font-weight:600;text-align:center;text-decoration:none;color:${textColor};background:${inputBg};border:1px solid ${border};border-radius:3px;z-index:1;opacity:0.7;cursor:pointer;">\u2197</a>
-                    <div class="dh-bp-thumb" data-idx="${i}" style="width:34px;height:34px;border-radius:4px;flex-shrink:0;background:${inputBg};overflow:hidden;"></div>
+                    <a class="dh-bp-open" data-idx="${i}" href="${esc(r.url)}" title="Open on Beatport in a new window" style="position:absolute;top:1px;left:1px;width:13px;height:13px;line-height:13px;font-size:10px;font-weight:600;text-align:center;text-decoration:none;border:1px solid transparent;border-radius:3px;z-index:1;opacity:0.7;cursor:pointer;">\u2197</a>
+                    <div class="dh-bp-thumb" data-idx="${i}" style="width:34px;height:34px;border-radius:4px;flex-shrink:0;overflow:hidden;"></div>
                     <div style="min-width:0;flex:1;line-height:1.28;">
-                        <div title="${escAttr(r.artists)}" style="font-size:11.5px;font-weight:600;color:${textColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(r.artists) || '\u2014'}</div>
-                        <div title="${escAttr(r.title)}" style="font-size:11px;color:${textColor};opacity:0.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(r.title) || '\u2014'}</div>
-                        <div title="${escAttr([r.label, r.catno, r.date].filter(Boolean).join(' \u00b7 '))}" style="font-size:10.5px;color:${subColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${[r.label ? esc(r.label) : '', `<span style="color:${accentColor};font-weight:600;">${esc(r.catno)}</span>`, r.date ? esc(r.date) : ''].filter(Boolean).join(' <span style="opacity:0.6;">\u00b7</span> ')}</div>
+                        <div class="dh-bp-text" title="${escAttr(r.artists)}" style="font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(r.artists) || '\u2014'}</div>
+                        <div class="dh-bp-text" title="${escAttr(r.title)}" style="font-size:11px;opacity:0.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(r.title) || '\u2014'}</div>
+                        <div class="dh-bp-sub" title="${escAttr([r.label, r.catno, r.date].filter(Boolean).join(' \u00b7 '))}" style="font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${[r.label ? esc(r.label) : '', `<span class="dh-bp-accent" style="font-weight:600;">${esc(r.catno)}</span>`, r.date ? esc(r.date) : ''].filter(Boolean).join(' <span style="opacity:0.6;">\u00b7</span> ')}</div>
                     </div>
                 </div>
             `).join('') + openSiteLinkHtml(queryInput.value.trim());
@@ -7832,12 +7749,8 @@
                     const r = results[Number(a.dataset.idx)];
                     if (r && r.url) window.open(r.url, '_blank', 'noopener,noreferrer');
                 });
-                a.addEventListener('mouseenter', () => { a.style.color = accentColor; a.style.borderColor = accentColor; a.style.opacity = '1'; });
-                a.addEventListener('mouseleave', () => { a.style.color = textColor; a.style.borderColor = border; a.style.opacity = '0.7'; });
             });
             resultsEl.querySelectorAll('.dh-bp-item').forEach(item => {
-                item.addEventListener('mouseenter', () => { item.style.background = hoverBg; });
-                item.addEventListener('mouseleave', () => { item.style.background = ''; });
                 item.addEventListener('click', () => {
                     const r = results[Number(item.dataset.idx)];
                     if (r) {
@@ -8268,7 +8181,7 @@
                 };
             }
 
-            return wiGenericURL(url, 'Qobuz');
+            return wiParseGenericURL(url, 'Qobuz');
         }
     }
 
@@ -8461,60 +8374,185 @@
     }
 
     async function wiParseNativeDSD(url) {
-    const html = await wiCrossFetch(url);
-    const doc  = wiParseHTML(html);
+        const html = await wiCrossFetch(url);
+        const doc  = wiParseHTML(html);
 
-    const artistLinks = doc.querySelectorAll('div.product-intro-text > h3 > a');
-    const artistsArr = Array.from(artistLinks).map(a => a.textContent.trim()).filter(Boolean);
-    const artist = artistsArr.join(', ')
-        || doc.querySelector('div.product-intro-text > h3')?.textContent?.trim()
-        || wiGetMeta(doc, 'og:title').split(' - ')[0] || '';
-    const artists = artistsArr.length > 1 ? artistsArr : undefined;
+        const clean  = s => (s || '').replace(/\s+/g, ' ').trim();
+        const SKIP_STRICT = 'script, style, noscript, svg, template, audio, video';
+        const SKIP   = SKIP_STRICT + ', [aria-hidden="true"]';
+        const INLINE = /^(b|strong|em|i|u|small|sup|sub|mark|abbr|cite|code|wbr)$/i;
+        const DUR    = /^\d{1,2}:\d{2}(?::\d{2})?$/;
+        const JUNK   = /^(play|pause|stop|preview|download|total time\b.*|track previews\b.*)$/i;
+        const KEYS   = new Set([
+            'label', 'sku', 'qualities', 'channels', 'artist', 'artists', 'composer', 'composers',
+            'genre', 'genres', 'original recording format', 'recording location', 'producer',
+            'recording engineer', 'microphones', 'release date', 'mastering engineer', 'conductor'
+        ]);
 
-    const title  = doc.querySelector('div.product-intro-text > h1')?.textContent?.trim()
-        || wiGetMeta(doc, 'og:title') || '';
-    let label = '', catno = null, date = '';
-    doc.querySelectorAll('table.shop_attributes > tbody > tr').forEach(tr => {
-        const key = tr.querySelector('th')?.textContent?.trim().toLowerCase() || '';
-        const val = tr.querySelector('td > p')?.textContent?.trim() || tr.querySelector('td')?.textContent?.trim() || '';
-        if (key === 'label')        label = val;
-        else if (key === 'sku')     catno = val || null;
-        else if (key === 'release date') date = wiNormalizeDate(val);
-    });
-    const imageUrl = wiGetMeta(doc, 'og:image')
-        || doc.querySelector('div.woocommerce-product-gallery img, figure.woocommerce-product-image img')?.src
-        || doc.querySelector('img.wp-post-image, .nativedsd-cover img, .product-image img')?.src
-        || '';
-    const trackEls = doc.querySelectorAll(
-        'div#tracklist > div.nativedsd-player, ' +
-        'div#tracklist > div.nativedsd-playlist-item, ' +
-        'div.tracklist-wrapper div.nativedsd-player, ' +
-        'div#tracklist > div'
-    );
-    let tracks = Array.from(trackEls).map((div, i) => {
-        let pos  = div.querySelector('[class*="number"]')?.textContent?.trim() || String(i + 1);
-        let name = div.querySelector('[class*="title"]')?.textContent?.trim() || '';
-        let dur  = wiNormalizeDuration(div.querySelector('[class*="duration"]')?.textContent?.trim() || '');
-        if (!name && div.tagName === 'TR') {
-            pos  = div.querySelector('td:first-child')?.textContent?.trim() || String(i + 1);
-            name = div.querySelector('td:nth-child(2)')?.textContent?.trim() || '';
-            dur  = wiNormalizeDuration(div.querySelector('td:last-child')?.textContent?.trim() || '');
-        }
-        return { position: pos, title: name.replace(/\s+/g, ' ').trim(), duration: dur };
-    }).filter(t => t.title.length > 2);
-    if (!tracks.length) {
-        tracks = Array.from(doc.querySelectorAll('table.tracklist tr, div#tracklist table tr')).map((tr, i) => {
-            const tds = tr.querySelectorAll('td');
-            if (tds.length < 2) return null;
-            return {
-                position: tds[0]?.textContent?.trim() || String(i + 1),
-                title:    tds[1]?.textContent?.trim() || '',
-                duration: wiNormalizeDuration(tds[tds.length - 1]?.textContent?.trim() || ''),
+        const linesOf = (root, keepHidden) => {
+            const out = [];
+            let cur = '';
+            const flush = () => { const t = clean(cur); if (t) out.push(t); cur = ''; };
+            const walk = node => {
+                if (node.nodeType === 3) { cur += node.nodeValue; return; }
+                if (node.nodeType !== 1 || node.matches(keepHidden ? SKIP_STRICT : SKIP)) return;
+                const inline = INLINE.test(node.tagName);
+                if (!inline) flush();
+                node.childNodes.forEach(walk);
+                if (!inline) flush();
             };
-        }).filter(t => t?.title?.length > 2);
+            walk(root);
+            flush();
+            return out;
+        };
+
+        const sectionAfter = heading => {
+            let node = heading;
+            for (let up = 0; up < 3 && node && node.parentElement; up++, node = node.parentElement) {
+                const els = [];
+                for (let s = node.nextElementSibling; s; s = s.nextElementSibling) {
+                    if (/^H[12]$/i.test(s.tagName) || s.querySelector('h1, h2')) break;
+                    els.push(s);
+                }
+                if (els.some(e => clean(e.textContent))) return els;
+            }
+            return [];
+        };
+
+        const headingsNamed = re => Array.from(doc.querySelectorAll('h1, h2, h3, h4, h5, h6'))
+            .filter(h => re.test(clean(h.textContent)));
+
+        const pairsOf = lines => {
+            const map = {};
+            let key = null;
+            for (const line of lines) {
+                const norm = line.replace(/:$/, '').trim().toLowerCase();
+                if (KEYS.has(norm)) { key = norm; map[key] = map[key] || []; continue; }
+                if (key) map[key].push(line);
+            }
+            return map;
+        };
+
+        const tidyList = arr => (arr || []).join(' ').replace(/\s+,/g, ',').replace(/\s+/g, ' ').trim();
+
+        const parseFlatLines = rawLines => {
+            const tracks = [];
+            let pendingPos = '';
+            for (const l of rawLines.filter(l => !JUNK.test(l))) {
+                if (DUR.test(l)) {
+                    if (tracks.length && !tracks[tracks.length - 1].duration)
+                        tracks[tracks.length - 1].duration = wiNormalizeDuration(l);
+                } else if (/^\d+[.)]?$/.test(l)) {
+                    pendingPos = l.replace(/\D/g, '');
+                } else {
+                    let title = l, duration = '';
+                    const tail = title.match(/^(.*\D)\s*(\d{1,2}:\d{2}(?::\d{2})?)$/);
+                    if (tail) { title = tail[1]; duration = wiNormalizeDuration(tail[2]); }
+                    const expected = String(tracks.length + 1);
+                    const m = title.match(/^(\d+)[.)]\s+(.+)$/);
+                    if (m && m[1] === expected) { title = m[2]; pendingPos = pendingPos || m[1]; }
+                    tracks.push({ position: pendingPos || expected, title: clean(title), duration });
+                    pendingPos = '';
+                }
+            }
+            return tracks;
+        };
+
+        const parseTrackList = els => {
+            const lis = [];
+            els.forEach(el => {
+                if (el.tagName === 'LI') lis.push(el);
+                else el.querySelectorAll('li').forEach(li => lis.push(li));
+            });
+            const leaves = lis.filter(li => !li.querySelector('li'));
+            const tracks = [];
+            const push = (title, duration, position) => {
+                title = clean(title);
+                if (!title) return;
+                const expected = String(tracks.length + 1);
+                const m = title.match(/^(\d+)[.)]\s+(.+)$/);
+                if (m && m[1] === expected) { title = m[2]; position = position || m[1]; }
+                tracks.push({ position: position || expected, title, duration: wiNormalizeDuration(duration || '') });
+            };
+            if (leaves.length) {
+                leaves.forEach(li => {
+                    const rows = linesOf(li).filter(l => !JUNK.test(l));
+                    let duration = '', position = '';
+                    const rest = [];
+                    for (const l of rows) {
+                        if (DUR.test(l)) { duration = duration || l; continue; }
+                        if (!position && !rest.length && /^\d+[.)]?$/.test(l)) { position = l.replace(/\D/g, ''); continue; }
+                        rest.push(l);
+                    }
+                    if (!rest.length) return;
+                    let title = rest[0];
+                    if (!duration) {
+                        const m = title.match(/^(.*\S)\s+(\d{1,2}:\d{2}(?::\d{2})?)$/);
+                        if (m) { title = m[1]; duration = m[2]; }
+                    }
+                    push(title, duration, position);
+                });
+                return tracks;
+            }
+            return parseFlatLines(els.flatMap(l => linesOf(l)));
+        };
+
+        let tracks = [];
+        for (const h of headingsNamed(/^tracklist$/i)) {
+            tracks = parseTrackList(sectionAfter(h));
+            if (tracks.length) break;
+        }
+        if (!tracks.length) {
+            const all  = linesOf(doc.body || doc.documentElement, true);
+            const end  = all.findIndex(l => /^track previews\b/i.test(l));
+            const stop = end >= 0 ? end : all.findIndex(l => /^additional information$/i.test(l));
+            if (stop > 0) {
+                let start = -1;
+                for (let i = stop - 1; i >= 0; i--) {
+                    if (/^total time\b/i.test(all[i]) || /^tracklist$/i.test(all[i])) { start = i; break; }
+                }
+                if (start >= 0) tracks = parseFlatLines(all.slice(start + 1, stop));
+            }
+        }
+        if (!tracks.length) console.warn('[DEH] NativeDSD: no tracklist found on page');
+
+        let info = {};
+        for (const h of headingsNamed(/^additional information$/i)) {
+            const els  = sectionAfter(h);
+            const rows = els.flatMap(e => e.matches('.nativedsd-info-row') ? [e] : Array.from(e.querySelectorAll('.nativedsd-info-row')));
+            for (const row of rows) {
+                const k = clean(row.querySelector('.nativedsd-info-row__label')?.textContent).replace(/:$/, '').toLowerCase();
+                const v = row.querySelector('.nativedsd-info-row__value');
+                if (k && v && !info[k]) info[k] = linesOf(v);
+            }
+            if (!Object.keys(info).length) info = pairsOf(els.flatMap(linesOf));
+            if (Object.keys(info).length) break;
+        }
+
+        const rawTitle = wiGetMeta(doc, 'og:title')
+            || clean(doc.querySelector('h1')?.textContent)
+            || clean(doc.title).replace(/\s+[–-]\s+NativeDSD Music$/i, '');
+        const title = clean(rawTitle);
+
+        let artistVal = tidyList(info.artists || info.artist);
+        if (!artistVal) {
+            const h1 = Array.from(doc.querySelectorAll('h1')).find(h => clean(h.textContent) === title) || doc.querySelector('h1');
+            let node = h1;
+            for (let up = 0; up < 6 && node && !artistVal; up++, node = node.parentElement) {
+                const p = pairsOf(linesOf(node));
+                artistVal = tidyList(p.artists || p.artist);
+            }
+        }
+        const artist = artistVal;
+
+        const label = clean((info.label || [])[0]);
+        const catno = clean((info.sku || [])[0]) || null;
+        const date  = wiNormalizeDate(clean((info['release date'] || [])[0]));
+        const tags = tidyList(info.genres || info.genre).split(/\s*[,;\/]\s*/).map(clean).filter(Boolean);
+        const imageUrl = (wiGetMeta(doc, 'og:image:secure_url', 'og:image') || '').replace(/^http:\/\//i, 'https://');
+
+        return { artist, title, label, catno, date, tracks, imageUrl, fileType: 'DFF', ...(tags.length ? { tags } : {}), storeName: 'NativeDSD' };
     }
-    return { artist, ...(artists ? { artists } : {}), title, label, catno, date, tracks, imageUrl, storeName: 'NativeDSD' };
-}
 
     async function wiParseHDtracks(url) {
         const hashMatch = url.match(/#\/(\w+)\/(\w+)/);
@@ -9454,7 +9492,7 @@
         const changed = !!(data.fileTypeBase && data.fileTypeChoice && data.fileTypeChoice !== data.fileTypeBase);
         const baseOpt = options.find(o => o.type === data.fileTypeBase);
         const tip = changed ? `Changed from ${baseOpt ? baseOpt.label : data.fileTypeBase}\nClick to change file type` : 'Click to change file type';
-        const caret = '<span class="dh-wi-ft-caret" style="cursor:pointer;display:inline-block;flex-shrink:0;width:11px;height:11px;vertical-align:-1px;margin-left:3px;color:inherit;"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block;pointer-events:none;"><path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>';
+        const caret = '<span class="dh-wi-ft-caret" style="cursor:pointer;display:inline-block;flex-shrink:0;width:11px;height:11px;vertical-align:-1px;margin-left:3px;"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block;pointer-events:none;"><path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>';
         return `<span class="dh-wi-ft-pick" title="${esc(tip).replace(/"/g, '&quot;')}" style="cursor:pointer;">${esc(shown)}${caret}</span>${resHtml}`;
     }
 
@@ -9463,13 +9501,10 @@
         if (prev) prev.remove();
         const options = Array.isArray(data.fileTypeOptions) ? data.fileTypeOptions : [];
         if (options.length < 2) return;
-        const c = isDark
-            ? { bg: '#1a1c1f', border: '#444', fg: '#ddd', dim: '#8f95a8', hover: 'rgba(127,178,245,0.16)', accent: '#7fb2f5' }
-            : { bg: '#f8f9fa', border: '#d0d4da', fg: '#1c2230', dim: '#828b98', hover: 'rgba(29,99,179,0.10)', accent: '#1d63b3' };
         const menu = document.createElement('div');
         menu.id = 'dh-ft-menu';
         menu.setAttribute('role', 'listbox');
-        menu.style.cssText = `position:fixed;z-index:2147483000;width:42px;box-sizing:border-box;max-height:180px;overflow-y:auto;background:${c.bg};border:1px solid ${c.border};border-radius:5px;box-shadow:0 4px 12px rgba(0,0,0,0.08);padding:2px;font-size:10.5px;line-height:1.35;color:${c.fg};`;
+        menu.style.cssText = `position:fixed;z-index:2147483000;width:42px;box-sizing:border-box;max-height:180px;overflow-y:auto;border:1px solid transparent;border-radius:5px;box-shadow:0 4px 12px rgba(0,0,0,0.08);padding:2px;font-size:10.5px;line-height:1.35;`;
         menu.style.fontFamily = getComputedStyle(anchor).fontFamily;
         const onDoc = (e) => { if (!menu.contains(e.target)) close(); };
         const onKey = (e) => { if (e.key === 'Escape') close(); };
@@ -9485,12 +9520,10 @@
             row.setAttribute('role', 'option');
             row.setAttribute('aria-selected', selected ? 'true' : 'false');
             row.dataset.type = o.type;
-            row.style.cssText = `display:flex;align-items:center;justify-content:center;gap:0;padding:2px 0;border-radius:3px;cursor:pointer;white-space:nowrap;${selected ? `color:${c.accent};font-weight:600;` : ''}`;
+            row.style.cssText = `display:flex;align-items:center;justify-content:center;gap:0;padding:2px 0;border-radius:3px;cursor:pointer;white-space:nowrap;`;
             const name = document.createElement('span');
             name.textContent = o.label;
             row.append(name);
-            row.addEventListener('mouseenter', () => { row.style.background = c.hover; });
-            row.addEventListener('mouseleave', () => { row.style.background = ''; });
             row.addEventListener('click', (e) => { e.stopPropagation(); close(); onPick(o.type); });
             menu.appendChild(row);
         }
@@ -10625,9 +10658,9 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
         return results;
     }
 
-    function extractFeaturingFromTracks(tracks) {
+    function extractFeaturingFromTracks(tracks, quiet) {
         const tracksLookUnsplit = tracksAppearUnsplit(tracks.map(t => t.title || ''));
-        if (tracksLookUnsplit) {
+        if (tracksLookUnsplit && !quiet) {
             log('Titles look like unsplit Artist - Title; only extracting feat. mentions inside parentheses/brackets.', 'info');
         }
         const featPattern = buildFeaturingPattern();
@@ -10658,6 +10691,43 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
             }
         }
         return results;
+    }
+
+    let wiPreserveArtistCase = false;
+
+    function wiProtectArtistNamesInTitles(rawTracks, cappedTitles) {
+        if (!wiPreserveArtistCase || !Array.isArray(rawTracks) || !rawTracks.length) return cappedTitles;
+        const probe = rawTracks.map((t, i) => ({ title: (t && t.title) || '', position: String(i) }));
+        let found = [];
+        try {
+            found = [...extractRemixersFromTracks(probe), ...extractFeaturingFromTracks(probe, true)];
+        } catch (e) {
+            return cappedTitles;
+        }
+        const namesByIndex = new Map();
+        for (const f of found) {
+            const i = Number(f.trackPositions);
+            if (!Number.isInteger(i)) continue;
+            if (!namesByIndex.has(i)) namesByIndex.set(i, []);
+            namesByIndex.get(i).push(f.name);
+        }
+        return cappedTitles.map((capTitle, i) => {
+            const names = namesByIndex.get(i);
+            if (!names || !capTitle) return capTitle;
+            const rawTitle = (rawTracks[i] && rawTracks[i].title) || '';
+            let out = capTitle;
+            for (const name of names) {
+                const clean = String(name).replace(/^[\(\[]+|[\)\]]+$/g, '').trim();
+                if (!clean) continue;
+                const pattern = `(?<![\\p{L}\\p{N}])${escapeRegExp(clean)}(?![\\p{L}\\p{N}])`;
+                const rawHits = [...rawTitle.matchAll(new RegExp(pattern, 'giu'))];
+                const capHits = [...out.matchAll(new RegExp(pattern, 'giu'))];
+                if (!rawHits.length || !capHits.length) continue;
+                const lastCap = capHits[capHits.length - 1];
+                out = out.slice(0, lastCap.index) + rawHits[rawHits.length - 1][0] + out.slice(lastCap.index + lastCap[0].length);
+            }
+            return out;
+        });
     }
 
     function buildDraftPayload(data, sourceUrl, dateFieldUsed = 'date') {
@@ -10701,6 +10771,10 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
             artists: t.artists ? t.artists.map(a => _isVAName(a) ? 'Various' : capIf(cf.vaArtists, a)) : t.artists,
             artistsWithJoins: t.artistsWithJoins ? t.artistsWithJoins.map(e => ({ ...e, name: capIf(_isVAName(e.name) ? false : cf.vaArtists, e.name) })) : t.artistsWithJoins,
         })) : [];
+        if (wiPreserveArtistCase && tracksRaw.length) {
+            const _restoredTitles = wiProtectArtistNamesInTitles(data.tracks, tracksRaw.map(t => t.title));
+            tracksRaw.forEach((t, i) => { t.title = _restoredTitles[i]; });
+        }
         const isVA = wiDetectVA(data);
         const tracksPresplit = buildTracksPresplit(tracksRaw);
 
@@ -10920,7 +10994,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                 const music = esc(u.origin + '/music');
                 msg += ` Or use <a href="${music}" target="_blank" rel="noopener" data-try-url="${music}" style="color:#1a6fbf;font-weight:bold;">the /music page</a> to import all of its releases in batch.`;
             }
-        } catch (e) { /* no link */ }
+        } catch (e) { }
         return msg;
     }
 
@@ -10949,7 +11023,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
         try {
             const u = new URL(url);
             if (/^(www\.)?bandcamp\.com$/i.test(u.hostname)) kind = /\/wishlist\/?$/i.test(u.pathname) ? 'wishlist' : 'collection';
-        } catch (e) { /* keep default */ }
+        } catch (e) { }
         const sk = 'display:block;border-radius:3px;background:linear-gradient(90deg,rgba(128,128,128,.14) 25%,rgba(128,128,128,.26) 50%,rgba(128,128,128,.14) 75%);background-size:200% 100%;animation:dh-wi-shimmer 1.6s linear infinite;';
         const rowsHtml = [62, 48, 74, 55, 68, 44, 58].map(w =>
             `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;">` +
@@ -10982,7 +11056,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
         const tralbumEl = doc.querySelector('script[data-tralbum]');
         if (tralbumEl) {
             let tb = null;
-            try { tb = JSON.parse(tralbumEl.getAttribute('data-tralbum')); } catch (e) { /* ignore */ }
+            try { tb = JSON.parse(tralbumEl.getAttribute('data-tralbum')); } catch (e) { }
             if (tb && (Array.isArray(tb.trackinfo) || tb.id || tb.current)) return [];
         }
         const items = [];
@@ -11036,7 +11110,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                     const img = o.art_id ? `https://f4.bcbits.com/img/a${o.art_id}_2.jpg` : '';
                     push(o.page_url || o.url, o.title, o.artist || o.band_name, img);
                 });
-            } catch (e) { /* ignore malformed JSON */ }
+            } catch (e) { }
         }
         return items;
     }
@@ -11050,7 +11124,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
         const hints = it.url_hints;
         if (hints && hints.subdomain && hints.slug) {
             let onBandcamp = false;
-            try { onBandcamp = /(^|\.)bandcamp\.com$/i.test(new URL(url).hostname); } catch (e) { /* ignore */ }
+            try { onBandcamp = /(^|\.)bandcamp\.com$/i.test(new URL(url).hostname); } catch (e) { }
             if (!onBandcamp) url = `https://${hints.subdomain}.bandcamp.com/${hints.item_type === 't' ? 'track' : 'album'}/${hints.slug}`;
         }
         const clean = url.split('#')[0].split('?')[0];
@@ -11071,7 +11145,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
         try { blob = JSON.parse(raw); } catch (e) { return null; }
         if (!blob || !blob.fan_data || !blob.fan_data.fan_id) return null;
         let path = '';
-        try { path = new URL(pageUrl).pathname; } catch (e) { /* ignore */ }
+        try { path = new URL(pageUrl).pathname; } catch (e) { }
         const tab = /\/wishlist\/?$/i.test(path) ? 'wishlist' : 'collection';
         const data = blob[tab + '_data'];
         if (!data) return null;
@@ -11234,8 +11308,8 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                 else if (r.state === 'queued') { st.style.color = ''; st.textContent = 'Queued'; }
                 else if (r.state === 'done') {
                     st.style.color = '#28a745';
-                    st.innerHTML = `✓ <a href="https://www.discogs.com/release/edit/${r.id}" target="_blank" style="color:#28a745;">Draft</a>${r.coverFailed ? ' <span title="Cover upload failed — add it manually" style="color:#e0a100;">⚠</span>' : ''}`;
-                } else if (r.state === 'error') { st.style.color = '#dc3545'; st.textContent = '✕ Failed'; st.title = r.error; }
+                    st.innerHTML = `${dhIcon('check', 11, true)} <a href="https://www.discogs.com/release/edit/${r.id}" target="_blank" style="color:#28a745;">Draft</a>${r.coverFailed ? ` <span title="Cover upload failed — add it manually" style="color:#e0a100;">${dhIcon('alertcircle', 11)}</span>` : ''}`;
+                } else if (r.state === 'error') { st.style.color = '#dc3545'; st.innerHTML = `${dhIcon('close', 10, true)} Failed`; st.title = r.error; }
                 else { st.style.opacity = '.5'; st.textContent = 'Ready'; }
             });
             const sel = rows.filter(r => r.selected && r.state !== 'done').length;
@@ -11442,6 +11516,10 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
             artistsWithJoins: t.artistsWithJoins ? t.artistsWithJoins.map(e => ({ ...e, name: capIf(_isVAName(e.name) ? false : cf.vaArtists, e.name), joinBefore: e.joinBefore && cf.joiners ? capitalizeTitleString(e.joinBefore) : e.joinBefore })) : t.artistsWithJoins,
             joinBefore: t.joinBefore,
         })) : data.tracks;
+        if (wiPreserveArtistCase && tracks && tracks.length) {
+            const _restoredTitles = wiProtectArtistNamesInTitles(data.tracks, tracks.map(t => t.title));
+            tracks.forEach((t, i) => { t.title = _restoredTitles[i]; });
+        }
         const isVA = wiDetectVA(data);
         log(`Applying release from ${storeName}... (VA Mode: ${isVA})`, 'info');
 
@@ -11828,24 +11906,24 @@ wiIsAntiBotPage(html)) {
         overlay.innerHTML = `
             <div class="dh-wi-header" style="display:flex; align-items:center; justify-content:space-between; padding:5px 8px 7px; border-bottom:1px solid rgba(0,0,0,0.09); flex-shrink:0; gap:6px;">
                 <div id="dh-wi-mode-wrap" style="display:flex; align-items:center; gap:6px; min-width:0;">
-                    <strong style="font-size:13px; font-weight:600; color:#111; user-select:none; -webkit-user-select:none; cursor:default; white-space:nowrap; letter-spacing:0.01em; flex-shrink:0;"><span style="font-weight:normal; margin-right:4px;">🌐</span>Web Import</strong>
+                    <strong style="font-size:13px; font-weight:600; color:#111; user-select:none; -webkit-user-select:none; cursor:default; white-space:nowrap; letter-spacing:0.01em; flex-shrink:0;"><span style="font-weight:normal; margin-right:5px;">${dhIcon('globe', 14)}</span>Web Import</strong>
                     <span id="dh-wi-supported-stores" title="Supported Stores:&#10;7digital&#10;Apple Music&#10;Bandcamp&#10;Beatport&#10;Bleep&#10;Boomkat&#10;eClassical&#10;HDtracks&#10;HighResAudio&#10;Kompakt&#10;Mora&#10;NativeDSD&#10;OTOTOY&#10;Presto Music&#10;ProStudioMasters&#10;Qobuz&#10;Traxsource&#10;Volumo" style="font-size:10px; color:#888; cursor:default; white-space:nowrap; user-select:none; flex-shrink:0;">Supported Stores</span>
                 </div>
-                <button id="dh-wi-close" style="background:none; border:none; cursor:pointer; font-size:13px; padding:1px 4px; line-height:1; flex-shrink:0; opacity:0.65; color:#555;">✕</button>
+                <button id="dh-wi-close" style="background:none; border:none; cursor:pointer; font-size:13px; padding:1px 4px; line-height:1; flex-shrink:0; opacity:0.65; color:#555;">${dhIcon('close', 14)}</button>
             </div>
             <div style="padding:6px 10px 7px; flex-shrink:0;">
                 <input type="text" id="dh-wi-url" placeholder="Paste store URL (Bandcamp, Beatport, Qobuz, etc.) or Discogs URL for credits import..." style="width:100%; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:5px 7px; box-sizing:border-box; box-shadow:none;">
             </div>
             <div id="dh-wi-preview" style="flex:1; overflow-y:auto; margin:0 10px 6px; padding:8px 8px 7px 8px; background:#f8f9fa; border:1px solid #e0e0e0; border-radius:4px; font-size:11px; display:none; min-height:60px; box-sizing:border-box;"></div>
             <div class="dh-wi-footer" style="display:flex; align-items:center; gap:6px; padding:7px 10px 8px; border-top:1px solid rgba(0,0,0,0.07); flex-shrink:0;">
-                <button id="dh-wi-fetch"  style="flex:0 0 150px; width:150px; height:34px; background:#1a6fbf; color:#fff; border:1px solid transparent; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600; box-sizing:border-box;">Fetch</button>
+                <button id="dh-wi-fetch"  style="flex:0 0 150px; width:150px; height:34px; background:#1a6fbf; color:#fff; border:1px solid transparent; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600; box-sizing:border-box;">${dhBtnLabel('download', 'Fetch')}</button>
                 <div id="dh-wi-apply-wrap" style="flex:0 0 150px; width:150px; display:flex; height:34px; opacity:0.45; pointer-events:none;">
-                    <button id="dh-wi-apply"  style="flex:1; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-radius:5px 0 0 5px; cursor:pointer; font-size:13px; font-weight:600; padding:0 8px; box-sizing:border-box;">Apply</button>
-                    <button id="dh-wi-apply-arrow" style="width:24px; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-left:1px solid rgba(255,255,255,0.25); border-radius:0 5px 5px 0; cursor:pointer; font-size:10px; padding:0; flex-shrink:0; box-sizing:border-box;"><span style="pointer-events:none; user-select:none;">▾</span></button>
+                    <button id="dh-wi-apply"  style="flex:1; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-radius:5px 0 0 5px; cursor:pointer; font-size:13px; font-weight:600; padding:0 8px; box-sizing:border-box;">${dhBtnLabel('check', 'Apply')}</button>
+                    <button id="dh-wi-apply-arrow" style="width:24px; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-left:1px solid rgba(255,255,255,0.25); border-radius:0 5px 5px 0; cursor:pointer; font-size:10px; padding:0; flex-shrink:0; box-sizing:border-box;"><span style="pointer-events:none; user-select:none;">${dhIcon('chevdown', 11, true)}</span></button>
                 </div>
                 <div id="dh-wi-savedraft-wrap" style="flex:0 0 72px; width:72px; display:flex; height:34px; opacity:0.45; pointer-events:none;">
                     <button id="dh-wi-savedraft" style="flex:1; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-radius:5px 0 0 5px; cursor:pointer; font-size:10px; font-weight:600; line-height:1.25; box-sizing:border-box; padding:0;">Save To<br>Draft</button>
-                    <button id="dh-wi-savedraft-arrow" style="width:20px; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-left:1px solid rgba(255,255,255,0.25); border-radius:0 5px 5px 0; cursor:pointer; font-size:10px; padding:0; flex-shrink:0; box-sizing:border-box;"><span style="pointer-events:none; user-select:none;">▾</span></button>
+                    <button id="dh-wi-savedraft-arrow" style="width:20px; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-left:1px solid rgba(255,255,255,0.25); border-radius:0 5px 5px 0; cursor:pointer; font-size:10px; padding:0; flex-shrink:0; box-sizing:border-box;"><span style="pointer-events:none; user-select:none;">${dhIcon('chevdown', 11, true)}</span></button>
                 </div>
                 <button id="dh-wi-cancel" style="flex:0 0 63px; width:63px; box-sizing:border-box; height:34px; background:#f1f3f5; color:#111; border:1px solid #ccc; border-radius:5px; cursor:pointer; font-size:13px; padding:0; text-align:center;">Cancel</button>
             </div>
@@ -11949,6 +12027,12 @@ wiIsAntiBotPage(html)) {
                     title: isDiscogsImport ? 'Not applicable — Discogs credits import never applies capitalization rules' : 'Apply without normalizing capitalization',
                     disabled: isDiscogsImport,
                     onClick: () => { _noCapMode = true; if (_isDiscogsUrl(urlInput.value)) _discogsApply(); else _storeApply(); }
+                },
+                {
+                    label: 'Without Artist Capitalization',
+                    title: isDiscogsImport ? 'Not applicable — Discogs credits import never applies capitalization rules' : 'Apply without normalizing artist capitalization\n(titles, label and joiners still follow your settings)',
+                    disabled: isDiscogsImport,
+                    onClick: () => { _noArtistCapMode = true; if (_isDiscogsUrl(urlInput.value)) _discogsApply(); else _storeApply(); }
                 },
                 {
                     label: 'Without Artist Splitters',
@@ -12105,6 +12189,11 @@ wiIsAntiBotPage(html)) {
                     onClick: () => { _noCapMode = true; _saveDraft(); }
                 },
                 {
+                    label: 'Without Artist Capitalization',
+                    title: 'Save to draft without normalizing artist capitalization\n(titles, label and joiners still follow your settings)',
+                    onClick: () => { _noArtistCapMode = true; _saveDraft(); }
+                },
+                {
                     label: 'Without Artist Splitters',
                     title: 'Save to draft without splitting main and track artists (album credits are still split)',
                     onClick: () => { _noSplitMode = true; _saveDraft(); }
@@ -12177,10 +12266,12 @@ wiIsAntiBotPage(html)) {
         document.addEventListener('dh-theme-change', () => { if (draftMenu.style.display !== 'none') _buildDraftMenu(); });
 
         let _noCapMode = false;
+        let _noArtistCapMode = false;
         let _creditsOnlyMode = false;
         let _durationsOnlyMode = false;
         let _noSplitMode = false;
         const _noCapFields = { albumArtists: false, albumTitle: false, label: false, vaArtists: false, trackTitles: false, joiners: false, creditNames: false, trackCredits: false };
+        const _noArtistCapFields = { albumArtists: false, vaArtists: false, creditNames: false, trackCredits: false };
 
         const supportedSpan = overlay.querySelector('#dh-wi-supported-stores');
         urlInput.addEventListener('input', () => {
@@ -12247,8 +12338,8 @@ wiIsAntiBotPage(html)) {
             const widestLine = Math.max(...html.split('<br>').map(l => l.length));
             savedraftBtn.style.fontSize = widestLine <= 8 ? '10px' : widestLine === 9 ? '9px' : '8px';
             savedraftBtn.style.whiteSpace = 'nowrap';
-            savedraftBtn.style.background = bg;
-            draftArrow.style.background = bg;
+            savedraftBtn.dataset.tone = bg === '#218838' ? 'done' : '';
+            draftArrow.dataset.tone = savedraftBtn.dataset.tone;
             draftArrow.style.pointerEvents = arrowActive ? '' : 'none';
             applyWrap.style.opacity = '0.45';
             applyWrap.style.pointerEvents = 'none';
@@ -12261,8 +12352,9 @@ wiIsAntiBotPage(html)) {
             if (ctl.isLoadingMore && ctl.isLoadingMore()) return;
             draftMenu.style.display = 'none';
             fetchBtn.disabled = true;
-            const _savedCap = _noCapMode ? state.capitalizeFields : null;
+            const _savedCap = (_noCapMode || _noArtistCapMode) ? state.capitalizeFields : null;
             if (_noCapMode) state.capitalizeFields = { ..._noCapFields };
+            else if (_noArtistCapMode) { state.capitalizeFields = { ...state.capitalizeFields, ..._noArtistCapFields }; wiPreserveArtistCase = true; }
             const _savedSplit    = _noSplitMode ? state.splitImport        : null;
             const _savedAutoFeat = _noSplitMode ? state.importAutoFeat     : null;
             const _savedAutoRmx  = _noSplitMode ? state.importAutoRemixers : null;
@@ -12296,7 +12388,7 @@ wiIsAntiBotPage(html)) {
             } finally {
                 if (_savedCap) state.capitalizeFields = _savedCap;
                 if (_noSplitMode) { state.splitImport = _savedSplit; state.importAutoFeat = _savedAutoFeat; state.importAutoRemixers = _savedAutoRmx; }
-                _noCapMode = false;
+                _noCapMode = false; _noArtistCapMode = false; wiPreserveArtistCase = false;
                 _noSplitMode = false;
                 await clearInfoProcessing();
                 setInfoSingleLine(made ? `Done! ${made} draft${made !== 1 ? 's' : ''} created${failed ? `, ${failed} failed` : ''}` : 'Batch finished — no drafts created', made > 0);
@@ -12312,7 +12404,7 @@ wiIsAntiBotPage(html)) {
             let u;
             try { u = new URL(url); } catch(e) { previewEl.innerHTML = wiPreviewErrorHtml('Invalid URL'); previewEl.style.display = 'block'; return; }
             fetchBtn.disabled = true;
-            fetchBtn.textContent = 'Fetching…';
+            fetchBtn.innerHTML = dhBtnLabel('loader', 'Fetching…', true);
             previewEl.style.display = 'block';
             previewEl.innerHTML = wiIsBandcampListingUrl(url) ? wiBcLoadingHtml(url) : wiLoadingHtml();
             disabledCreditIndices = new Set();
@@ -12325,8 +12417,8 @@ wiIsAntiBotPage(html)) {
             applyBtn.disabled = true; applyWrap.style.opacity = '0.45'; applyWrap.style.pointerEvents = 'none'; savedraftWrap.style.opacity = '0.45'; savedraftWrap.style.pointerEvents = 'none';
             try {
                 if (batchCtl) {
-                    savedraftBtn.style.background = '#28a745';
-                    draftArrow.style.background = '#28a745';
+                    savedraftBtn.dataset.tone = '';
+                    draftArrow.dataset.tone = '';
                     draftArrow.style.pointerEvents = '';
                     savedraftBtn.innerHTML = 'Save To<br>Draft';
                 }
@@ -12360,7 +12452,7 @@ wiIsAntiBotPage(html)) {
                         batchCtl = wiRenderBandcampBatch(previewEl, listing, _syncBatchUi);
                         _syncBatchUi();
                         fetchBtn.disabled = false;
-                        fetchBtn.textContent = 'Fetch';
+                        fetchBtn.innerHTML = dhBtnLabel('download', 'Fetch');
                         return;
                     }
                     if (listing && listing.length === 1) { _bcUrl = listing[0].url; urlInput.value = _bcUrl; }
@@ -12394,10 +12486,10 @@ wiIsAntiBotPage(html)) {
                     const borderStyle = isLast ? '' : 'border-bottom:1px solid rgba(0,0,0,0.04);';
                     return `
                         <div style="display:flex;align-items:center;height:18px;box-sizing:border-box;${borderStyle}white-space:nowrap;font-size:10px;">
-                            <span style="color:#888;min-width:${posWidth}px;flex-shrink:0;user-select:none;">${esc(t.position)}</span>
-                            ${ta ? `<span style="color:#999;flex-shrink:0;max-width:60%;overflow:hidden;text-overflow:ellipsis;margin-right:5px;">${esc(ta)}</span>` : ''}
+                            <span class="dh-wi-dim" style="min-width:${posWidth}px;flex-shrink:0;user-select:none;">${esc(t.position)}</span>
+                            ${ta ? `<span class="dh-wi-dim" style="flex-shrink:0;max-width:60%;overflow:hidden;text-overflow:ellipsis;margin-right:5px;">${esc(ta)}</span>` : ''}
                             <span style="overflow:hidden;text-overflow:ellipsis;flex:1;white-space:nowrap;">${esc(t.title)}</span>
-                            ${t.duration ? `<span style="color:#aaa;flex-shrink:0;margin-left:6px;margin-right:8px;">${esc(t.duration)}</span>` : `<span style="width:8px;flex-shrink:0;"></span>`}
+                            ${t.duration ? `<span class="dh-wi-dim" style="flex-shrink:0;margin-left:6px;margin-right:8px;">${esc(t.duration)}</span>` : `<span style="width:8px;flex-shrink:0;"></span>`}
                         </div>
                     `;
                 }).join('\n');
@@ -12415,18 +12507,18 @@ wiIsAntiBotPage(html)) {
                         return `
                             <span class="dh-wi-cred-chip" data-idx="${idx}" data-role="${esc(r)}" style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:500;color:#fff;padding:2px 7px;border-radius:4px;cursor:pointer;background:${isRoleDisabled ? '#ccc' : '#345ca8'};${isRoleDisabled ? 'opacity:0.6;' : ''}">
                                 <span style="${isRoleDisabled ? 'text-decoration:line-through;' : ''}">${esc(r)}</span>
-                                <span class="dh-wi-cred-chip-toggle" data-idx="${idx}" data-role="${esc(r)}" title="Exclude this role from submission" style="${isRoleDisabled ? credChipToggleDisabledStyle : credChipToggleStyle}">✕</span>
+                                <span class="dh-wi-cred-chip-toggle" data-idx="${idx}" data-role="${esc(r)}" title="Exclude this role from submission" style="${isRoleDisabled ? credChipToggleDisabledStyle : credChipToggleStyle}">${dhIcon('close', 9, true)}</span>
                             </span>
                         `;
                     }).join('');
-                    const dash = rolesArr.length ? `<span style="font-size:11px;color:#aaa;flex-shrink:0;">–</span>` : '';
-                    const tracksSuffix = c.trackPositions ? `<span style="color:#888;font-weight:normal;margin-left:4px;">(tracks: ${esc(c.trackPositions)})</span>` : '';
+                    const dash = rolesArr.length ? `<span class="dh-wi-dim" style="font-size:11px;flex-shrink:0;">–</span>` : '';
+                    const tracksSuffix = c.trackPositions ? `<span class="dh-wi-dim" style="font-weight:normal;margin-left:4px;">(tracks: ${esc(c.trackPositions)})</span>` : '';
                     return `
                         <div class="dh-wi-cred-row" data-idx="${idx}" style="display:flex;flex-wrap:wrap;align-items:center;gap:3px 4px;padding:2px 0;font-size:11px;box-sizing:border-box;">
                             ${chips}${dash}
                             <span class="dh-wi-cred-name-wrap" data-idx="${idx}" style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;${isDisabled ? 'opacity:0.4;' : ''}">
-                                <span class="dh-wi-cred-name" style="font-weight:600;${isDisabled ? 'text-decoration:line-through;' : ''}">${esc(c.name)}${c.anv ? `<span style="color:#888;font-style:italic;font-weight:normal;margin-left:4px;">(ANV: ${esc(c.anv)})</span>` : ''}${tracksSuffix}</span>
-                                <span class="dh-wi-cred-toggle" data-idx="${idx}" title="Exclude this credit from submission" style="${isDisabled ? creditToggleDisabledStyle : creditToggleStyle}">✕</span>
+                                <span class="dh-wi-cred-name" style="font-weight:600;${isDisabled ? 'text-decoration:line-through;' : ''}">${esc(c.name)}${c.anv ? `<span class="dh-wi-dim" style="font-style:italic;font-weight:normal;margin-left:4px;">(ANV: ${esc(c.anv)})</span>` : ''}${tracksSuffix}</span>
+                                <span class="dh-wi-cred-toggle" data-idx="${idx}" title="Exclude this credit from submission" style="${isDisabled ? creditToggleDisabledStyle : creditToggleStyle}">${dhIcon('close', 9, true)}</span>
                             </span>
                         </div>
                     `;
@@ -12444,12 +12536,12 @@ wiIsAntiBotPage(html)) {
                 const styleRows = fetchedGenreStyleGroups.map(g => {
                     const isGenreDisabled = disabledGenres.has(g.genre);
                     const hasStyles = (g.styles || []).length > 0;
-                    const onlyGenreNotice = hasStyles ? '' : `<div style="font-size:10px;font-weight:400;color:#888;padding-top:3px;">Only genre was found:</div>`;
+                    const onlyGenreNotice = hasStyles ? '' : `<div class="dh-wi-dim" style="font-size:10px;font-weight:400;padding-top:3px;">Only genre was found:</div>`;
                     const genreRow = `
                         ${onlyGenreNotice}
                         <div class="dh-wi-genre-row" data-genre="${esc(g.genre)}" style="display:flex;align-items:center;padding:2px 0 0;font-size:11px;font-weight:600;box-sizing:border-box;cursor:pointer;">
                             <span class="dh-wi-genre-name" style="${isGenreDisabled ? 'opacity:0.4;text-decoration:line-through;' : ''}">${esc(g.genre)}</span>
-                            <span class="dh-wi-genre-toggle" data-genre="${esc(g.genre)}" title="Exclude this genre (and its styles) from submission" style="${isGenreDisabled ? genreToggleDisabledStyle : genreToggleStyle}">✕</span>
+                            <span class="dh-wi-genre-toggle" data-genre="${esc(g.genre)}" title="Exclude this genre (and its styles) from submission" style="${isGenreDisabled ? genreToggleDisabledStyle : genreToggleStyle}">${dhIcon('close', 9, true)}</span>
                             <span style="flex:1;"></span>
                         </div>
                     `;
@@ -12458,7 +12550,7 @@ wiIsAntiBotPage(html)) {
                         return `
                             <span class="dh-wi-style-chip" data-style="${esc(s)}" style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:500;color:#fff;padding:2px 7px;border-radius:4px;cursor:pointer;background:${isStyleDisabled ? '#ccc' : '#345ca8'};${isStyleDisabled ? 'opacity:0.6;' : ''}">
                                 <span style="${isStyleDisabled ? 'text-decoration:line-through;' : ''}">${esc(s)}</span>
-                                <span class="dh-wi-style-toggle" data-style="${esc(s)}" title="Exclude this style from submission" style="${isStyleDisabled ? chipToggleDisabledStyle : chipToggleStyle}">✕</span>
+                                <span class="dh-wi-style-toggle" data-style="${esc(s)}" title="Exclude this style from submission" style="${isStyleDisabled ? chipToggleDisabledStyle : chipToggleStyle}">${dhIcon('close', 9, true)}</span>
                             </span>
                         `;
                     }).join('');
@@ -12473,11 +12565,11 @@ wiIsAntiBotPage(html)) {
                         : wiAntiBotError(urlInput.value.trim()).replace(/\n/g, '<br>'));
                 } else {
                     const overflowStyle = 'overflow-y:auto;';
-                    const tabActiveStyle   = 'background:none;border:none;cursor:pointer;font-size:10.5px;font-weight:600;padding:3px 8px 5px;color:#1a6fbf;border-bottom:2px solid #1a6fbf;margin-bottom:-1px;box-sizing:border-box;';
-                    const tabInactiveStyle = 'background:none;border:none;cursor:pointer;font-size:10.5px;font-weight:600;padding:3px 8px 5px;color:#888;border-bottom:2px solid transparent;margin-bottom:-1px;box-sizing:border-box;';
-                    const emptyPanelHtml = (icon, text) => `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:162px;box-sizing:border-box;padding:12px;color:#888;text-align:center;user-select:none;-webkit-user-select:none;"><div style="font-size:20px;margin-bottom:5px;opacity:.45;line-height:1.2;">${icon}</div><p style="margin:0;font-size:11px;line-height:1.6;">${text}</p></div>`;
-                    const creditRowsHtml = creditRows || emptyPanelHtml('👤', 'No credits found');
-                    const styleRowsHtml = styleRows || emptyPanelHtml('🎶', 'No styles found');
+                    const tabActiveStyle   = 'background:none;border:none;cursor:pointer;font-size:10.5px;font-weight:600;padding:3px 8px 5px;border-bottom:2px solid transparent;margin-bottom:-1px;box-sizing:border-box;';
+                    const tabInactiveStyle = 'background:none;border:none;cursor:pointer;font-size:10.5px;font-weight:600;padding:3px 8px 5px;border-bottom:2px solid transparent;margin-bottom:-1px;box-sizing:border-box;';
+                    const emptyPanelHtml = (icon, text) => `<div class="dh-wi-dim" style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:162px;box-sizing:border-box;padding:12px;text-align:center;user-select:none;-webkit-user-select:none;"><div style="font-size:20px;margin-bottom:5px;opacity:.45;line-height:1.2;">${icon}</div><p style="margin:0;font-size:11px;line-height:1.6;">${text}</p></div>`;
+                    const creditRowsHtml = creditRows || emptyPanelHtml(dhIcon('user', 22), 'No credits found');
+                    const styleRowsHtml = styleRows || emptyPanelHtml(dhIcon('music', 22), 'No styles found');
                     const _datePart = wiNormalizeDate(fetchedData.date);
                     const _publishPart = fetchedData.publishDate ? wiNormalizeDate(fetchedData.publishDate) : '';
                     if (fetchedData.preferPublishDate && _publishPart) selectedDateField = 'publishDate';
@@ -12509,37 +12601,31 @@ wiIsAntiBotPage(html)) {
                     const wiCatnoSourceLabelMap = { credits: 'credits', title: 'release title', notes: 'notes' };
                     const catnoIsBandcampSourced = !!(fetchedData.catnoSource && wiCatnoSourceLabelMap[fetchedData.catnoSource]);
                     const wiPreviewIsDark = localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
-                    const catnoActiveStyle = wiPreviewIsDark ? 'cursor:pointer;color:#7fb2f5;' : 'cursor:pointer;color:#1d63b3;';
-                    const catnoActiveHoverStyle = wiPreviewIsDark ? 'cursor:pointer;color:#a8cdfa;text-decoration:underline;' : 'cursor:pointer;color:#0f4a8c;text-decoration:underline;';
-                    const catnoDisabledStyle = 'cursor:pointer;color:#888;text-decoration:line-through;opacity:0.65;';
-                    const buildCatnoTooltip = () => `Catalog number was sourced from ${wiCatnoSourceLabelMap[fetchedData.catnoSource]}\nPlease verify if this information is accurate\n${catnoDisabled ? 'Click to re-enable' : 'Click to exclude and set to none'}`;
+                                        const buildCatnoTooltip = () => `Catalog number was sourced from ${wiCatnoSourceLabelMap[fetchedData.catnoSource]}\nPlease verify if this information is accurate\n${catnoDisabled ? 'Click to re-enable' : 'Click to exclude and set to none'}`;
                     const wiCatnoTooltip = catnoIsBandcampSourced
                         ? buildCatnoTooltip()
                         : '';
                     const wiCatnoHtml = fetchedData.catno
                         ? (catnoIsBandcampSourced
-                            ? `<span class="dh-wi-catno-toggle" title="${esc(wiCatnoTooltip).replace(/"/g, '&quot;')}" style="${catnoDisabled ? catnoDisabledStyle : catnoActiveStyle}">${esc(fetchedData.catno)}</span>`
+                            ? `<span class="dh-wi-catno-toggle${catnoDisabled ? ' dh-wi-off' : ''}" title="${esc(wiCatnoTooltip).replace(/"/g, '&quot;')}">${esc(fetchedData.catno)}</span>`
                             : esc(fetchedData.catno))
                         : 'none';
-                    const wiBpSearchIconStyle = 'cursor:pointer;display:inline-block;flex-shrink:0;width:11px;height:11px;vertical-align:-1px;margin-left:3px;color:inherit;';
+                    const wiBpSearchIconStyle = 'cursor:pointer;display:inline-block;flex-shrink:0;width:11px;height:11px;vertical-align:-1px;margin-left:3px;';
                     const wiCatnoLookupHtml = `<span class="dh-wi-catno-lookup" title="Search Beatport for the catalog number" style="${wiBpSearchIconStyle}"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block;"><path d="M11.5 11.5L14.5 14.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M2 7C2 4.23858 4.23858 2 7 2C9.76142 2 12 4.23858 12 7C12 9.76142 9.76142 12 7 12C4.23858 12 2 9.76142 2 7Z" stroke="currentColor" stroke-width="1.5"/><rect x="6.5" y="6.5" width="1" height="1" rx="0.5" fill="currentColor"/><path d="M6.5 7H5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M7 6.5V5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>`;
                     const buildMetaLineTextHtmlEsc = (labelText) => [esc(fitLabelForWiMeta(wiDisplayLabelFor(labelText), fetchedData.catno)), wiCatnoHtml].filter(Boolean).join(' · ');
                     const metaLineClampStyle = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
                     const line3Base = [esc(`${fetchedData.tracks.length} track${fetchedData.tracks.length !== 1 ? 's' : ''}`), `<span class="dh-wi-ft-slot">${wiFileTypeSlotHtml(fetchedData, esc)}</span>`].join(' · ');
                     const line3Html = dateSegmentHtml ? `${line3Base}${line3Base ? ' · ' : ''}${dateSegmentHtml}` : line3Base;
-                    const wiTitleColor = wiPreviewIsDark ? '#f0f2f7' : '#1c2230';
-                    const wiMetaColor = wiPreviewIsDark ? '#c7ccdb' : '#5c6470';
-                    const wiLine3Color = wiPreviewIsDark ? '#8f95a8' : '#828b98';
                     previewEl.innerHTML = `
                         <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:5px;">
                             ${imgHtml}
                             <div style="min-width:0;flex:1;overflow:hidden;">
-                                <div style="font-weight:700;font-size:12.5px;color:${wiTitleColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(fetchedData.artist)}${fetchedData.artist && fetchedData.title ? ' – ' : ''}${esc(fetchedData.title)}</div>
-                                <div style="display:flex;align-items:center;gap:0;color:${wiMetaColor};font-weight:500;font-size:10.5px;overflow:hidden;">
+                                <div class="dh-wi-title" style="font-weight:700;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(fetchedData.artist)}${fetchedData.artist && fetchedData.title ? ' – ' : ''}${esc(fetchedData.title)}</div>
+                                <div class="dh-wi-meta" style="display:flex;align-items:center;gap:0;font-weight:500;font-size:10.5px;overflow:hidden;">
                                     <span id="dh-wi-meta-line" style="min-width:0;${metaLineClampStyle}">${buildMetaLineTextHtmlEsc(fetchedData.label)}</span>${wiCatnoLookupHtml}<span style="flex-shrink:0;white-space:nowrap;">${wiResolvedCountry ? ` · ${esc(wiResolvedCountry)}` : ''}</span>
                                 </div>
-                                <style>.dh-wi-ft-pick:hover{color:${wiPreviewIsDark ? '#a8cdfa' : '#0f4a8c'};text-decoration:underline}</style>
-                                <div style="color:${wiLine3Color};font-weight:500;font-size:10.25px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${line3Html}</div>
+                                
+                                <div class="dh-wi-line3" style="font-weight:500;font-size:10.25px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${line3Html}</div>
                             </div>
                         </div>
                         <div style="display:flex;gap:2px;margin-bottom:5px;border-bottom:1px solid rgba(0,0,0,0.08);">
@@ -12824,24 +12910,13 @@ wiIsAntiBotPage(html)) {
                         catnoToggleEl.addEventListener('click', (e) => {
                             e.stopPropagation();
                             catnoDisabled = !catnoDisabled;
-                            catnoToggleEl.style.cssText = catnoDisabled ? catnoDisabledStyle : catnoActiveStyle;
+                            catnoToggleEl.classList.toggle('dh-wi-off', catnoDisabled);
                             catnoToggleEl.title = buildCatnoTooltip();
-                        });
-                        catnoToggleEl.addEventListener('mouseenter', () => {
-                            if (catnoDisabled) return;
-                            catnoToggleEl.style.cssText = catnoActiveHoverStyle;
-                        });
-                        catnoToggleEl.addEventListener('mouseleave', () => {
-                            if (catnoDisabled) return;
-                            catnoToggleEl.style.cssText = catnoActiveStyle;
                         });
                     }
                     const catnoLookupEl = previewEl.querySelector('.dh-wi-catno-lookup');
-                    const wiLookupAccentColor = wiPreviewIsDark ? '#7fb2f5' : '#1d63b3';
-                    const bindCatnoLookup = (el) => {
+                                        const bindCatnoLookup = (el) => {
                         if (!el) return;
-                        el.addEventListener('mouseenter', () => { el.style.color = wiLookupAccentColor; });
-                        el.addEventListener('mouseleave', () => { el.style.color = ''; });
                         el.addEventListener('click', (e) => {
                             e.stopPropagation();
                             wiOpenBeatportCatnoSearch(el, fetchedData.artist, fetchedData.title, (picked, pickedUrl) => {
@@ -12903,7 +12978,7 @@ wiIsAntiBotPage(html)) {
                 previewEl.innerHTML = wiPreviewErrorHtml(err.message.replace(/\n/g, '<br>'));
             }
             fetchBtn.disabled = false;
-            fetchBtn.textContent = 'Fetch';
+            fetchBtn.innerHTML = dhBtnLabel('download', 'Fetch');
         };
 
         const _storeApply = async () => {
@@ -12928,8 +13003,9 @@ wiIsAntiBotPage(html)) {
                 const _etaEl = document.getElementById('dh-shield-eta');
                 if (_etaEl) _etaEl.textContent = 'That\'s a lot of metadata! This might take a while…';
             }
-            const _savedCap = _noCapMode ? state.capitalizeFields : null;
+            const _savedCap = (_noCapMode || _noArtistCapMode) ? state.capitalizeFields : null;
             if (_noCapMode) state.capitalizeFields = { ..._noCapFields };
+            else if (_noArtistCapMode) { state.capitalizeFields = { ...state.capitalizeFields, ..._noArtistCapFields }; wiPreserveArtistCase = true; }
             const _savedSplit    = _noSplitMode ? state.splitImport        : null;
             const _savedAutoFeat = _noSplitMode ? state.importAutoFeat     : null;
             const _savedAutoRmx  = _noSplitMode ? state.importAutoRemixers : null;
@@ -13020,7 +13096,7 @@ wiIsAntiBotPage(html)) {
                     await wiApplyRelease(getFilteredFetchedData(), urlInput.value.trim(), _outerShield, selectedDateField);
                 }
             } catch(e) { log('Apply error: ' + e.message, 'error'); _outerShield.restoreAll(); }
-            finally { if (_savedCap) state.capitalizeFields = _savedCap; if (_noSplitMode) { state.splitImport = _savedSplit; state.importAutoFeat = _savedAutoFeat; state.importAutoRemixers = _savedAutoRmx; } _noCapMode = false; _creditsOnlyMode = false; _durationsOnlyMode = false; _noSplitMode = false; }
+            finally { if (_savedCap) state.capitalizeFields = _savedCap; if (_noSplitMode) { state.splitImport = _savedSplit; state.importAutoFeat = _savedAutoFeat; state.importAutoRemixers = _savedAutoRmx; } _noCapMode = false; _noArtistCapMode = false; wiPreserveArtistCase = false; _creditsOnlyMode = false; _durationsOnlyMode = false; _noSplitMode = false; }
             await clearInfoProcessing();
         };
 
@@ -13048,7 +13124,7 @@ wiIsAntiBotPage(html)) {
             const raw = urlInput.value.trim();
             if (!raw) return;
             fetchBtn.disabled = true;
-            fetchBtn.textContent = 'Fetching…';
+            fetchBtn.innerHTML = dhBtnLabel('loader', 'Fetching…', true);
             previewEl.style.display = 'block';
             previewEl.innerHTML = wiLoadingHtml();
             applyBtn.disabled = true; applyWrap.style.opacity = '0.45'; applyWrap.style.pointerEvents = 'none'; savedraftWrap.style.opacity = '0.45'; savedraftWrap.style.pointerEvents = 'none';
@@ -13074,7 +13150,7 @@ wiIsAntiBotPage(html)) {
                             return `
                                 <span class="dh-wi-dcred-chip" data-idx="${idx}" data-role="${esc(r)}" style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:500;color:#fff;padding:2px 7px;border-radius:4px;cursor:pointer;background:${isRoleDisabled ? '#ccc' : '#345ca8'};${isRoleDisabled ? 'opacity:0.6;' : ''}">
                                     <span style="${isRoleDisabled ? 'text-decoration:line-through;' : ''}">${esc(r)}</span>
-                                    <span class="dh-wi-dcred-chip-toggle" title="Exclude this role from submission" style="${isRoleDisabled ? credChipToggleDisabledStyle : credChipToggleStyle}">✕</span>
+                                    <span class="dh-wi-dcred-chip-toggle" title="Exclude this role from submission" style="${isRoleDisabled ? credChipToggleDisabledStyle : credChipToggleStyle}">${dhIcon('close', 9, true)}</span>
                                 </span>
                             `;
                         }).join('');
@@ -13085,7 +13161,7 @@ wiIsAntiBotPage(html)) {
                                 ${chips}${dash}
                                 <span class="dh-wi-dcred-name-wrap" data-idx="${idx}" style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;${isDisabled ? 'opacity:0.4;' : ''}">
                                     <span class="dh-wi-dcred-name" style="font-weight:600;${isDisabled ? 'text-decoration:line-through;' : ''}">${esc(c.name)}${c.anv ? `<span style="color:#888;font-style:italic;font-weight:normal;margin-left:4px;">(ANV: ${esc(c.anv)})</span>` : ''}${tracksSuffix}</span>
-                                    <span class="dh-wi-dcred-toggle" title="Exclude this credit from submission" style="${isDisabled ? creditToggleDisabledStyle : creditToggleStyle}">✕</span>
+                                    <span class="dh-wi-dcred-toggle" title="Exclude this credit from submission" style="${isDisabled ? creditToggleDisabledStyle : creditToggleStyle}">${dhIcon('close', 9, true)}</span>
                                 </span>
                             </div>
                         `;
@@ -13247,7 +13323,7 @@ wiIsAntiBotPage(html)) {
                 previewEl.innerHTML = `<span style="color:#dc3545;">${err.message.replace(/\n/g, '<br>')}</span>`;
             }
             fetchBtn.disabled = false;
-            fetchBtn.textContent = 'Fetch';
+            fetchBtn.innerHTML = dhBtnLabel('download', 'Fetch');
         };
 
         const _discogsApply = async () => {
@@ -13259,8 +13335,9 @@ wiIsAntiBotPage(html)) {
             resetHideTimer();
             await setInfoProcessing();
             const _shield = wiActivateShield('Discogs');
-            const _savedCap = _noCapMode ? state.capitalizeFields : null;
+            const _savedCap = (_noCapMode || _noArtistCapMode) ? state.capitalizeFields : null;
             if (_noCapMode) state.capitalizeFields = { ..._noCapFields };
+            else if (_noArtistCapMode) { state.capitalizeFields = { ...state.capitalizeFields, ..._noArtistCapFields }; wiPreserveArtistCase = true; }
             try {
                 const addedCreditRemoveBtns = [];
                 const wiFields = [];
@@ -13279,7 +13356,7 @@ wiIsAntiBotPage(html)) {
             } finally {
                 _shield.restoreAll();
                 if (_savedCap) state.capitalizeFields = _savedCap;
-                _noCapMode = false;
+                _noCapMode = false; _noArtistCapMode = false; wiPreserveArtistCase = false;
                 _creditsOnlyMode = false;
                 _durationsOnlyMode = false;
                 _noSplitMode = false;
@@ -13308,8 +13385,9 @@ wiIsAntiBotPage(html)) {
             applyWrap.style.opacity     = '0.45'; applyWrap.style.pointerEvents     = 'none';
             fetchBtn.disabled = true;
             savedraftBtn.innerHTML = 'Saving…';
-            const _savedCap = _noCapMode ? state.capitalizeFields : null;
+            const _savedCap = (_noCapMode || _noArtistCapMode) ? state.capitalizeFields : null;
             if (_noCapMode) state.capitalizeFields = { ..._noCapFields };
+            else if (_noArtistCapMode) { state.capitalizeFields = { ...state.capitalizeFields, ..._noArtistCapFields }; wiPreserveArtistCase = true; }
             const _savedSplit    = _noSplitMode ? state.splitImport        : null;
             const _savedAutoFeat = _noSplitMode ? state.importAutoFeat     : null;
             const _savedAutoRmx  = _noSplitMode ? state.importAutoRemixers : null;
@@ -13322,7 +13400,7 @@ wiIsAntiBotPage(html)) {
             } finally {
                 if (_savedCap) state.capitalizeFields = _savedCap;
                 if (_noSplitMode) { state.splitImport = _savedSplit; state.importAutoFeat = _savedAutoFeat; state.importAutoRemixers = _savedAutoRmx; }
-                _noCapMode = false;
+                _noCapMode = false; _noArtistCapMode = false; wiPreserveArtistCase = false;
                 _noSplitMode = false;
                 savedraftBtn.innerHTML = 'Save To<br>Draft';
                 fetchBtn.disabled = false;
@@ -13371,18 +13449,18 @@ wiIsAntiBotPage(html)) {
         `;
         overlay.innerHTML = `
             <div style="display:flex; align-items:center; justify-content:space-between; padding:5px 8px 6px; border-bottom:1px solid rgba(0,0,0,0.09); gap:6px;">
-                <strong style="font-size:13px; font-weight:600; color:#111; user-select:none; -webkit-user-select:none; cursor:default; white-space:nowrap; letter-spacing:0.01em; flex-shrink:0;"><span style="font-weight:normal; margin-right:4px;">📝</span>Tracklist Import</strong>
+                <strong style="font-size:13px; font-weight:600; color:#111; user-select:none; -webkit-user-select:none; cursor:default; white-space:nowrap; letter-spacing:0.01em; flex-shrink:0;"><span style="font-weight:normal; margin-right:5px;">${dhIcon('tracklist', 14)}</span>Tracklist Import</strong>
                 <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
-                    <button id="dh-missing-artist-toggle" title="Missing Artists Mode: fill in track-level artists only" style="background:none; border:1px solid #ccc; border-radius:4px; cursor:pointer; font-size:11px; padding:2px 6px; line-height:1.4; white-space:nowrap; opacity:0.75;">👤 Missing Artists</button>
-                    <button id="dh-missing-duration-toggle" title="Missing Durations Mode: fill in durations only" style="background:none; border:1px solid #ccc; border-radius:4px; cursor:pointer; font-size:11px; padding:2px 6px; line-height:1.4; white-space:nowrap; opacity:0.75;">🕛 Missing Durations</button>
-                    <button id="dh-importer-close" title="Close" style="background:none; border:none; cursor:pointer; font-size:13px; padding:1px 4px; line-height:1; flex-shrink:0; opacity:0.65; color:#555;">✕</button>
+                    <button id="dh-missing-artist-toggle" title="Missing Artists Mode: fill in track-level artists only" style="display:inline-flex; align-items:center; gap:4px; background:none; border:1px solid #ccc; border-radius:4px; cursor:pointer; font-size:11px; padding:2px 6px; line-height:1.4; white-space:nowrap; opacity:0.75;">${dhIcon('user', 12)}Missing Artists</button>
+                    <button id="dh-missing-duration-toggle" title="Missing Durations Mode: fill in durations only" style="display:inline-flex; align-items:center; gap:4px; background:none; border:1px solid #ccc; border-radius:4px; cursor:pointer; font-size:11px; padding:2px 6px; line-height:1.4; white-space:nowrap; opacity:0.75;">${dhIcon('clock', 12)}Missing Durations</button>
+                    <button id="dh-importer-close" title="Close" style="background:none; border:none; cursor:pointer; font-size:13px; padding:1px 4px; line-height:1; flex-shrink:0; opacity:0.65; color:#555;">${dhIcon('close', 14)}</button>
                 </div>
             </div>
             <div style="padding:7px 10px 7px;">
                 <textarea id="dh-importer-textarea" placeholder="" style="width:100%; height:${textareaHeight}px; font-size:12px; font-family:monospace; border:1px solid #ccc; border-radius:4px; padding:6px; box-sizing:border-box; resize:vertical;"></textarea>
             </div>
             <div style="display:flex; align-items:center; gap:6px; padding:7px 10px 8px; border-top:1px solid rgba(0,0,0,0.07);">
-                <button id="dh-importer-confirm" style="flex:1; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600; box-sizing:border-box;">Apply</button>
+                <button id="dh-importer-confirm" style="flex:1; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600; box-sizing:border-box;">${dhBtnLabel('check', 'Apply')}</button>
                 <button id="dh-importer-cancel" style="flex:1; height:34px; background:#f1f3f5; color:#111; border:1px solid #ccc; border-radius:5px; cursor:pointer; font-size:13px; box-sizing:border-box;">Cancel</button>
             </div>
         `;
@@ -13399,6 +13477,7 @@ wiIsAntiBotPage(html)) {
             const btnD = document.getElementById('dh-missing-duration-toggle');
             const applyBtn = (btn, active) => {
                 if (!btn) return;
+                btn.classList.toggle('is-on', !!active);
                 btn.style.opacity     = active ? '1' : '0.75';
                 btn.style.background  = active ? '#0d6efd' : 'none';
                 btn.style.color       = active ? '#fff' : (isDark ? '#bbb' : '');
@@ -13462,17 +13541,23 @@ wiIsAntiBotPage(html)) {
             textarea.setSelectionRange(newPos, newPos);
             textarea.dispatchEvent(new Event('input', { bubbles: true }));
         });
-        textarea.addEventListener('input', () => { state.importerText = textarea.value; });
+        textarea.addEventListener('input', () => { state.importerText = textarea.value; textarea.removeAttribute('aria-invalid'); });
         document.getElementById('dh-importer-close').onclick = () => { state.importerText = textarea.value; overlay.style.display = 'none'; };
         document.getElementById('dh-importer-cancel').onclick = () => { state.importerText = textarea.value; overlay.style.display = 'none'; };
         document.getElementById('dh-importer-confirm').onclick = async () => {
             state.importerText = textarea.value;
+            if (!state.importerText.trim()) {
+                textarea.setAttribute('aria-invalid', 'true');
+                textarea.focus();
+                if (state.importerMissingArtistMode) log('Nothing to import — no artist data entered', 'warning');
+                else if (state.importerMissingDurationMode) log('Nothing to import — no duration data entered', 'warning');
+                else { log('Nothing to import — no tracks detected', 'warning'); setInfoSingleLine('Nothing to import', false); }
+                return;
+            }
             overlay.style.display = 'none';
             if (state.importerMissingArtistMode) {
-                if (!state.importerText.trim()) { log('Nothing to import — no artist data entered', 'warning'); return; }
                 await applyMissingArtists(state.importerText);
             } else if (state.importerMissingDurationMode) {
-                if (!state.importerText.trim()) { log('Nothing to import — no duration data entered', 'warning'); return; }
                 await applyMissingDurations(state.importerText);
             } else {
                 const parsed = parseTracklist(state.importerText);
@@ -13487,812 +13572,1830 @@ wiIsAntiBotPage(html)) {
         textarea.focus();
     }
 
+    const PANEL_CSS = `#helper-panel,
+#dh-importer-overlay,
+#dh-config-overlay,
+#dh-web-importer-overlay,
+#dh-ct-custom-overlay,
+#dh-bulk-overlay,
+#dh-ft-menu,
+#dh-wi-beatport-panel,
+#helper-fab {
+  --dh-bg:           #fff;
+  --dh-content:      #fff;
+  --dh-text:         #111;
+  --dh-border:       #ccc;
+  --dh-btn:          #f1f3f5;
+  --dh-btn-border:   #e4e6e8;
+  --dh-btn-text:     #111;
+  --dh-drawer-open:  #dde4ef;
+  --dh-info-bg:      #f8f9fa;
+  --dh-ok:           #28a745;
+  --dh-log-bg:       #f8f9fa;
+  --dh-log-text:     #6b6b6b;
+  --dh-log-label:    #999;
+  --dh-title:        #111;
+  --dh-head-icon:    #111;
+  --dh-close:        #555;
+  --dh-head-border:  rgba(0, 0, 0, .09);
+  --dh-divider:      rgba(0, 0, 0, .08);
+  --dh-mini-bg:      rgba(0, 0, 0, .05);
+  --dh-mini-border:  rgba(0, 0, 0, .12);
+  --dh-on:           #1e66d6;
+  --dh-on-border:    #bfcfe8;
+  --dh-on-ink:       #fff;
+  --dh-off-ink:      #555;
+  --dh-menu-bg:      #fff;
+  --dh-menu-border:  #ccc;
+  --dh-menu-ink:     #111;
+  --dh-menu-hover:   #f0f0f0;
+  --dh-menu-sep:     rgba(0, 0, 0, .1);
+  --dh-caption:      #888;
+  --dh-accent-text:  #0057b8;
+  --dh-fab-ring:     rgba(110, 110, 110, .2);
+  --dh-fab-bg:       rgba(255, 255, 255, .28);
+  --dh-fab-bg-hover: rgba(255, 255, 255, .92);
+  --dh-fab-shadow:   0 0 0 0 transparent;
+
+  --dh-win-bg:        var(--dh-content);
+  --dh-win-border:    var(--dh-border);
+  --dh-win-shadow:    0 4px 12px rgba(0, 0, 0, .08);
+  --dh-radius:        10px;
+  --dh-input-bg:      #fff;
+  --dh-input-ink:     #222;
+  --dh-input-border:  #ccc;
+  --dh-well-bg:       #f8f9fa;
+  --dh-wi-title:      #12161f;
+  --dh-wi-meta:       #3a414d;
+  --dh-wi-line3:      #4a525f;
+  --dh-wi-tab:        #4a525f;
+  --dh-wi-dim:        #6b7280;
+  --dh-ft-bg:         #f8f9fa;
+  --dh-ft-border:     #d0d4da;
+  --dh-ft-fg:         #1c2230;
+  --dh-ft-hover:      rgba(29, 99, 179, .10);
+  --dh-ft-accent:     #1d63b3;
+  --dh-bp-bg:         #f8f9fa;
+  --dh-bp-border:     #e0e0e0;
+  --dh-bp-text:       #1c2230;
+  --dh-bp-sub:        #6b7280;
+  --dh-bp-hover:      rgba(29, 99, 179, .08);
+  --dh-bp-accent:     #1d63b3;
+  --dh-wi-active:     #1a6fbf;
+  --dh-wi-link:       #1d63b3;
+  --dh-wi-link-hover: #0f4a8c;
+  --dh-well-border:   #e0e0e0;
+  --dh-sec-border:    #ccc;
+  --dh-hint:          #555;
+  --dh-danger:        #c00;
+  --dh-hl:            .75;
+}
+
+#helper-panel[data-theme="dark"],
+html[data-deh-theme="dark"] #dh-importer-overlay,
+html[data-deh-theme="dark"] #dh-config-overlay,
+html[data-deh-theme="dark"] #dh-web-importer-overlay,
+html[data-deh-theme="dark"] #dh-ct-custom-overlay,
+html[data-deh-theme="dark"] #dh-bulk-overlay,
+html[data-deh-theme="dark"] #dh-ft-menu,
+html[data-deh-theme="dark"] #dh-wi-beatport-panel,
+html[data-deh-theme="dark"] #helper-fab {
+  color-scheme: dark;
+  --dh-bg:           #111216;
+  --dh-border:       #262626;
+  --dh-content:      #111216;
+  --dh-text:         #ddd;
+  --dh-btn:          #1f2224;
+  --dh-btn-border:   #262626;
+  --dh-btn-text:     #ddd;
+  --dh-drawer-open:  #2a3040;
+  --dh-info-bg:      #161718;
+  --dh-log-bg:       #0e0f10;
+  --dh-log-text:     #cfcfcf;
+  --dh-title:        #fff;
+  --dh-head-icon:    #fff;
+  --dh-close:        #fff;
+  --dh-head-border:  rgba(255, 255, 255, .07);
+  --dh-divider:      rgba(255, 255, 255, .07);
+  --dh-mini-bg:      rgba(255, 255, 255, .04);
+  --dh-mini-border:  rgba(255, 255, 255, .08);
+  --dh-on:           #0b5fd6;
+  --dh-on-border:    #1b446f;
+  --dh-off-ink:      #aaa;
+  --dh-menu-bg:      #1f2224;
+  --dh-menu-border:  #333;
+  --dh-menu-ink:     #ddd;
+  --dh-menu-hover:   #2a2d30;
+  --dh-menu-sep:     #444;
+  --dh-accent-text:  #aad4ff;
+  --dh-fab-ring:     rgba(190, 190, 190, .2);
+  --dh-fab-bg:       rgba(26, 28, 31, .28);
+  --dh-fab-bg-hover: rgba(26, 28, 31, .92);
+  --dh-fab-shadow:   0 0 0 0 transparent;
+  --dh-input-bg:      #1a1c1f;
+  --dh-input-ink:     #ddd;
+  --dh-input-border:  #333;
+  --dh-well-bg:       #1a1c1f;
+  --dh-wi-title:      #f0f2f7;
+  --dh-wi-meta:       #c7ccdb;
+  --dh-wi-line3:      #8f95a8;
+  --dh-wi-tab:        #888;
+  --dh-wi-dim:        #888;
+  --dh-ft-bg:         #1a1c1f;
+  --dh-ft-border:     #444;
+  --dh-ft-fg:         #ddd;
+  --dh-ft-hover:      rgba(127, 178, 245, .16);
+  --dh-ft-accent:     #7fb2f5;
+  --dh-bp-bg:         #1a1c1f;
+  --dh-bp-border:     rgba(255, 255, 255, .12);
+  --dh-bp-text:       #f0f2f7;
+  --dh-bp-sub:        #9aa0b0;
+  --dh-bp-hover:      rgba(127, 178, 245, .12);
+  --dh-bp-accent:     #7fb2f5;
+  --dh-wi-active:     #1a6fbf;
+  --dh-wi-link:       #7fb2f5;
+  --dh-wi-link-hover: #a8cdfa;
+  --dh-well-border:   #333;
+  --dh-sec-border:    #333;
+  --dh-hint:          #777;
+  --dh-danger:        #ff6b6b;
+  --dh-hl:            .06;
+}
+
+#helper-panel {
+  all: initial;
+
+  position: fixed;
+  right: 20px;
+  top: 165px;
+  z-index: 10000;
+  display: block;
+  box-sizing: border-box;
+  width: 255px;
+  overflow: hidden;
+  background: var(--dh-bg);
+  color: var(--dh-text);
+  font-family: Arial, sans-serif;
+  font-size: 14px;
+  line-height: normal;
+  letter-spacing: normal;
+  text-align: left;
+  text-transform: none;
+  border: 1px solid var(--dh-border);
+  border-radius: var(--dh-radius);
+  box-shadow: var(--dh-win-shadow);
+}
+
+#helper-panel[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+#helper-panel *,
+#helper-panel *::before,
+#helper-panel *::after { box-sizing: border-box; }
+
+#helper-panel div,
+#helper-panel span,
+#helper-panel strong,
+#helper-panel hr { margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-transform: none; letter-spacing: inherit; text-shadow: none; }
+
+#helper-panel svg      { display: block; overflow: visible; }
+#helper-panel [hidden] { display: none !important; }
+
+#helper-panel button {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+#helper-panel button:disabled { cursor: default; }
+#helper-panel button:focus-visible,
+#helper-panel .dh-title:focus-visible { outline: 2px solid rgba(30, 102, 214, .55); outline-offset: 1px; }
+
+.dh-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+.dh-i {
+  flex: none;
+  display: inline-block;
+  vertical-align: -.15em;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  overflow: visible;
+  pointer-events: none;
+}
+.dh-i.dh-s9  { width: 9px;  height: 9px;  }
+.dh-i.dh-s10 { width: 10px; height: 10px; }
+.dh-i.dh-s11 { width: 11px; height: 11px; }
+.dh-i.dh-s12 { width: 12px; height: 12px; }
+.dh-i.dh-s14 { width: 14px; height: 14px; }
+.dh-i.dh-s22 { width: 22px; height: 22px; }
+.dh-i--bold  { stroke-width: 2.8; }
+#helper-panel .dh-i--lg { width: 18px; height: 18px; }
+
+#helper-panel .dh-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--dh-head-border);
+  border-radius: calc(var(--dh-radius) - 1px) calc(var(--dh-radius) - 1px) 0 0;
+}
+#helper-panel .dh-title {
+  flex: 1;
+  min-width: 0;
+  color: var(--dh-title);
+  font-size: 13px;
+  font-weight: bold;
+  letter-spacing: .01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#helper-panel .dh-ghost {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 15px;
+  color: var(--dh-head-icon);
+  opacity: .65;
+}
+#helper-panel .dh-ghost--close { color: var(--dh-close); }
+#helper-panel .dh-ghost .dh-i  { width: 14px; height: 14px; }
+
+#helper-panel .dh-i--sun                     { display: none; }
+#helper-panel[data-theme="dark"] .dh-i--sun  { display: block; }
+#helper-panel[data-theme="dark"] .dh-i--moon { display: none; }
+
+#helper-panel #collapse-panel[aria-expanded="false"] .dh-i { transform: rotate(180deg); }
+
+#helper-panel {
+  transition: transform .3s cubic-bezier(.2, .8, .3, 1), opacity .2s ease, visibility 0s linear 0s;
+}
+#helper-panel.is-collapsed {
+  transform: translateX(calc(100% + 24px));
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: transform .26s cubic-bezier(.5, 0, .8, .4), opacity .2s ease .08s, visibility 0s linear .3s;
+}
+
+#helper-fab {
+  all: initial;
+  position: fixed;
+  right: 0;
+  top: 165px;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  box-sizing: border-box;
+  width: 44px;
+  height: 50px;
+  padding: 0 0 0 1px;
+  margin: 0;
+  border: 2px solid var(--dh-border);
+  border-right: 0;
+  border-radius: 12px 0 0 12px;
+  background: var(--dh-fab-bg);
+  box-shadow: var(--dh-fab-shadow);
+  cursor: pointer;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(100%);
+  transition: transform .24s cubic-bezier(.5, 0, .8, .4), width .18s ease, background-color .18s ease, box-shadow .18s ease, visibility 0s linear .3s;
+}
+#helper-fab.is-visible {
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateX(0);
+  transition: transform .32s cubic-bezier(.2, .9, .3, 1.15) .1s, width .18s ease, background-color .18s ease, box-shadow .18s ease, visibility 0s linear 0s;
+}
+#helper-fab.is-visible:hover {
+  width: 50px;
+  background: var(--dh-fab-bg-hover);
+  box-shadow: var(--dh-fab-shadow), 0 0 0 3px var(--dh-fab-ring);
+}
+#helper-fab.is-visible:active { width: 47px; }
+#helper-fab:focus-visible { outline: 2px solid var(--dh-fab-ring); outline-offset: -4px; }
+#helper-fab canvas { display: block; flex: none; width: 40px; height: 40px; border-radius: 50%; pointer-events: none; }
+#helper-fab.is-visible:hover canvas { animation: dh-fab-spin 3.2s linear infinite; }
+#helper-fab.is-pulsing { animation: dh-fab-pulse 1.1s ease-out 2; }
+#helper-panel.dh-no-anim, #helper-fab.dh-no-anim { transition: none !important; }
+
+@keyframes dh-fab-pulse {
+  0%   { box-shadow: var(--dh-fab-shadow), 0 0 0 0 var(--dh-fab-ring); }
+  70%  { box-shadow: var(--dh-fab-shadow), 0 0 0 11px transparent; }
+  100% { box-shadow: var(--dh-fab-shadow), 0 0 0 0 transparent; }
+}
+@keyframes dh-fab-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #helper-panel, #helper-fab, #helper-fab canvas { transition: none !important; animation: none !important; }
+}
+
+#helper-panel .dh-body { display: block; padding: 7px 7px 6px; background: var(--dh-content); border-radius: 0 0 calc(var(--dh-radius) - 1px) calc(var(--dh-radius) - 1px); }
+
+#helper-panel .dh-toolbar { display: flex; gap: 5px; margin-bottom: 5px; }
+#helper-panel .dh-drawer  { flex-wrap: wrap; }
+#helper-panel .dh-tool-wrap { position: relative; flex: 1 1 0; min-width: 0; }
+#helper-panel .dh-tool-wrap > .dh-btn { width: 100%; height: 100%; }
+
+#helper-panel .dh-btn {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  height: 34px;
+  margin-bottom: 5px;
+  padding: 0 10px;
+  white-space: nowrap;
+  line-height: 1;
+  letter-spacing: .01em;
+  font-size: 14px;
+  font-weight: 500;
+  border: 1px solid var(--dh-btn-border);
+  border-radius: 5px;
+  background: var(--dh-btn);
+  color: var(--dh-btn-text);
+  transition: opacity .1s;
+}
+#helper-panel .dh-btn:not(:disabled):hover  { opacity: .85; }
+#helper-panel .dh-btn:not(:disabled):active { opacity: .7; }
+
+#helper-panel .dh-icon-btn {
+  flex: 1 1 0;
+  justify-content: center;
+  min-width: 0;
+  margin-bottom: 0;
+  padding: 0;
+}
+#helper-panel #additional-tools-toggle[aria-expanded="true"] { background: var(--dh-drawer-open); }
+#helper-panel #additional-tools-toggle[aria-expanded="true"] .dh-i { transform: rotate(180deg); }
+
+#helper-panel .dh-divider {
+  display: block;
+  height: 1px;
+  margin: 5px 0;
+  border-radius: 1px;
+  background: var(--dh-divider);
+}
+
+#helper-panel .dh-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  margin-bottom: 5px;
+  padding: 0 8px 0 10px;
+  white-space: nowrap;
+  line-height: 1;
+  letter-spacing: .01em;
+  font-size: 14px;
+  font-weight: 500;
+  border: 1px solid var(--dh-btn-border);
+  border-radius: 5px;
+  background: var(--dh-btn);
+  color: var(--dh-btn-text);
+  transition: opacity .1s;
+}
+#helper-panel .dh-row:hover { opacity: .85; }
+
+#helper-panel .dh-row-main {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 6px;
+  min-width: 0;
+  height: 100%;
+  text-align: left;
+}
+#helper-panel .dh-row-main { gap: 4px; }
+#helper-panel .dh-row-main .dh-i { width: 14px; height: 14px; }
+#helper-panel .dh-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+#helper-panel .dh-mini {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border: .5px solid var(--dh-mini-border);
+  border-radius: 5px;
+  background: var(--dh-mini-bg);
+  color: var(--dh-btn-text);
+  user-select: none;
+  -webkit-user-select: none;
+  transition: all .1s ease-in-out;
+}
+#helper-panel .dh-mini:hover  { transform: scale(1.12); }
+#helper-panel .dh-mini:active { transform: scale(.9); }
+
+#helper-panel .dh-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--dh-mini-border);
+  border-radius: 11px;
+  background: var(--dh-mini-bg);
+  color: var(--dh-off-ink);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .01em;
+  line-height: 1;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: all .1s ease-in-out;
+}
+#helper-panel .dh-toggle:hover  { transform: scale(1.08); }
+#helper-panel .dh-toggle:active { transform: scale(.94); }
+#helper-panel .dh-toggle[aria-checked="true"] { background: var(--dh-on); border-color: var(--dh-on-border); color: var(--dh-on-ink); }
+
+#helper-panel .dh-revert { display: flex; gap: 5px; }
+#helper-panel .dh-revert-btn { flex: 1; margin-bottom: 0; }
+#helper-panel .dh-revert-btn:disabled { opacity: .6; }
+
+#helper-panel #track-info {
+  display: block;
+  margin-top: 5px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--dh-info-bg);
+  color: var(--dh-ok);
+  font-size: 13px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#helper-panel #log-section { margin-top: 2px; }
+#helper-panel .dh-log-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 3px 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#helper-panel .dh-log-label {
+  color: var(--dh-log-label);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+#helper-panel .dh-log-arrow { width: 10px; height: 10px; color: var(--dh-log-label); stroke-width: 2.4; }
+#helper-panel .dh-log-toggle[aria-expanded="true"] .dh-log-arrow { transform: rotate(180deg); }
+
+#helper-panel #log-container {
+  max-height: 120px;
+  overflow-y: auto;
+  padding: 4px 5px;
+  border-radius: 4px 4px calc(var(--dh-radius) - 2px) calc(var(--dh-radius) - 2px);
+  background: var(--dh-log-bg);
+  color: var(--dh-log-text);
+  font-family: monospace;
+  font-size: 10px;
+}
+#helper-panel .dh-log-line { margin: 2px 0; }
+#helper-panel .dh-log-line.is-info    { color: #9aa0a6; }
+#helper-panel .dh-log-line.is-success { color: #28a745; }
+#helper-panel .dh-log-line.is-warning { color: #ffc107; }
+#helper-panel .dh-log-line.is-error   { color: #dc3545; }
+
+#helper-panel .dh-menu {
+  position: fixed;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: max-content;
+  margin-top: 2px;
+  padding: 4px;
+  border: 1px solid var(--dh-menu-border);
+  border-radius: 4px;
+  background: var(--dh-menu-bg);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .35);
+}
+#helper-panel #capitalize-all-menu { display: block; }
+#helper-panel .dh-menu--wrap .dh-menu-item { white-space: normal; line-height: 1.3; }
+
+#helper-panel .dh-menu-item {
+  display: block;
+  width: 100%;
+  padding: 4px 8px;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--dh-menu-ink);
+  font-size: 11px;
+  text-align: left;
+  white-space: nowrap;
+}
+#helper-panel .dh-menu-item:hover { background: var(--dh-menu-hover); }
+#helper-panel .dh-menu-item--accent { color: var(--dh-accent-text); font-weight: 600; }
+
+#helper-panel .dh-menu-caption { padding: 3px 8px 1px; color: var(--dh-caption); font-size: 9.5px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; }
+#helper-panel .dh-menu-sep     { height: 1px; margin: 3px 0; background: var(--dh-menu-sep); }
+
+#dh-importer-overlay,
+#dh-config-overlay,
+#dh-web-importer-overlay,
+#dh-ct-custom-overlay,
+#dh-bulk-overlay {
+  background: var(--dh-win-bg) !important;
+  color: var(--dh-text) !important;
+  border-color: var(--dh-win-border) !important;
+  border-radius: var(--dh-radius) !important;
+  box-shadow: var(--dh-win-shadow) !important;
+  outline: none !important;
+}
+
+#dh-importer-overlay > div:first-child,
+#dh-config-overlay > div:first-child,
+#dh-web-importer-overlay > div:first-child,
+#dh-ct-custom-overlay > div:first-child,
+#dh-bulk-overlay > div:first-child,
+.dh-wi-header, .dh-cfg-header { border-bottom-color: var(--dh-head-border) !important; }
+
+#dh-importer-overlay > div:last-child,
+#dh-ct-custom-overlay > div:last-child,
+#dh-bulk-overlay > div:last-child,
+.dh-wi-footer, .dh-cfg-footer, .dh-cfg-top-row { border-top-color: var(--dh-divider) !important; }
+.dh-cfg-top-row { border-top-color: transparent !important; border-bottom-color: var(--dh-divider) !important; }
+
+#dh-importer-overlay strong,
+#dh-config-overlay strong,
+#dh-web-importer-overlay strong,
+#dh-ct-custom-overlay strong,
+#dh-bulk-overlay strong { color: var(--dh-title) !important; }
+
+#dh-importer-close, #dh-config-close, #dh-wi-close, #dh-ct-close, #dh-bulk-close {
+  color: var(--dh-close) !important;
+  opacity: .65 !important;
+  transition: opacity .1s;
+}
+#dh-importer-close:hover, #dh-config-close:hover, #dh-wi-close:hover, #dh-ct-close:hover, #dh-bulk-close:hover { opacity: 1 !important; }
+
+#dh-importer-overlay input[type="text"],
+#dh-config-overlay input[type="text"],
+#dh-web-importer-overlay input[type="text"],
+#dh-ct-custom-overlay input[type="text"],
+#dh-bulk-overlay input[type="text"],
+#dh-importer-overlay textarea,
+#dh-config-overlay textarea,
+#dh-web-importer-overlay textarea,
+#dh-ct-custom-overlay textarea,
+#dh-bulk-overlay textarea,
+#dh-wi-url, #dh-ct-custom-input, #dh-bulk-find, #dh-bulk-replace, #dh-importer-textarea, #dh-bp-query, #cfg-timeout {
+  background: var(--dh-input-bg) !important;
+  color: var(--dh-input-ink) !important;
+  border-color: var(--dh-input-border) !important;
+}
+#dh-wi-preview { background: var(--dh-well-bg) !important; border-color: var(--dh-well-border) !important; color: var(--dh-text) !important; }
+#dh-wi-preview .dh-wi-title { color: var(--dh-wi-title) !important; }
+#dh-wi-preview .dh-wi-dim   { color: var(--dh-wi-dim) !important; }
+#dh-wi-preview .dh-wi-meta  { color: var(--dh-wi-meta) !important; }
+#dh-wi-preview .dh-wi-line3 { color: var(--dh-wi-line3) !important; }
+#dh-wi-preview .dh-wi-preview-tab { background: none !important; color: var(--dh-wi-tab) !important; border-bottom-color: transparent !important; }
+#dh-wi-preview .dh-wi-preview-tab.active { color: var(--dh-wi-active) !important; border-bottom-color: var(--dh-wi-active) !important; }
+#dh-wi-preview .dh-wi-catno-toggle { color: var(--dh-wi-link) !important; cursor: pointer; }
+#dh-wi-preview .dh-wi-catno-toggle:hover { color: var(--dh-wi-link-hover) !important; text-decoration: underline; }
+#dh-wi-preview .dh-wi-catno-toggle.dh-wi-off { color: var(--dh-wi-tab) !important; text-decoration: line-through !important; opacity: .65; }
+#dh-wi-preview .dh-wi-catno-lookup:hover { color: var(--dh-wi-link) !important; }
+#dh-wi-preview .dh-wi-ft-pick { color: var(--dh-wi-line3) !important; }
+#dh-wi-preview .dh-wi-ft-caret { color: var(--dh-wi-line3) !important; }
+#dh-wi-preview .dh-wi-catno-lookup { color: var(--dh-wi-meta) !important; }
+#dh-wi-preview .dh-wi-ft-caret svg path, #dh-wi-preview .dh-wi-catno-lookup svg path { stroke: currentColor !important; }
+#dh-wi-preview .dh-wi-catno-lookup svg rect { fill: currentColor !important; }
+#dh-wi-beatport-panel { background: var(--dh-bp-bg) !important; border-color: var(--dh-bp-border) !important; color: var(--dh-bp-text) !important; }
+#dh-wi-beatport-panel .dh-bp-sep { border-color: var(--dh-bp-border) !important; }
+#dh-wi-beatport-panel .dh-bp-text { color: var(--dh-bp-text) !important; }
+#dh-wi-beatport-panel .dh-bp-sub { color: var(--dh-bp-sub) !important; }
+#dh-wi-beatport-panel .dh-bp-accent { color: var(--dh-bp-accent) !important; }
+#dh-wi-beatport-panel .dh-bp-accentbg { background: var(--dh-bp-accent) !important; }
+#dh-wi-beatport-panel .dh-bp-thumb { background: var(--dh-input-bg) !important; }
+#dh-wi-beatport-panel .dh-bp-item:hover { background: var(--dh-bp-hover) !important; }
+#dh-wi-beatport-panel .dh-bp-open { color: var(--dh-bp-text) !important; background: var(--dh-input-bg) !important; border-color: var(--dh-bp-border) !important; }
+#dh-wi-beatport-panel .dh-bp-open:hover { color: var(--dh-bp-accent) !important; border-color: var(--dh-bp-accent) !important; opacity: 1 !important; }
+#dh-wi-beatport-panel #dh-bp-open-site:hover { color: var(--dh-bp-accent) !important; }
+#dh-ft-menu { background: var(--dh-ft-bg) !important; border-color: var(--dh-ft-border) !important; color: var(--dh-ft-fg) !important; }
+#dh-ft-menu [role="option"] { background: transparent !important; color: var(--dh-ft-fg) !important; }
+#dh-ft-menu [role="option"]:hover { background: var(--dh-ft-hover) !important; }
+#dh-ft-menu [role="option"][aria-selected="true"] { color: var(--dh-ft-accent) !important; font-weight: 600; }
+#dh-wi-preview .dh-wi-ft-pick:hover { color: var(--dh-wi-link-hover) !important; text-decoration: underline; }
+
+html[data-deh-theme="dark"] #dh-config-overlay .dh-cfg-desc,
+html[data-deh-theme="dark"] #dh-config-overlay .dh-cfg-hint { color: var(--dh-hint) !important; }
+html[data-deh-theme="dark"] #dh-config-overlay .dh-cfg-label { color: #999 !important; }
+html[data-deh-theme="dark"] #dh-config-overlay .dh-cfg-top-label { color: #ccc !important; }
+html[data-deh-theme="dark"] #dh-config-overlay span[style*="text-transform"] { color: #bbb !important; }
+
+#cfg-import-dropdown, #cfg-capitalize-dropdown, #cfg-filetype-dropdown, #cfg-panel-dropdown {
+  background: var(--dh-menu-bg) !important;
+  color: var(--dh-menu-ink) !important;
+  border-color: var(--dh-menu-border) !important;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .15) !important;
+}
+#cfg-cap-btn-toggle-all {
+  background: var(--dh-btn) !important; color: var(--dh-btn-text) !important; border-color: var(--dh-sec-border) !important;
+}
+#dh-config-overlay #cfg-panel-toggle,
+#dh-config-overlay #cfg-import-toggle,
+#dh-config-overlay #cfg-capitalize-toggle,
+#dh-config-overlay #cfg-filetype-toggle {
+  color: var(--dh-text) !important; background: transparent !important; border: none !important;
+}
+#dh-config-overlay #cfg-panel-toggle svg,
+#dh-config-overlay #cfg-import-toggle svg,
+#dh-config-overlay #cfg-capitalize-toggle svg,
+#dh-config-overlay #cfg-filetype-toggle svg { stroke: currentColor !important; }
+
+#dh-importer-confirm, #dh-config-save, #dh-ct-apply, #dh-bulk-apply,
+#dh-wi-apply, #dh-wi-apply-arrow, #dh-wi-savedraft, #dh-wi-savedraft-arrow,
+#dh-wi-fetch,
+#dh-importer-cancel, #dh-config-cancel, #dh-config-reset, #dh-ct-cancel, #dh-bulk-cancel, #dh-wi-cancel,
+#dh-missing-artist-toggle, #dh-missing-duration-toggle {
+  font-family: inherit;
+  letter-spacing: .01em;
+  transition: filter .12s, transform .08s, background-color .12s, border-color .12s, box-shadow .12s, opacity .12s;
+}
+#dh-importer-confirm:hover:not(:disabled),
+#dh-config-save:hover:not(:disabled),
+#dh-ct-apply:hover:not(:disabled), #dh-bulk-apply:hover:not(:disabled),
+#dh-wi-apply:hover:not(:disabled),
+#dh-wi-apply-arrow:hover:not(:disabled),
+#dh-wi-savedraft:hover:not(:disabled),
+#dh-wi-savedraft-arrow:hover:not(:disabled),
+#dh-wi-fetch:hover:not(:disabled),
+#dh-importer-cancel:hover,
+#dh-config-cancel:hover,
+#dh-config-reset:hover,
+#dh-ct-cancel:hover, #dh-bulk-cancel:hover,
+#dh-wi-cancel:hover,
+#dh-missing-artist-toggle:hover,
+#dh-missing-duration-toggle:hover { filter: brightness(1.08); }
+
+#dh-importer-confirm:active:not(:disabled),
+#dh-config-save:active:not(:disabled),
+#dh-ct-apply:active:not(:disabled), #dh-bulk-apply:active:not(:disabled),
+#dh-wi-apply:active:not(:disabled),
+#dh-wi-apply-arrow:active:not(:disabled),
+#dh-wi-savedraft:active:not(:disabled),
+#dh-wi-savedraft-arrow:active:not(:disabled),
+#dh-wi-fetch:active:not(:disabled),
+#dh-importer-cancel:active,
+#dh-config-cancel:active,
+#dh-config-reset:active,
+#dh-ct-cancel:active, #dh-bulk-cancel:active,
+#dh-wi-cancel:active {
+  filter: brightness(.92);
+  transform: translateY(.5px);
+}
+
+#dh-importer-confirm:focus-visible,
+#dh-config-save:focus-visible,
+#dh-ct-apply:focus-visible, #dh-bulk-apply:focus-visible,
+#dh-wi-apply:focus-visible,
+#dh-wi-apply-arrow:focus-visible,
+#dh-wi-savedraft:focus-visible,
+#dh-wi-savedraft-arrow:focus-visible,
+#dh-wi-fetch:focus-visible,
+#dh-importer-cancel:focus-visible,
+#dh-config-cancel:focus-visible,
+#dh-config-reset:focus-visible,
+#dh-ct-cancel:focus-visible, #dh-bulk-cancel:focus-visible,
+#dh-wi-cancel:focus-visible,
+#dh-missing-artist-toggle:focus-visible,
+#dh-missing-duration-toggle:focus-visible {
+  outline: 2px solid rgba(79, 140, 255, .75) !important;
+  outline-offset: 1px;
+}
+
+#dh-wi-fetch:disabled { opacity: .6; cursor: default !important; filter: saturate(.6); }
+
+#dh-importer-confirm, #dh-config-save, #dh-ct-apply, #dh-bulk-apply, #dh-wi-apply, #dh-wi-fetch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+#dh-importer-confirm, #dh-config-save, #dh-ct-apply, #dh-bulk-apply,
+#dh-wi-apply, #dh-wi-apply-arrow, #dh-wi-savedraft, #dh-wi-savedraft-arrow {
+  background: linear-gradient(180deg, #31b552 0%, #28a745 52%, #229a3e 100%) !important;
+  color: #fff !important;
+  border-color: rgba(0, 0, 0, .22) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), 0 1px 2px rgba(0, 0, 0, .22) !important;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, .18);
+}
+
+#dh-wi-savedraft[data-tone="done"], #dh-wi-savedraft-arrow[data-tone="done"] {
+  background: linear-gradient(180deg, #25943f 0%, #218838 52%, #1b7230 100%) !important;
+}
+
+#dh-wi-fetch {
+  background: linear-gradient(180deg, #2b84d9 0%, #1a6fbf 52%, #1662a9 100%) !important;
+  color: #fff !important;
+  border-color: rgba(0, 0, 0, .22) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), 0 1px 2px rgba(0, 0, 0, .22) !important;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, .18);
+}
+
+#dh-wi-apply-arrow, #dh-wi-savedraft-arrow { border-left-color: rgba(255, 255, 255, .30) !important; }
+
+#dh-importer-cancel, #dh-config-cancel, #dh-config-reset, #dh-ct-cancel, #dh-bulk-cancel, #dh-wi-cancel {
+  background: var(--dh-btn) !important;
+  color: var(--dh-btn-text) !important;
+  border-color: var(--dh-sec-border) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, var(--dh-hl)), 0 1px 1px rgba(0, 0, 0, .06) !important;
+}
+#dh-config-reset { color: var(--dh-danger) !important; }
+
+#dh-missing-artist-toggle, #dh-missing-duration-toggle {
+  background: transparent !important;
+  color: var(--dh-text) !important;
+  border-color: var(--dh-sec-border) !important;
+}
+#dh-missing-artist-toggle.is-on, #dh-missing-duration-toggle.is-on {
+  background: #0d6efd !important;
+  color: #fff !important;
+  border-color: #0d6efd !important;
+  opacity: 1 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2) !important;
+}
+
+@keyframes dh-spin { to { transform: rotate(360deg); } }
+.dh-i.dh-spin { animation: dh-spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .dh-i.dh-spin { animation-duration: 2.5s; } }
+
+.dh-bulk {
+  position: fixed;
+  z-index: 10001;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  border: 1px solid var(--dh-win-border);
+  font-family: Arial, sans-serif;
+  font-size: 12px;
+}
+.dh-bulk-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  padding: 5px 8px 7px;
+  border-bottom: 1px solid var(--dh-head-border);
+}
+.dh-bulk-head strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#dh-bulk-close { display: inline-flex; padding: 1px 4px; border: none; background: none; cursor: pointer; }
+
+.dh-bulk-body { display: flex; flex-direction: column; gap: 5px; padding: 8px 10px 9px; }
+.dh-bulk-sep { flex-shrink: 0; height: 1px; margin: 5px 0 2px; background: var(--dh-divider); }
+.dh-bulk-row  { display: flex; align-items: center; justify-content: space-between; }
+.dh-bulk-body > .dh-bulk-label { margin-top: 3px; }
+.dh-bulk-label {
+  color: var(--dh-hint);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+.dh-bulk-quick { display: inline-flex; gap: 2px; }
+.dh-bulk-quick button {
+  padding: 1px 5px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--dh-hint);
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.dh-bulk-quick button:hover { color: var(--dh-text); background: var(--dh-btn); }
+
+.dh-bulk-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.dh-chip {
+  padding: 3px 8px;
+  border: 1px solid var(--dh-sec-border);
+  border-radius: 11px;
+  background: transparent;
+  color: var(--dh-text);
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.3;
+  cursor: pointer;
+  transition: background-color .12s, border-color .12s, color .12s;
+}
+#dh-bulk-chips { gap: 3px; }
+#dh-bulk-chips .dh-chip { padding: 2px 6px; border-radius: 10px; font-size: 10px; }
+.dh-chip:hover { background: var(--dh-btn); }
+.dh-chip[aria-pressed="true"] { background: #0d6efd; border-color: #0d6efd; color: #fff; }
+.dh-chip:focus-visible, .dh-bulk-quick button:focus-visible, #dh-bulk-close:focus-visible {
+  outline: 2px solid rgba(79, 140, 255, .75);
+  outline-offset: 1px;
+}
+
+.dh-bulk input[type="text"] {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 5px 7px;
+  border: 1px solid var(--dh-input-border);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 11px;
+}
+
+.dh-bulk-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 7px 10px 8px;
+  border-top: 1px solid var(--dh-divider);
+}
+#dh-bulk-apply, #dh-bulk-cancel {
+  flex: 1;
+  box-sizing: border-box;
+  height: 34px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+#dh-bulk-cancel { font-weight: 400; }
+
+#dh-bulk-overlay input[aria-invalid="true"],
+#dh-ct-custom-overlay input[aria-invalid="true"],
+#dh-importer-overlay textarea[aria-invalid="true"] { border-color: #dc3545 !important; }
+#dh-bulk-overlay input[aria-invalid="true"]:focus,
+#dh-ct-custom-overlay input[aria-invalid="true"]:focus,
+#dh-importer-overlay textarea[aria-invalid="true"]:focus { box-shadow: 0 0 0 1px rgba(220, 53, 69, .55), 0 0 0 3px rgba(220, 53, 69, .22) !important; }
+.dh-bulk-chips[aria-invalid="true"] .dh-chip { border-color: #dc3545; }
+
+#dh-importer-textarea::-webkit-resizer { width: 15px; height: 15px; }
+#dh-importer-textarea { resize: vertical; }
+
+#dh-config-overlay input[type="text"]:focus,
+#dh-wi-url:focus,
+#dh-ct-custom-input:focus, #dh-bulk-find:focus, #dh-bulk-replace:focus,
+#dh-bp-query:focus,
+#dh-importer-textarea:focus {
+  outline: none !important;
+  box-shadow:
+    0 0 0 1px rgba(30,102,214,0.50),
+    0 0 0 2px rgba(30,102,214,0.24),
+    0 0 0 3px rgba(30,102,214,0.16),
+    0 0 0 4px rgba(30,102,214,0.09),
+    0 0 0 5px rgba(30,102,214,0.05),
+    0 0 0 6px rgba(30,102,214,0.03) !important;
+}
+#dh-config-overlay input[type="text"],
+#dh-wi-url,
+#dh-ct-custom-input, #dh-bulk-find, #dh-bulk-replace,
+#dh-bp-query,
+#dh-importer-textarea { box-shadow: none !important; }
+#dh-config-overlay .dh-cfg-scroll > div { border: none !important; box-shadow: none !important; }`;
+
+    const PANEL_HTML = `<svg class="dh-sprite" aria-hidden="true" focusable="false" width="0" height="0">
+  <defs>
+    <symbol id="dh-i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
+    <symbol id="dh-i-tracklist" viewBox="0 0 24 24"><path d="M11 12H3"/><path d="M16 6H3"/><path d="M16 18H3"/><path d="M18 9v6"/><path d="M21 12h-6"/></symbol>
+    <symbol id="dh-i-caps" viewBox="0 0 24 24"><path d="m3 15 4-8 4 8"/><path d="M4 13h6"/><circle cx="18" cy="12" r="3"/><path d="M21 9v6"/></symbol>
+    <symbol id="dh-i-save" viewBox="0 0 24 24"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></symbol>
+    <symbol id="dh-i-more" viewBox="0 0 24 24"><path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/></symbol>
+    <symbol id="dh-i-positions" viewBox="0 0 24 24"><path d="M10 12h11"/><path d="M10 18h11"/><path d="M10 6h11"/><path d="M4 10h2"/><path d="M4 6h1v4"/><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"/></symbol>
+    <symbol id="dh-i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16.5 12"/></symbol>
+    <symbol id="dh-i-eraser" viewBox="0 0 24 24"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></symbol>
+    <symbol id="dh-i-parens" viewBox="0 0 24 24"><path d="M8 21s-4-3-4-9 4-9 4-9"/><path d="M16 3s4 3 4 9-4 9-4 9"/></symbol>
+    <symbol id="dh-i-user" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+    <symbol id="dh-i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="dh-i-swap" viewBox="0 0 24 24"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></symbol>
+    <symbol id="dh-i-undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/></symbol>
+    <symbol id="dh-i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+    <symbol id="dh-i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+    <symbol id="dh-i-config" viewBox="0 0 24 24"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></symbol>
+    <symbol id="dh-i-chevup" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol>
+    <symbol id="dh-i-chevdown" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="dh-i-close" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+    <symbol id="dh-i-music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></symbol>
+    <symbol id="dh-i-music2" viewBox="0 0 24 24"><circle cx="8" cy="18" r="4"/><path d="M12 18V2l7 4"/></symbol>
+    <symbol id="dh-i-external" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+    <symbol id="dh-i-alertcircle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></symbol>
+    <symbol id="dh-i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="dh-i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></symbol>
+    <symbol id="dh-i-loader" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></symbol>
+    <symbol id="dh-i-rename" viewBox="0 0 24 24"><path d="M5 4h1a3 3 0 0 1 3 3 3 3 0 0 1 3-3h1"/><path d="M13 20h-1a3 3 0 0 1-3-3 3 3 0 0 1-3 3H5"/><path d="M5 16H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h1"/><path d="M13 8h7a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-7"/><path d="M9 7v10"/></symbol>
+  </defs>
+</svg>
+
+<div class="dh-header panel-header">
+  <strong id="panel-title" class="dh-title" title="Collapse / expand">Discogs Edit Helper</strong>
+  <button id="theme-toggle" class="dh-ghost" type="button" title="Toggle theme" aria-label="Toggle theme"><svg class="dh-i dh-i--moon" aria-hidden="true" focusable="false"><use href="#dh-i-moon"/></svg><svg class="dh-i dh-i--sun" aria-hidden="true" focusable="false"><use href="#dh-i-sun"/></svg></button>
+  <button id="config-panel" class="dh-ghost" type="button" title="Config" aria-label="Config"><svg class="dh-i" aria-hidden="true" focusable="false"><use href="#dh-i-config"/></svg></button>
+  <button id="collapse-panel" class="dh-ghost" type="button" title="Collapse" aria-label="Collapse panel" aria-expanded="true"><svg class="dh-i" aria-hidden="true" focusable="false"><use href="#dh-i-chevup"/></svg></button>
+  <button id="close-panel" class="dh-ghost dh-ghost--close" type="button" title="Close" aria-label="Close panel"><svg class="dh-i" aria-hidden="true" focusable="false"><use href="#dh-i-close"/></svg></button>
+</div>
+
+<div id="panel-content" class="dh-body">
+
+  <div class="dh-toolbar">
+    <button id="web-import" class="dh-btn dh-icon-btn" type="button" title="Import metadata from a web store or credits from Discogs" aria-label="Web import"><svg class="dh-i dh-i--lg" aria-hidden="true" focusable="false"><use href="#dh-i-globe"/></svg></button>
+    <button id="tracklist-import" class="dh-btn dh-icon-btn" type="button" title="Import tracklist, artists and durations from plain text" aria-label="Tracklist import"><svg class="dh-i dh-i--lg" aria-hidden="true" focusable="false"><use href="#dh-i-tracklist"/></svg></button>
+    <div id="capitalize-all-wrap" class="dh-tool-wrap">
+      <button id="capitalize-all" class="dh-btn dh-icon-btn" type="button" data-menu="capitalize-all-menu" aria-haspopup="menu" aria-expanded="false" title="Capitalize artists, label/company, joiners, titles and credits" aria-label="Capitalize"><svg class="dh-i dh-i--lg" aria-hidden="true" focusable="false"><use href="#dh-i-caps"/></svg></button>
+      <div id="capitalize-all-menu" class="dh-menu" role="menu" hidden></div>
+    </div>
+    <button id="save-all-fields" class="dh-btn dh-icon-btn" type="button" title="Save / edit all track artists and credits" aria-label="Save all fields"><svg class="dh-i dh-i--lg" aria-hidden="true" focusable="false"><use href="#dh-i-save"/></svg></button>
+    <button id="additional-tools-toggle" class="dh-btn dh-icon-btn" type="button" aria-expanded="false" aria-controls="additional-tools-dropdown" title="Additional tools" aria-label="Additional tools"><svg class="dh-i dh-i--lg" aria-hidden="true" focusable="false"><use href="#dh-i-more"/></svg></button>
+  </div>
+
+  <div id="additional-tools-dropdown" class="dh-toolbar dh-drawer" hidden>
+    <button id="extract-track-numbers" class="dh-btn dh-icon-btn" type="button" data-menu="extract-track-numbers-menu" aria-haspopup="menu" aria-expanded="false" title="Extract track positions from titles or track artists" aria-label="Extract track positions"><svg class="dh-i dh-i--lg" aria-hidden="true" focusable="false"><use href="#dh-i-positions"/></svg></button>
+    <div id="extract-track-numbers-menu" class="dh-menu" role="menu" hidden>
+      <div class="dh-menu-caption">Remove and Enter</div>
+      <button id="extract-track-numbers-both-title" class="dh-menu-item" role="menuitem" type="button" title="Remove position from track title and enter it into the position field">Target: Track Title</button>
+      <button id="extract-track-numbers-both-artist" class="dh-menu-item" role="menuitem" type="button" title="Remove position from track artist and enter it into the position field">Target: Track Artist</button>
+      <div class="dh-menu-sep"></div>
+      <div class="dh-menu-caption">Remove Only</div>
+      <button id="extract-track-numbers-remove-title" class="dh-menu-item" role="menuitem" type="button" title="Remove position from track title only, without changing the position field">Target: Track Title</button>
+      <button id="extract-track-numbers-remove-artist" class="dh-menu-item" role="menuitem" type="button" title="Remove position from track artist only, without changing the position field">Target: Track Artist</button>
+    </div>
+
+    <button id="scan-and-extract" class="dh-btn dh-icon-btn" type="button" data-menu="scan-and-extract-menu" aria-haspopup="menu" aria-expanded="false" title="Extract durations from titles" aria-label="Extract durations"><svg class="dh-i dh-i--lg" aria-hidden="true" focusable="false"><use href="#dh-i-clock"/></svg></button>
+    <div id="scan-and-extract-menu" class="dh-menu" role="menu" hidden>
+      <button id="scan-and-extract-both" class="dh-menu-item" role="menuitem" type="button" title="Remove duration from title and enter it into the duration field">Remove And Enter</button>
+      <button id="scan-and-extract-remove" class="dh-menu-item" role="menuitem" type="button" title="Remove duration from title only, without changing the duration field">Remove Only</button>
+    </div>
+
+    <button id="bulk-rename" class="dh-btn dh-icon-btn" type="button" title="Bulk rename and replace text across the selected fields" aria-label="Bulk rename"><svg class="dh-i dh-i--lg" aria-hidden="true" focusable="false"><use href="#dh-i-rename"/></svg></button>
+
+    <button id="clean-titles" class="dh-btn dh-icon-btn" type="button" data-menu="clean-titles-menu" aria-haspopup="menu" aria-expanded="false" title="Cleanup tools" aria-label="Cleanup tools"><svg class="dh-i dh-i--lg" aria-hidden="true" focusable="false"><use href="#dh-i-eraser"/></svg></button>
+    <div id="clean-titles-menu" class="dh-menu" role="menu" hidden>
+      <button id="clean-titles-std" class="dh-menu-item" role="menuitem" type="button">Standard Removal</button>
+      <button id="clean-titles-cst" class="dh-menu-item" role="menuitem" type="button" title="Remove any custom text from all track titles">Custom Removal</button>
+      <button id="clean-titles-trim" class="dh-menu-item" role="menuitem" type="button" title="Strip leading/trailing whitespace from all fields">Trim Whitespace</button>
+    </div>
+
+    <button id="brackets-to-parens" class="dh-btn dh-icon-btn" type="button" data-menu="brackets-to-parens-menu" aria-haspopup="menu" aria-expanded="false" title="Convert version titles to parentheses" aria-label="Convert to parentheses"><svg class="dh-i dh-i--lg" aria-hidden="true" focusable="false"><use href="#dh-i-parens"/></svg></button>
+    <div id="brackets-to-parens-menu" class="dh-menu" role="menu" hidden>
+      <button id="btp-brackets" class="dh-menu-item" role="menuitem" type="button" title="Convert bracketed titles to parentheses&#10;e.g., &quot;Title [Remix]&quot; to &quot;Title (Remix)&quot;">Convert [ ]</button>
+      <button id="btp-dashes" class="dh-menu-item" role="menuitem" type="button" title="Convert dash-separated titles to parentheses&#10;e.g., &quot;Title - Remix&quot; to &quot;Title (Remix)&quot;">Convert –</button>
+    </div>
+  </div>
+
+  <hr class="dh-divider">
+
+  <div class="dh-row">
+    <button id="extract-artists" class="dh-row-main" type="button" title="Extract artists from track titles and add them as track artists"><svg class="dh-i" aria-hidden="true" focusable="false"><use href="#dh-i-user"/></svg><span class="dh-label">Extract Artists</span></button>
+    <button id="swap-artist-title" class="dh-mini" type="button" title="Swap artist ↔ title for all tracks" aria-label="Swap artist and title"><svg class="dh-i dh-i--lg" aria-hidden="true" focusable="false"><use href="#dh-i-swap"/></svg></button>
+    <button id="remove-main-from-title" class="dh-mini" type="button" title="Remove main artists from titles" aria-label="Remove main artists from titles"><svg class="dh-i" aria-hidden="true" focusable="false"><use href="#dh-i-eraser"/></svg></button>
+    <button id="toggle-main-remove" class="dh-toggle" type="button" role="switch" aria-checked="false" title="Automatically remove main artists from titles">Auto</button>
+  </div>
+
+  <div class="dh-row">
+    <button id="extract-featuring" class="dh-row-main" type="button" title="Extract feat artists from track titles and add them as feat credits"><svg class="dh-i" aria-hidden="true" focusable="false"><use href="#dh-i-users"/></svg><span class="dh-label">Extract Feat Artists</span></button>
+    <button id="remove-feat-from-title" class="dh-mini" type="button" title="Remove feat artists from titles" aria-label="Remove feat artists from titles"><svg class="dh-i" aria-hidden="true" focusable="false"><use href="#dh-i-eraser"/></svg></button>
+    <button id="toggle-feat-remove" class="dh-toggle" type="button" role="switch" aria-checked="false" title="Automatically remove feat artists from titles">Auto</button>
+  </div>
+
+  <div class="dh-row">
+    <button id="extract-remixers" class="dh-row-main" type="button" data-menu="extract-remixers-menu" aria-haspopup="menu" aria-expanded="false" title="Extract remix artists from track titles and add them as remix credits"><svg class="dh-i" aria-hidden="true" focusable="false"><use href="#dh-i-music"/></svg><span class="dh-label">Extract Remixers</span></button>
+    <button id="extract-remixers-optional-only" class="dh-mini" type="button" title="Extract optional patterns only" aria-label="Extract optional remix patterns only"><svg class="dh-i dh-i--lg" aria-hidden="true" focusable="false"><use href="#dh-i-music2"/></svg></button>
+    <button id="toggle-remix-optional" class="dh-toggle" type="button" role="switch" aria-checked="false" title="Automatically extract optional patterns">Auto</button>
+  </div>
+  <div id="extract-remixers-menu" class="dh-menu dh-menu--wrap" role="menu" hidden>
+    <button id="extract-remixers-default" class="dh-menu-item" role="menuitem" type="button">Pattern Mode e.g., "Title (Artist Remix)"</button>
+    <button id="extract-remixers-artist-only" class="dh-menu-item" role="menuitem" type="button">Non-Pattern Mode e.g., "Title (Artist)"</button>
+  </div>
+
+  <hr class="dh-divider">
+
+  <div class="dh-revert">
+    <button id="revert-last" class="dh-btn dh-revert-btn" type="button" title="Revert last action" disabled><svg class="dh-i" aria-hidden="true" focusable="false"><use href="#dh-i-undo"/></svg><span id="revert-label">Revert (0)</span></button>
+    <button id="revert-all" class="dh-btn dh-revert-btn" type="button" title="Revert all actions" disabled><svg class="dh-i" aria-hidden="true" focusable="false"><use href="#dh-i-undo"/></svg><span>Revert All</span></button>
+  </div>
+
+  <div id="track-info" role="status" aria-live="polite">Ready</div>
+
+  <div id="log-section">
+    <button id="log-toggle" class="dh-log-toggle" type="button" aria-expanded="false" aria-controls="log-container">
+      <span class="dh-log-label">Activity Log</span><svg class="dh-i dh-log-arrow" aria-hidden="true" focusable="false"><use href="#dh-i-chevdown"/></svg>
+    </button>
+    <div id="log-container" hidden></div>
+  </div>
+
+</div>`;
+
+    function dhIcon(name, size = 14, bold = false, extraClass = '') {
+        return `<svg class="dh-i dh-s${size}${bold ? ' dh-i--bold' : ''}${extraClass ? ' ' + extraClass : ''}" aria-hidden="true" focusable="false"><use href="#dh-i-${name}"/></svg>`;
+    }
+
+    function dhBtnLabel(icon, text, spin = false) {
+        return `${dhIcon(icon, 14, false, spin ? 'dh-spin' : '')}<span>${text}</span>`;
+    }
+
+    function dhFormatHotkey(hk) {
+        const parts = [];
+        if (hk.ctrl) parts.push('Ctrl');
+        if (hk.alt) parts.push('Alt');
+        if (hk.shift) parts.push('Shift');
+        if (hk.meta) parts.push('Meta');
+        let key = hk.code || '';
+        if (/^Key[A-Z]$/.test(key)) key = key.slice(3);
+        else if (/^Digit[0-9]$/.test(key)) key = key.slice(5);
+        parts.push(key);
+        return parts.join('+');
+    }
+
+    function dhArrowLabel(label, down) {
+        return `${label} ${dhIcon(down ? 'chevdown' : 'chevup', 10, true)}`;
+    }
+
+    const MENU_ACTIONS = {
+        'extract-track-numbers-both-title':     () => extractTrackPositions('both', 'title'),
+        'extract-track-numbers-both-artist':    () => extractTrackPositions('both', 'artist'),
+        'extract-track-numbers-remove-title':   () => extractTrackPositions('removeOnly', 'title'),
+        'extract-track-numbers-remove-artist':  () => extractTrackPositions('removeOnly', 'artist'),
+        'scan-and-extract-both':                () => scanAndExtract('both'),
+        'scan-and-extract-remove':              () => scanAndExtract('removeOnly'),
+        'clean-titles-std':                     () => cleanTitles(),
+        'clean-titles-cst':                     () => openCleanTitlesCustomOverlay(),
+        'clean-titles-trim':                    () => stripWhitespace(),
+        'btp-brackets':                         () => bracketsToParen(),
+        'btp-dashes':                           () => dashToParens(),
+        'extract-remixers-default':             () => extractRemixers(false),
+        'extract-remixers-artist-only':         () => extractRemixersArtistOnly(),
+    };
+
+    const AUTO_TOGGLES = [
+        { id: 'toggle-main-remove',    get: () => state.removeMainFromTitle,  set: v => { state.removeMainFromTitle  = v; }, key: () => STORAGE_KEYS.MAIN_REMOVE_KEY },
+        { id: 'toggle-feat-remove',    get: () => state.removeFeatFromTitle,  set: v => { state.removeFeatFromTitle  = v; }, key: () => STORAGE_KEYS.FEAT_REMOVE_KEY },
+        { id: 'toggle-remix-optional', get: () => state.remixOptionalEnabled, set: v => { state.remixOptionalEnabled = v; }, key: () => STORAGE_KEYS.REMIX_OPTIONAL_KEY },
+    ];
+
+    let _panelDocListenersBound = false;
+
+    function panelMirrorConfig() {
+        if (typeof wiMirrorConfigToExtStorage === 'function') wiMirrorConfigToExtStorage();
+    }
+
+    function addPanelStyles() {
+        let style = document.getElementById('discogs-helper-panel-styles');
+        if (!style) {
+            style = document.createElement('style');
+            style.id = 'discogs-helper-panel-styles';
+            document.head.appendChild(style);
+        }
+        style.textContent = PANEL_CSS;
+    }
+
+    function syncAutoToggles() {
+        for (const t of AUTO_TOGGLES) {
+            const el = document.getElementById(t.id);
+            if (el) el.setAttribute('aria-checked', t.get() ? 'true' : 'false');
+        }
+    }
+
+    function updateRemixToggleUI() {
+        syncAutoToggles();
+        const toggle = document.getElementById('toggle-remix-optional');
+        const optionalList = CONFIG_RAW.REMIX_PATTERNS_OPTIONAL.map(patternToDisplay).join(', ');
+        if (toggle) toggle.title = wrapTitle(`Automatically extract optional patterns:\n${optionalList}`);
+        const only = document.getElementById('extract-remixers-optional-only');
+        if (only) only.title = wrapTitle(`Extract optional patterns only:\n${optionalList}`);
+        updateRemixButtonTitle();
+    }
+
+    function updateRevertButtons() {
+        const count = state.actionHistory.filter(a => a.type !== 'webImport').length;
+        const label   = document.getElementById('revert-label');
+        const lastBtn = document.getElementById('revert-last');
+        const allBtn  = document.getElementById('revert-all');
+        if (label)   label.textContent = `Revert (${count})`;
+        if (lastBtn) lastBtn.disabled = count === 0;
+        if (allBtn)  allBtn.disabled  = count === 0;
+    }
+
+    function updatePanelLog() {
+        const logContainer = document.getElementById('log-container');
+        if (!logContainer) return;
+        const KNOWN = ['info', 'success', 'warning', 'error'];
+        const entries = state.logMessages.slice(-CONFIG.MAX_LOG_MESSAGES);
+        logContainer.innerHTML = entries
+            .map(e => `<div class="dh-log-line is-${KNOWN.includes(e.type) ? e.type : 'info'}">[${escapeHtml(e.timestamp)}] ${escapeHtml(e.message)}</div>`)
+            .join('');
+        logContainer.scrollTop = logContainer.scrollHeight;
+    }
+
+    function setInfoSingleLine(text, success = true) {
+        const infoDiv = document.getElementById('track-info');
+        if (!infoDiv) return;
+        infoDiv.textContent = text;
+    }
+
+    const MENU_PLACEMENT = { 'capitalize-all-menu': 'start', 'extract-remixers-menu': 'fill' };
+
+    function placePanelMenu(menu, trigger) {
+        const mode = MENU_PLACEMENT[menu.id] || 'end';
+        const r = (mode === 'fill' ? (trigger.closest('.dh-row') || trigger) : trigger).getBoundingClientRect();
+        menu.style.top = r.bottom + 'px';
+        if (mode === 'fill')       { menu.style.left = r.left + 'px'; menu.style.right = '';  menu.style.width = r.width + 'px'; }
+        else if (mode === 'start') { menu.style.left = r.left + 'px'; menu.style.right = '';  menu.style.width = ''; }
+        else                       { menu.style.left = '';            menu.style.right = (window.innerWidth - r.right - 7) + 'px'; menu.style.width = ''; }
+    }
+
+    function closePanelMenus(except = null) {
+        const panel = document.getElementById('helper-panel');
+        if (!panel) return;
+        panel.querySelectorAll('.dh-menu').forEach(menu => {
+            if (menu === except || menu.hidden) return;
+            menu.hidden = true;
+            const trigger = panel.querySelector(`[data-menu="${menu.id}"]`);
+            if (trigger) trigger.setAttribute('aria-expanded', 'false');
+        });
+    }
+
+    function setPanelCollapsed(collapsed) {
+        const panel = document.getElementById('helper-panel');
+        const btn   = document.getElementById('collapse-panel');
+        const fab   = document.getElementById('helper-fab');
+        if (!panel || !btn) return;
+        const hadFocus = collapsed && panel.contains(document.activeElement);
+        panel.classList.toggle('is-collapsed', collapsed);
+        if (fab) {
+            fab.classList.toggle('is-visible', collapsed && !state.isHidden);
+            fab.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        }
+        btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        btn.title = collapsed ? 'Expand' : 'Collapse';
+        btn.setAttribute('aria-label', collapsed ? 'Expand panel' : 'Collapse panel');
+        state.isCollapsed = collapsed;
+        if (collapsed) {
+            closePanelMenus();
+            if (hadFocus && fab) fab.focus();
+        } else if (fab && document.activeElement === fab) {
+            btn.focus();
+        }
+    }
+
+    function setPanelHidden(hidden) {
+        state.isHidden = hidden;
+        setPanelCollapsed(hidden);
+    }
+
+    function togglePanelVisibility() {
+        const panel = document.getElementById('helper-panel');
+        if (!panel) return;
+        if (state.isHidden || state.isCollapsed) {
+            state.isHidden = false;
+            setPanelCollapsed(false);
+            resetHideTimer();
+        } else {
+            setPanelHidden(true);
+        }
+    }
+
+    let panelHotkeyBound = false;
+
+    function bindPanelHotkey() {
+        if (panelHotkeyBound) return;
+        panelHotkeyBound = true;
+        document.addEventListener('keydown', (e) => {
+            if (e.repeat || state.capturingHotkey) return;
+            const hk = state.hotkey;
+            if (!hk || e.code !== hk.code) return;
+            if (e.ctrlKey !== !!hk.ctrl || e.altKey !== !!hk.alt || e.shiftKey !== !!hk.shift || e.metaKey !== !!hk.meta) return;
+            e.preventDefault();
+            e.stopPropagation();
+            togglePanelVisibility();
+        }, true);
+    }
+
+    function pulseFab() {
+        const fab = document.getElementById('helper-fab');
+        if (!fab) return;
+        fab.classList.remove('is-pulsing');
+        void fab.offsetWidth;
+        fab.classList.add('is-pulsing');
+    }
+
+    function collapsePanel() {
+        if (state.processingStartTime) return;
+        for (const id of ['dh-importer-overlay', 'dh-web-importer-overlay', 'dh-config-overlay']) {
+            const ov = document.getElementById(id);
+            if (ov && ov.style.display !== 'none' && ov.style.display !== '') return;
+        }
+        const panel = document.getElementById('helper-panel');
+        if (panel && !panel.classList.contains('is-collapsed')) {
+            if (state.startHidden) {
+                setPanelHidden(true);
+            } else {
+                setPanelCollapsed(true);
+                pulseFab();
+            }
+        }
+    }
+
+    function applyTheme(theme) {
+        const panel = document.getElementById('helper-panel');
+        if (!panel) return;
+        const dark = theme === 'dark';
+        panel.dataset.theme = dark ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-deh-theme', dark ? 'dark' : 'light');
+        syncAutoToggles();
+
+        _applyThemeToConfigOverlay(document.getElementById('dh-config-overlay'), dark);
+        _applyThemeToImporterOverlay(document.getElementById('dh-importer-overlay'), dark);
+        _applyThemeToWebImporter(document.getElementById('dh-web-importer-overlay'), dark);
+        document.dispatchEvent(new CustomEvent('dh-theme-change', { detail: { dark } }));
+    }
+
+    const FIELD_GROUPS = [
+        { key: 'albumArtists', label: 'Album Artists',
+          sel: () => {
+            const trackRowEls = new Set(getTrackInputRows());
+            return Array.from(document.querySelectorAll('input[data-type="artist-name"], #artist-name-input'))
+                .filter(el => !Array.from(trackRowEls).some(row => row.contains(el)));
+          },
+          editableItems: () => {
+            const trackRowEls = new Set(getTrackInputRows());
+            return Array.from(document.querySelectorAll('li.editable_item'))
+                .filter(item => !Array.from(trackRowEls).some(row => row.contains(item))
+                             && !item.querySelector('span.credit_role'));
+          }
+        },
+        { key: 'albumTitle',   label: 'Album Title',     sel: () => [document.getElementById('release-title-input')].filter(Boolean) },
+        { key: 'label',        label: 'Label/Company',   sel: () => Array.from(document.querySelectorAll('input[id^="label-name-input"]')) },
+        { key: 'joiners',      label: 'Joiners',
+          sel: () => Array.from(document.querySelectorAll('input[size="10"]')),
+          openContainersFn: () => getJoinerContainersNeedingWork()
+        },
+        { key: 'vaArtists',    label: 'Track Artists',
+          sel: () => {
+            const inputs = [];
+            for (const row of getTrackInputRows()) {
+                inputs.push(...row.querySelectorAll('td.subform_track_artists input[data-type="artist-name"], td.subform_track_artists input.credit-artist-name-input'));
+            }
+            return inputs;
+          },
+          editableItems: () => {
+            const items = [];
+            for (const row of getTrackInputRows())
+                items.push(...row.querySelectorAll('td.subform_track_artists li.editable_item'));
+            return items;
+          }
+        },
+        { key: 'trackTitles',  label: 'Track Titles',    sel: () => Array.from(document.querySelectorAll('input[data-type="track-title"], input[id*="track-title"]')) },
+        { key: 'trackCredits', label: 'Track Credits',
+          sel: () => {
+            const inputs = [];
+            for (const row of getTrackInputRows()) {
+                inputs.push(...row.querySelectorAll('td.subform_track_title input.credit-artist-name-input, td.subform_track_title input[data-type="artist-name-credits"]'));
+            }
+            return inputs;
+          },
+          editableItems: () => {
+            const items = [];
+            for (const row of getTrackInputRows())
+                items.push(...row.querySelectorAll('td.subform_track_title li.editable_item'));
+            return items;
+          }
+        },
+        { key: 'creditNames',  label: 'Album Credits',
+          sel: () => {
+            const trackRowEls = new Set(getTrackInputRows());
+            return Array.from(document.querySelectorAll('input.credit-artist-name-input, input[data-type="artist-name-credits"]'))
+                .filter(el => !Array.from(trackRowEls).some(row => row.contains(el)));
+          },
+          editableItems: () => {
+            const trackRowEls = new Set(getTrackInputRows());
+            return Array.from(document.querySelectorAll('li.editable_item'))
+                .filter(item => !Array.from(trackRowEls).some(row => row.contains(item))
+                             && !!item.querySelector('span.credit_role'));
+          }
+        },
+    ];
+
+    function collectFieldTargets(defs) {
+        const seenItems = new Set();
+        const editableItems = () => {
+            const items = [];
+            for (const def of defs) {
+                if (!def.editableItems) continue;
+                for (const item of def.editableItems()) {
+                    if (!seenItems.has(item)) { seenItems.add(item); items.push(item); }
+                }
+            }
+            return items;
+        };
+        const openContainers = defs.some(d => d.openContainersFn)
+            ? () => defs.flatMap(d => d.openContainersFn ? d.openContainersFn() : [])
+            : null;
+        const fields = () => {
+            const seen = new Set();
+            return defs
+                .flatMap(({ sel }) => (typeof sel === 'function' ? sel() : sel))
+                .filter(el => { if (!el || seen.has(el)) return false; seen.add(el); return true; });
+        };
+        return { fields, editableItems, openContainers };
+    }
+
+    function createCapitalizeMenuBuilder() {
+        const _capOne = async (selFn, label, editableItemsFn = null, openContainersFn = null) => {
+            await setInfoProcessing();
+            if (editableItemsFn) {
+                const editableItems = editableItemsFn();
+                await openSavedLinksIfNeeded(editableItems);
+            } else {
+            }
+            if (openContainersFn) {
+                await openContainersIfSaved(openContainersFn());
+            }
+            const fields = typeof selFn === 'function' ? selFn() : selFn;
+            const trackRows = getTrackInputRows();
+            const trackRowEls = new Set(trackRows);
+            const albumArtistEls = new Set(
+                Array.from(document.querySelectorAll('input[data-type="artist-name"], #artist-name-input'))
+                    .filter(el => !Array.from(trackRowEls).some(row => row.contains(el)))
+            );
+            log(`Capitalizing ${label || 'fields'}...`, 'info');
+            const changes = []; let processed = 0;
+            for (const el of fields) {
+                if (!el?.isConnected) continue;
+                const orig = (el.value || '').trim();
+                const cand = orig ? capitalizeTitleString(orig) : orig;
+                if (cand && cand !== orig) {
+                    setReactValue(el, cand);
+                    changes.push({ titleInput: el, oldTitle: orig, newTitle: cand });
+                    log(`${getFieldLabel(el, trackRows, albumArtistEls)}: "${orig}" → "${cand}"`, 'success');
+                    processed++;
+                }
+            }
+            if (changes.length) addActionToHistory({ type: 'capitalization', changes });
+            await clearInfoProcessing();
+            const msg = processed > 0 ? `Done! Capitalized ${processed} field${processed !== 1 ? 's' : ''}` : 'Already capitalized';
+            setInfoSingleLine(msg, processed > 0);
+            log(msg, processed > 0 ? 'success' : 'info');
+        };
+        return function buildCapitalizeMenu(menu) {
+            menu.textContent = '';
+
+            const _allBtn = document.createElement('button');
+            _allBtn.type = 'button';
+            _allBtn.className = 'dh-menu-item dh-menu-item--accent';
+            _allBtn.setAttribute('role', 'menuitem');
+            _allBtn.title = 'Capitalizes all fields (individual fields can be toggled in config)';
+            _allBtn.textContent = 'Everything';
+            _allBtn.addEventListener('click', () => {
+                const enabledDefs = FIELD_GROUPS.filter(({ key }) => state.capitalizeBtnFields[key] !== false);
+                const targets = collectFieldTargets(enabledDefs);
+                _capOne(targets.fields, 'everything', targets.editableItems, targets.openContainers);
+            });
+            menu.appendChild(_allBtn);
+
+            const sep = document.createElement('div');
+            sep.className = 'dh-menu-sep';
+            menu.appendChild(sep);
+
+            for (const { label, sel, editableItems, openContainersFn } of FIELD_GROUPS) {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'dh-menu-item';
+                b.setAttribute('role', 'menuitem');
+                b.textContent = label;
+                b.addEventListener('click', () => { _capOne(sel, label.toLowerCase(), editableItems || null, openContainersFn || null); });
+                menu.appendChild(b);
+            }
+        };
+    }
+
+    const FAB_ICON_PNG = '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/h331+ShUmX98KPhiH7fqk9i13R1lIxs59k8tzU7wtRNkI0zG2WRI1ihUHDjLITdkWVZujb/zndKmwOxCky9Ki9hULberfS11nsiP9yYkLi+FrLm4sEWSSiwcuZqQoWNeD0p8fyAPM/whIfwqKGXMSOEg6ErJJlhYmqKn997Lx//xCe46aabSJKE7du3s3nzZi655BLuuusumq4nTLPZZHZ2lle84hV845vf5IwzzuC7372eSy55M9d/9/rHA99m1fXP//RP/MdXv8pXXaDVH/TtOWlOV5tmKaeddhoXXXQRBx54IBs3bqTRaPD617+eHTt2sH7dOpI0q5P8YNtlVF21lFa2OUNNydjqTKU0hevXasGMdfxlqepcSBUvgYX2ge+jtN4j1kyt+VSz2Xzmcn+57kdQwTetbSJDCkmap/ZwBSEpi8Lx85aiLYuicioobUt6bJiua/sXhRHNZgPfD3jgwQeYmZnhtttuo9vt1uVBSZJw/Akn8JPbb6fZbNocr5TkZUGe5bztbZfymte+mhtvuJGvfOUrTE1NIoRkbm6O0047jRNPPJF3v/vdvPnNbyaObVGYctTJaDTizDPO5D++alFQXuSEYchDD1m9/dzcHOPjY4/sHKBt72acskKv4rdqe27ZYzzP9m2uYhDpipi10jYvUTWrwCKidruNEOLTflHmNwrZfqbtuFg6e1P1koKitG2FhRAoZYgizw50WTIcjsjynE67RamV7VQRRu7UAIuEgsBWu1XtYUtVsmnvvdm6bRvPeMYz+OpXv2oli8J2ialTxK4ljjY2Ug1aAW9+85t44xvfAMD69evZZ599EEKwfft23v3udwO2iKzVajrFQ1Uvbwd1bHystslhGJIXOeeeey67d+9menqNJdNYyVUYt2rFowe/wt5GI33bZ05p5WhwB38rJYbr+lEVB2G0pWgsg3yjmJiYOCCKo9uKomwX+cpRIra9jl3BYRihMZR5ThzFNFsttNYkoxFZkRNF7tw410g1zzOLiIKAIAiJwgDpeYwGQ+bm59m410Z63R533303hx12GDfffDNXXfVBXvayl+J5Xn0aj8UEkqrwWjuW71cmNqBu4VM1KcCZEbdkXfRq+Na3vsWpp57KQQcdxP333183F6goc4wrLq0qaIXE6JXq8Uqxp7UCKQk8vz7wquLFap4MME63KrApzSD0aDRb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';
+	
+    function drawFabIconVector(ctx, size) {
+        ctx.scale(size / 100, size / 100);
+        const disc = () => { ctx.beginPath(); ctx.arc(50, 50, 49, 0, Math.PI * 2); };
+        const circle = (r, fill) => { ctx.beginPath(); ctx.arc(50, 50, r, 0, Math.PI * 2); ctx.fillStyle = fill; ctx.fill(); };
+        disc();
+        ctx.fillStyle = '#0b0b0b';
+        ctx.fill();
+        ctx.save();
+        disc();
+        ctx.clip();
+        ctx.lineWidth = 0.8;
+        ctx.strokeStyle = '#262626';
+        ctx.beginPath(); ctx.arc(50, 50, 40, 0, Math.PI * 2); ctx.stroke();
+        ctx.strokeStyle = '#1d1d1d';
+        ctx.beginPath(); ctx.arc(50, 50, 31, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath(); ctx.moveTo(65.4, 33.2); ctx.lineTo(75.2, 7.8); ctx.lineTo(88.9, 20.5); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(34.6, 66.8); ctx.lineTo(24.8, 92.2); ctx.lineTo(11.1, 79.5); ctx.closePath(); ctx.fill();
+        ctx.restore();
+        circle(18.5, '#ffffff');
+        circle(12.6, '#0b0b0b');
+        ctx.fillStyle = '#0b0b0b';
+        for (let i = 0; i < 8; i++) {
+            ctx.save();
+            ctx.translate(50, 50);
+            ctx.rotate(i * Math.PI / 4);
+            ctx.fillRect(-2.6, -17.4, 5.2, 6.6);
+            ctx.restore();
+        }
+        circle(7.2, '#ffffff');
+        circle(4.6, '#d9d9d9');
+        circle(1.5, '#0b0b0b');
+    }
+
+    function paintFabIcon(ctx, size, source) {
+        const base = source.naturalWidth || source.width;
+        let src = document.createElement('canvas');
+        src.width = src.height = base;
+        const srcCtx = src.getContext('2d');
+        srcCtx.fillStyle = '#ffffff';
+        srcCtx.beginPath();
+        srcCtx.arc(base / 2, base / 2, base * 0.02, 0, Math.PI * 2);
+        srcCtx.fill();
+        srcCtx.drawImage(source, 0, 0);
+        let w = base;
+        while (w / 2 >= size) {
+            const step = document.createElement('canvas');
+            step.width = step.height = Math.round(w / 2);
+            const stepCtx = step.getContext('2d');
+            stepCtx.imageSmoothingEnabled = true;
+            stepCtx.imageSmoothingQuality = 'high';
+            stepCtx.drawImage(src, 0, 0, step.width, step.height);
+            src = step;
+            w = step.width;
+        }
+        ctx.clearRect(0, 0, size, size);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(src, 0, 0, size, size);
+    }
+
+    function fabIconFromPng() {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => (img.naturalWidth ? resolve(img) : reject(new Error('empty image')));
+            img.onerror = reject;
+            img.src = 'data:image/png;base64,' + FAB_ICON_PNG;
+        }).catch(() => {
+            const bin = atob(FAB_ICON_PNG);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            return createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+        });
+    }
+
+    function drawFabIcon(canvas, cssSize) {
+        const dpr = Math.min(3, Math.max(1, Math.ceil(window.devicePixelRatio || 1)));
+        const size = cssSize * dpr;
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        fabIconFromPng().then((source) => paintFabIcon(ctx, size, source)).catch(() => drawFabIconVector(ctx, size));
+    }
+
     function createPanel() {
-        const existing = document.getElementById('helper-panel');
-        if (existing) existing.remove();
+        document.getElementById('helper-panel')?.remove();
+        document.getElementById('helper-fab')?.remove();
+
         const panel = document.createElement('div');
         panel.id = 'helper-panel';
-        panel.style.cssText = `
-            position: fixed;
-            right: 20px;
-            top: 165px;
-            width: 255px;
-            background: #fff;
-            border: 1px solid #ccc;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-            z-index: 10000;
-            font-family: Arial, sans-serif;
-            box-sizing: border-box;
-        `;
-        panel.innerHTML = `
-            <div class="panel-header" style="
-                padding: 6px 8px;
-                display: flex; align-items: center; gap: 4px;
-                border-bottom: 1px solid rgba(0,0,0,0.09);
-            ">
-                <strong id="panel-title" style="font-size: 13px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.01em; user-select: none; -webkit-user-select: none; cursor: pointer;">Discogs Edit Helper</strong>
-                <button id="theme-toggle"   style="background:none; border:none; cursor:pointer; font-size:13px; padding:1px 0; line-height:1; opacity:0.65; width:22px; text-align:center; flex-shrink:0;">☾</button>
-                <button id="config-panel"   style="background:none; border:none; cursor:pointer; font-size:13px; padding:1px 0; line-height:1; opacity:0.65; width:22px; text-align:center; flex-shrink:0;">⚙️</button>
-                <button id="collapse-panel" style="background:none; border:none; cursor:pointer; font-size:13px; padding:1px 0; line-height:1; opacity:0.65; width:22px; text-align:center; flex-shrink:0;">▲</button>
-                <button id="close-panel"    style="background:none; border:none; cursor:pointer; font-size:14px; padding:1px 0; line-height:1; opacity:0.65; width:22px; text-align:center; flex-shrink:0;">✕</button>
-            </div>
-
-            <div id="panel-content" style="padding: 7px 7px 6px; box-sizing: border-box;">
-
-                <div style="display:flex; gap:5px; margin-bottom:5px;">
-                    <button id="web-import"                   class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center;">🌐</button>
-                    <button id="tracklist-import"             class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center;">📝</button>
-                    <div id="capitalize-all-wrap" style="position:relative; flex:1 1 0; min-width:0;">
-                        <button id="capitalize-all" class="dh-btn dh-icon-btn" style="width:100% !important; height:100%; flex:1 1 0; min-width:34px; justify-content:center;">🔠</button>
-                        <div id="capitalize-all-menu" style="display:none; position:absolute; top:100%; left:0; z-index:9999; background:#fff; border:1px solid #ccc; border-radius:4px; padding:4px 4px 4px 4px; box-shadow:0 2px 8px rgba(0,0,0,0.35); margin-top:2px; width:max-content;">
-                        </div>
-                    </div>
-                    <button id="save-all-fields"              class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center;">💾</button>
-                    <button id="additional-tools-toggle"      class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center;" title="Additional tools">▶</button>
-                </div>
-
-                <div id="additional-tools-dropdown" style="display:none; flex-wrap:wrap; gap:5px; margin-bottom:5px;">
-                    <button id="extract-track-numbers" class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center; position:relative;" title="Extract track positions from titles or track artists">🔢</button>
-                    <div id="extract-track-numbers-menu" style="display:none; position:absolute; z-index:9999; background:#fff; border:1px solid #ccc; border-radius:4px; padding:4px 4px 4px 4px; box-shadow:0 2px 8px rgba(0,0,0,0.35); flex-direction:column; gap:2px; width:max-content; margin-top:2px;">
-                        <div style="font-size:9.5px; font-weight:600; text-transform:uppercase; letter-spacing:.02em; color:#888; padding:3px 8px 1px;">Remove and Enter</div>
-                        <button id="extract-track-numbers-both-title"  style="display:block; width:100%; text-align:left; font-size:11px; padding:4px 8px; border:none; border-radius:3px; cursor:pointer; white-space:nowrap; background:transparent; color:#111;" title="Remove position from track title and enter it into the position field">Target: Track Title</button>
-                        <button id="extract-track-numbers-both-artist" style="display:block; width:100%; text-align:left; font-size:11px; padding:4px 8px; border:none; border-radius:3px; cursor:pointer; white-space:nowrap; background:transparent; color:#111;" title="Remove position from track artist and enter it into the position field">Target: Track Artist</button>
-                        <div style="height:1px; background:rgba(0,0,0,0.1); margin:3px 0;"></div>
-                        <div style="font-size:9.5px; font-weight:600; text-transform:uppercase; letter-spacing:.02em; color:#888; padding:3px 8px 1px;">Remove Only</div>
-                        <button id="extract-track-numbers-remove-title"  style="display:block; width:100%; text-align:left; font-size:11px; padding:4px 8px; border:none; border-radius:3px; cursor:pointer; white-space:nowrap; background:transparent; color:#111;" title="Remove position from track title only, without changing the position field">Target: Track Title</button>
-                        <button id="extract-track-numbers-remove-artist" style="display:block; width:100%; text-align:left; font-size:11px; padding:4px 8px; border:none; border-radius:3px; cursor:pointer; white-space:nowrap; background:transparent; color:#111;" title="Remove position from track artist only, without changing the position field">Target: Track Artist</button>
-                    </div>
-                    <button id="scan-and-extract"       class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center; position:relative;" title="Extract durations from titles">🕛</button>
-                    <div id="scan-and-extract-menu" style="display:none; position:absolute; z-index:9999; background:#fff; border:1px solid #ccc; border-radius:4px; padding:4px 4px 4px 4px; box-shadow:0 2px 8px rgba(0,0,0,0.35); flex-direction:column; gap:2px; width:max-content; margin-top:2px;">
-                        <button id="scan-and-extract-both"   style="display:block; width:100%; text-align:left; font-size:11px; padding:4px 8px; border:none; border-radius:3px; cursor:pointer; white-space:nowrap; background:transparent; color:#111;" title="Remove duration from title and enter it into the duration field">Remove And Enter</button>
-                        <button id="scan-and-extract-remove" style="display:block; width:100%; text-align:left; font-size:11px; padding:4px 8px; border:none; border-radius:3px; cursor:pointer; white-space:nowrap; background:transparent; color:#111;" title="Remove duration from title only, without changing the duration field">Remove Only</button>
-                    </div>
-                    <button id="strip-whitespace"       class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center;">⇥⇤</button>
-                    <button id="clean-titles" class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center; position:relative;" title="Clean titles">✂️</button>
-                    <div id="clean-titles-menu" style="display:none; position:absolute; z-index:9999; background:#fff; border:1px solid #ccc; border-radius:4px; padding:4px 4px 4px 4px; box-shadow:0 2px 8px rgba(0,0,0,0.35); flex-direction:column; gap:2px; width:max-content; margin-top:2px;">
-                        <button id="clean-titles-std" style="display:block; width:100%; text-align:left; font-size:11px; padding:4px 8px; border:none; border-radius:3px; cursor:pointer; white-space:nowrap; background:transparent; color:#111;">Standard Removal</button>
-                        <button id="clean-titles-cst" style="display:block; width:100%; text-align:left; font-size:11px; padding:4px 8px; border:none; border-radius:3px; cursor:pointer; white-space:nowrap; background:transparent; color:#111;">Custom Removal</button>
-                    </div>
-                    <button id="brackets-to-parens"     class="dh-btn dh-icon-btn" style="flex:1 1 0; min-width:34px; justify-content:center; position:relative;" title="Convert version titles to parentheses">( )</button>
-                    <div id="brackets-to-parens-menu" style="display:none; position:absolute; z-index:9999; background:#fff; border:1px solid #ccc; border-radius:4px; padding:4px; box-shadow:0 2px 8px rgba(0,0,0,0.35); flex-direction:column; gap:2px; width:max-content; margin-top:2px;">
-                        <button id="btp-brackets" style="display:block; width:100%; text-align:left; font-size:11px; padding:4px 8px; border:none; border-radius:3px; cursor:pointer; white-space:nowrap; background:transparent; color:#111;" title="Convert bracketed titles to parentheses\ne.g., &quot;Title [Remix]&quot; to &quot;Title (Remix)&quot;">Convert [ ]</button>
-                        <button id="btp-dashes"   style="display:block; width:100%; text-align:left; font-size:11px; padding:4px 8px; border:none; border-radius:3px; cursor:pointer; white-space:nowrap; background:transparent; color:#111;" title="Convert dash-separated titles to parentheses\ne.g., &quot;Title - Remix&quot; to &quot;Title (Remix)&quot;">Convert –</button>
-                    </div>
-                </div>
-
-                <hr class="dh-divider">
-
-                <button id="extract-artists"   class="dh-btn" style="width:100%;">👤 Extract Artists</button>
-                <button id="extract-featuring" class="dh-btn" style="width:100%;">👥 Extract Feat Artists</button>
-                <button id="extract-remixers"  class="dh-btn" style="width:100%; position:relative;">🎶 Extract Remixers</button>
-                <div id="extract-remixers-menu" style="display:none; position:absolute; z-index:9999; background:#fff; border:1px solid #ccc; border-radius:4px; padding:4px; box-shadow:0 2px 8px rgba(0,0,0,0.35); flex-direction:column; gap:2px; margin-top:2px;">
-                    <button id="extract-remixers-default" style="display:block; width:100%; text-align:left; font-size:11px; padding:4px 8px; border:none; border-radius:3px; cursor:pointer; white-space:normal; line-height:1.3; background:transparent; color:#111;">Pattern Mode e.g., "Title (Artist Remix)"</button>
-                    <button id="extract-remixers-artist-only" style="display:block; width:100%; text-align:left; font-size:11px; padding:4px 8px; border:none; border-radius:3px; cursor:pointer; white-space:normal; line-height:1.3; background:transparent; color:#111;">Non-Pattern Mode e.g., "Title (Artist)"</button>
-                </div>
-
-                <hr class="dh-divider">
-
-                <div style="display:flex; gap:5px;">
-                    <button id="revert-last" class="dh-btn" style="flex:1;">↩️ Revert (0)</button>
-                    <button id="revert-all"  class="dh-btn" style="flex:1;">↩️ Revert All</button>
-                </div>
-
-                <div id="track-info" style="
-                    background:#f8f9fa; border-radius:4px; font-size:13px;
-                    padding:4px 8px; text-align:center;
-                    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-                ">Ready</div>
-
-                <div id="log-section" style="margin-top:2px;">
-                    <div id="log-toggle" style="display:flex; justify-content:space-between; align-items:center; padding:3px 0; cursor:pointer;">
-                        <span style="font-size:9.5px; color:#999; letter-spacing:0.05em; text-transform:uppercase; font-weight:600;">Activity Log</span>
-                        <span id="log-arrow" style="font-size:9px; color:#999;">▼</span>
-                    </div>
-                    <div id="log-container" style="max-height:120px; overflow-y:auto; font-size:10px; font-family:monospace; background:#f8f9fa; padding:4px 5px; border-radius:4px; display:none;"></div>
-                </div>
-            </div>
-        `;
+        panel.dataset.theme = 'light';
+        panel.setAttribute('role', 'complementary');
+        panel.setAttribute('aria-label', 'Discogs Edit Helper');
+        panel.style.setProperty('--dh-ok', CONFIG.INFO_TEXT_COLOR);
+        panel.innerHTML = PANEL_HTML;
         document.body.appendChild(panel);
+
+        const fab = document.createElement('button');
+        fab.id = 'helper-fab';
+        fab.type = 'button';
+        fab.title = 'Expand Discogs Edit Helper';
+        fab.setAttribute('aria-label', 'Expand Discogs Edit Helper');
+        fab.setAttribute('aria-expanded', 'false');
+        fab.setAttribute('data-darkreader-ignore', '');
+        const fabCanvas = document.createElement('canvas');
+        fabCanvas.setAttribute('aria-hidden', 'true');
+        fab.appendChild(fabCanvas);
+        drawFabIcon(fabCanvas, 40);
+        fab.addEventListener('animationend', () => fab.classList.remove('is-pulsing'));
+        fab.addEventListener('click', () => {
+            setPanelCollapsed(false);
+            resetHideTimer();
+        });
+        document.body.appendChild(fab);
         addPanelStyles();
-        const featBtnEl = document.getElementById('extract-featuring');
-        if (featBtnEl) featBtnEl.title = wrapTitle(`Extract feat artists from track titles and add them as feat credits\nFeat patterns: ${CONFIG.FEATURING_PATTERNS.join(', ')}`);
-        const styleButtons = panel.querySelectorAll('.dh-btn');
-        styleButtons.forEach(btn => {
-            btn.style.background = '#f1f3f5';
-            btn.style.color      = '#111';
-            btn.style.border     = '1px solid #e4e6e8';
-            btn.style.cursor     = 'pointer';
-            btn.style.fontWeight = '500';
-            btn.style.fontFamily = 'inherit';
-            if (btn.classList.contains('dh-icon-btn')) {
-                btn.style.flex           = '1 1 0';
-                btn.style.minWidth       = '0';
-                btn.style.justifyContent = 'center';
-            } else {
-                btn.style.width = '100%';
-            }
-        });
-        const remixBtn = document.getElementById('extract-remixers');
-        if (remixBtn) {
-            remixBtn.style.display = 'flex';
-            remixBtn.style.alignItems = 'center';
-            remixBtn.style.justifyContent = 'flex-start';
-            remixBtn.style.gap = '6px';
 
-            const optionalOnlyBtn = document.createElement('span');
-            optionalOnlyBtn.id = 'extract-remixers-optional-only';
-            optionalOnlyBtn.setAttribute('role', 'button');
-            optionalOnlyBtn.setAttribute('tabindex', '0');
-            optionalOnlyBtn.textContent = '🎵';
-            optionalOnlyBtn.title = wrapTitle(`Extract optional patterns only:\n${CONFIG_RAW.REMIX_PATTERNS_OPTIONAL.map(patternToDisplay).join(', ')}`);
-            optionalOnlyBtn.style.cssText = `flex:0 0 auto; margin:0; margin-left:auto; padding:0; width:30px; height:30px;
-                font-family:"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji","Segoe UI Symbol",system-ui,-apple-system,"Helvetica Neue",Arial;
-                border-radius:4px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; user-select:none;`;
-            optionalOnlyBtn.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); extractRemixers(true); });
-            optionalOnlyBtn.addEventListener('keydown', (ev) => { if (ev.key === ' ' || ev.key === 'Enter') { ev.preventDefault(); optionalOnlyBtn.click(); } });
-            remixBtn.appendChild(optionalOnlyBtn);
+        document.getElementById('dh-icon-sprite')?.remove();
+        const sprite = panel.querySelector('.dh-sprite');
+        if (sprite) { sprite.id = 'dh-icon-sprite'; document.body.appendChild(sprite); }
 
-            const remixToggle = document.createElement('span');
-            remixToggle.id = 'toggle-remix-optional';
-            remixToggle.setAttribute('role', 'button');
-            remixToggle.setAttribute('tabindex', '0');
-            remixToggle.textContent = state.remixOptionalEnabled ? '✓' : '';
-            remixToggle.style.cssText = `flex:0 0 auto; margin:0; padding:0; width:30px; height:30px; border-radius:5px;
-                cursor:pointer; display:inline-flex; align-items:center; justify-content:center; user-select:none;`;
-            remixToggle.addEventListener('click', (e) => {
-                e.stopPropagation(); e.preventDefault();
-                state.remixOptionalEnabled = !state.remixOptionalEnabled;
-                try { localStorage.setItem(STORAGE_KEYS.REMIX_OPTIONAL_KEY, state.remixOptionalEnabled ? '1' : '0'); } catch (err) {}
-                updateRemixToggleUI();
-                applyTheme(localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark' ? 'dark' : 'light');
+        const $ = (id) => panel.querySelector('#' + id);
+        const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+
+        on('web-import',         openWebImporter);
+        on('tracklist-import',   openTracklistImporter);
+        on('save-all-fields',    saveAllFields);
+        on('bulk-rename',        openBulkRename);
+        on('extract-artists',    extractArtists);
+        on('extract-featuring',  extractFeaturing);
+        on('revert-last',        revertLastAction);
+        on('revert-all',         revertAllActions);
+
+        on('swap-artist-title',               () => swapArtistTitle());
+        on('remove-main-from-title',          () => removeMainArtistsFromTitle());
+        on('remove-feat-from-title',          () => removeFeaturingFromTitle());
+        on('extract-remixers-optional-only',  () => extractRemixers(true));
+
+        for (const t of AUTO_TOGGLES) {
+            const el = $(t.id);
+            if (!el) continue;
+            el.addEventListener('click', () => {
+                t.set(!t.get());
+                try { localStorage.setItem(t.key(), t.get() ? '1' : '0'); } catch (err) {}
+                panelMirrorConfig();
+                if (t.id === 'toggle-remix-optional') updateRemixToggleUI(); else syncAutoToggles();
             });
-            remixToggle.addEventListener('keydown', (ev) => { if (ev.key === ' ' || ev.key === 'Enter') { ev.preventDefault(); remixToggle.click(); } });
-            remixBtn.appendChild(remixToggle);
         }
-        const featBtn = document.getElementById('extract-featuring');
-        if (featBtn) {
-            featBtn.style.display = 'flex';
-            featBtn.style.alignItems = 'center';
-                        featBtn.style.justifyContent = 'flex-start';
-            featBtn.style.gap = '6px';
 
-            const removeFeatSmall = document.createElement('span');
-            removeFeatSmall.id = 'remove-feat-from-title';
-            removeFeatSmall.setAttribute('role', 'button');
-            removeFeatSmall.setAttribute('tabindex', '0');
-            removeFeatSmall.textContent = '✂️';
-            removeFeatSmall.title = 'Remove feat artists from titles';
-            removeFeatSmall.style.cssText = `flex:0 0 auto; margin:0; margin-left:auto; padding:0; width:30px; height:30px;
-                border-radius:5px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; user-select:none;`;
-            removeFeatSmall.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); removeFeaturingFromTitle(); });
-            removeFeatSmall.addEventListener('keydown', (ev) => { if (ev.key === ' ' || ev.key === 'Enter') { ev.preventDefault(); removeFeatSmall.click(); } });
-            featBtn.appendChild(removeFeatSmall);
+        const buildCapitalizeMenu = createCapitalizeMenuBuilder();
+        const MENU_BUILDERS = { 'capitalize-all-menu': buildCapitalizeMenu };
 
-            const featToggle = document.createElement('span');
-            featToggle.id = 'toggle-feat-remove';
-            featToggle.setAttribute('role', 'button');
-            featToggle.setAttribute('tabindex', '0');
-            featToggle.textContent = state.removeFeatFromTitle ? '✓' : '';
-            featToggle.title = 'Automatically remove feat artists from titles';
-            featToggle.style.cssText = `flex:0 0 auto; margin:0; padding:0; width:30px; height:30px; border-radius:5px;
-                cursor:pointer; display:inline-flex; align-items:center; justify-content:center; user-select:none;`;
-            function toggleFeatHandler(e) {
-                e.stopPropagation(); e.preventDefault();
-                state.removeFeatFromTitle = !state.removeFeatFromTitle;
-                featToggle.textContent = state.removeFeatFromTitle ? '✓' : '';
-                try { localStorage.setItem(STORAGE_KEYS.FEAT_REMOVE_KEY, state.removeFeatFromTitle ? '1' : '0'); } catch (err) {}
-                applyTheme(localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark' ? 'dark' : 'light');
-            }
-            featToggle.addEventListener('click', toggleFeatHandler);
-            featToggle.addEventListener('keydown', (ev) => { if (ev.key === ' ' || ev.key === 'Enter') toggleFeatHandler(ev); });
-            featBtn.appendChild(featToggle);
+        panel.querySelectorAll('[data-menu]').forEach(trigger => {
+            trigger.addEventListener('click', () => {
+                const menu = $(trigger.dataset.menu);
+                if (!menu) return;
+                const willOpen = menu.hidden;
+                closePanelMenus();
+                if (!willOpen) return;
+                if (MENU_BUILDERS[menu.id]) MENU_BUILDERS[menu.id](menu);
+                placePanelMenu(menu, trigger);
+                menu.hidden = false;
+                trigger.setAttribute('aria-expanded', 'true');
+            });
+        });
+        panel.addEventListener('click', (e) => {
+            const item = e.target.closest && e.target.closest('.dh-menu-item');
+            if (!item || !panel.contains(item)) return;
+            closePanelMenus();
+            const action = MENU_ACTIONS[item.id];
+            if (action) action();
+        });
+
+        if (!_panelDocListenersBound) {
+            _panelDocListenersBound = true;
+            document.addEventListener('click', (e) => {
+                if (e.target.closest && e.target.closest('#helper-panel .dh-menu, #helper-panel [data-menu]')) return;
+                closePanelMenus();
+            });
+            document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePanelMenus(); });
+            document.addEventListener('dh-settings-saved', () => {
+                const std = document.getElementById('clean-titles-std');
+                if (std) std.title = wrapTitle('Clean titles from redundant bracket contents:\n' + CONFIG.CLEAN_TITLE_PATTERNS.join(', '));
+            });
         }
-        const mainBtn = document.getElementById('extract-artists');
-        if (mainBtn) {
-            mainBtn.style.display = 'flex';
-            mainBtn.style.alignItems = 'center';
-            mainBtn.style.justifyContent = 'flex-start';
-            mainBtn.style.gap = '6px';
 
-            const swapBtn = document.createElement('span');
-            swapBtn.id = 'swap-artist-title';
-            swapBtn.setAttribute('role', 'button');
-            swapBtn.setAttribute('tabindex', '0');
-            swapBtn.textContent = '⇄';
-            swapBtn.title = 'Swap artist ↔ title for all tracks';
-            swapBtn.style.cssText = `flex:0 0 auto; margin:0; margin-left:auto; padding:0;
-                cursor:pointer; display:inline-flex; align-items:center; justify-content:center; user-select:none;`;
-            swapBtn.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); swapArtistTitle(); });
-            swapBtn.addEventListener('keydown', (ev) => { if (ev.key === ' ' || ev.key === 'Enter') { ev.preventDefault(); swapBtn.click(); } });
-            mainBtn.appendChild(swapBtn);
-
-            const removeMain = document.createElement('span');
-            removeMain.id = 'remove-main-from-title';
-            removeMain.setAttribute('role', 'button');
-            removeMain.setAttribute('tabindex', '0');
-            removeMain.textContent = '✂️';
-            removeMain.title = 'Remove main artists from titles';
-            removeMain.style.cssText = `flex:0 0 auto; margin:0; padding:0; width:30px; height:30px;
-                border-radius:5px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; user-select:none;`;
-            removeMain.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); removeMainArtistsFromTitle(); });
-            removeMain.addEventListener('keydown', (ev) => { if (ev.key === ' ' || ev.key === 'Enter') { ev.preventDefault(); removeMain.click(); } });
-            mainBtn.appendChild(removeMain);
-
-            const mainToggle = document.createElement('span');
-            mainToggle.id = 'toggle-main-remove';
-            mainToggle.setAttribute('role', 'button');
-            mainToggle.setAttribute('tabindex', '0');
-            mainToggle.textContent = state.removeMainFromTitle ? '✓' : '';
-            mainToggle.title = 'Automatically remove main artists from titles';
-            mainToggle.style.cssText = `flex:0 0 auto; margin:0; padding:0; width:30px; height:30px; border-radius:5px;
-                cursor:pointer; display:inline-flex; align-items:center; justify-content:center; user-select:none;`;
-            function toggleMainHandler(e) {
-                e.stopPropagation(); e.preventDefault();
-                state.removeMainFromTitle = !state.removeMainFromTitle;
-                mainToggle.textContent = state.removeMainFromTitle ? '✓' : '';
-                try { localStorage.setItem(STORAGE_KEYS.MAIN_REMOVE_KEY, state.removeMainFromTitle ? '1' : '0'); } catch (err) {}
-                applyTheme(localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark' ? 'dark' : 'light');
-            }
-            mainToggle.addEventListener('click', toggleMainHandler);
-            mainToggle.addEventListener('keydown', (ev) => { if (ev.key === ' ' || ev.key === 'Enter') toggleMainHandler(ev); });
-            mainBtn.appendChild(mainToggle);
+        const drawerBtn = $('additional-tools-toggle');
+        const drawer    = $('additional-tools-dropdown');
+        if (drawerBtn && drawer) {
+            drawerBtn.addEventListener('click', () => {
+                const willOpen = drawer.hidden;
+                drawer.hidden = !willOpen;
+                drawerBtn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+                drawerBtn.title = willOpen ? 'Hide additional tools' : 'Additional tools';
+                closePanelMenus();
+            });
         }
-        const collapseBtn = document.getElementById('collapse-panel');
-        const closeBtn    = document.getElementById('close-panel');
-        const themeBtn    = document.getElementById('theme-toggle');
-        const configBtn   = document.getElementById('config-panel');
-        const logToggle   = document.getElementById('log-toggle');
-        const logContainer= document.getElementById('log-container');
 
-        closeBtn.onclick  = () => { panel.style.display = 'none'; if (state.hideTimeout) clearTimeout(state.hideTimeout); };
-        configBtn.onclick = () => { openConfigPanel(); resetHideTimer(); };
+        const collapseBtn = $('collapse-panel');
+        const logToggle   = $('log-toggle');
+        const logContainer = $('log-container');
 
-        closeBtn.title    = 'Close';
-        configBtn.title   = 'Config';
-        themeBtn.title    = 'Toggle theme';
-
-        const panelTitle = document.getElementById('panel-title');
-        if (panelTitle) panelTitle.onclick = () => collapseBtn.click();
-
-        collapseBtn.title = 'Collapse';
-
+        $('close-panel').onclick  = () => { panel.style.display = 'none'; if (state.hideTimeout) clearTimeout(state.hideTimeout); };
+        $('config-panel').onclick = () => { openConfigPanel(); resetHideTimer(); };
+        $('panel-title').onclick  = () => collapseBtn.click();
         collapseBtn.onclick = () => {
-            const content = document.getElementById('panel-content');
-            if (content.style.display === 'none') {
-                content.style.display = 'block';
-                collapseBtn.textContent = '▲';
-                collapseBtn.title = 'Collapse';
-                state.isCollapsed = false;
-                resetHideTimer();
-            } else {
-                content.style.display = 'none';
-                collapseBtn.textContent = '▼';
-                collapseBtn.title = 'Expand';
-                state.isCollapsed = true;
-            }
+            const expanding = panel.classList.contains('is-collapsed');
+            setPanelCollapsed(!expanding);
+            if (expanding) resetHideTimer();
         };
-
-        [
-            ['save-all-fields',      'Save / edit all open credit fields',                              saveAllFields],
-            ['strip-whitespace',     'Strip leading/trailing whitespace from all fields',               stripWhitespace],
-            ['capitalize-all',       'Capitalize artists, label/company, joiners, titles and credits' + (state.capitalizeMixedCase ? '\n(mixed-case words like DnB, iTunes preserved - toggle in Config)' : ''),                 null],
-            ['tracklist-import',     'Import tracklist from plain text',                                openTracklistImporter],
-            ['web-import',           'Import metadata from a web store or credits from Discogs',        openWebImporter],
-            ['extract-artists',      null,                                                               extractArtists],
-            ['extract-featuring',    null,                                                               extractFeaturing],
-            ['revert-last',          'Revert last action',                                              revertLastAction],
-            ['revert-all',           'Revert all actions',                                              revertAllActions],
-            ['brackets-to-parens',   'Convert version titles to parentheses',                          null],
-        ].forEach(([id, title, handler]) => {
-            const el = document.getElementById(id);
-            if (!el) return;
-            if (title)   el.title   = title;
-            if (handler) el.onclick = handler;
-        });
-        document.getElementById('extract-artists').title = wrapTitle('Extract artists from track titles and add them as track artists\nSeparator patterns: ' + CONFIG.ARTIST_SPLITTER_PATTERNS.join(', ') + '\nIncl. feat separators: ' + CONFIG.FEATURING_PATTERNS.join(', '), 70);
-
-        (() => {
-            const _ctBtn  = document.getElementById('clean-titles');
-            const _ctMenu = document.getElementById('clean-titles-menu');
-            const _ctStd  = document.getElementById('clean-titles-std');
-            const _ctCst  = document.getElementById('clean-titles-cst');
-            if (!_ctBtn || !_ctMenu) return;
-
-            const _ctDark   = () => localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
-            const _btnHover = (b) => {
-                b.addEventListener('mouseover', () => b.style.background = _ctDark() ? '#2a2d30' : '#f0f0f0');
-                b.addEventListener('mouseout',  () => b.style.background = 'transparent');
-            };
-            if (_ctStd) {
-                _ctStd.title   = wrapTitle('Clean titles from redundant bracket contents:\n' + CONFIG.CLEAN_TITLE_PATTERNS.join(', '));
-                _ctStd.onclick = (e) => { e.stopPropagation(); _ctMenu.style.display = 'none'; cleanTitles(); };
-                _btnHover(_ctStd);
-            }
-            if (_ctCst) {
-                _ctCst.title   = 'Remove any custom text from all track titles';
-                _ctCst.onclick = (e) => { e.stopPropagation(); _ctMenu.style.display = 'none'; openCleanTitlesCustomOverlay(); };
-                _btnHover(_ctCst);
-            }
-
-            const _ctApplyTheme = (isDark) => {
-                _ctMenu.style.background  = isDark ? '#1f2224' : '#fff';
-                _ctMenu.style.borderColor = isDark ? '#333' : '#ccc';
-                if (_ctStd) { _ctStd.style.color = isDark ? '#ddd' : '#111'; }
-                if (_ctCst) { _ctCst.style.color = isDark ? '#ddd' : '#111'; }
-            };
-            _ctApplyTheme(_ctDark());
-            document.addEventListener('dh-theme-change', (e) => _ctApplyTheme(e.detail?.dark));
-
-            document.addEventListener('click', (e) => {
-                if (_ctMenu.style.display === 'none') return;
-                if (!_ctMenu.contains(e.target) && e.target !== _ctBtn) {
-                    _ctMenu.style.display = 'none';
-                }
-            });
-            _ctBtn.onclick = (e) => {
-                e.stopPropagation();
-                if (_ctMenu.style.display !== 'none') {
-                    _ctMenu.style.display = 'none';
-                    return;
-                }
-                const r = _ctBtn.getBoundingClientRect();
-                _ctMenu.style.top      = r.bottom + 'px';
-                _ctMenu.style.left     = '';
-                _ctMenu.style.right    = (window.innerWidth - r.right - 7) + 'px';
-                _ctMenu.style.position = 'fixed';
-                _ctMenu.style.display  = 'flex';
-                _ctApplyTheme(_ctDark());
-                const _capm = document.getElementById('capitalize-all-menu');
-                if (_capm) _capm.style.display = 'none';
-                ['brackets-to-parens-menu', 'extract-track-numbers-menu', 'scan-and-extract-menu', 'extract-remixers-menu'].forEach(id => {
-                    const m = document.getElementById(id);
-                    if (m) m.style.display = 'none';
-                });
-            };
-
-            const _ctUpdateTooltip = () => {
-                if (_ctStd) _ctStd.title = wrapTitle('Clean titles from redundant bracket contents:\n' + CONFIG.CLEAN_TITLE_PATTERNS.join(', '));
-            };
-            document.addEventListener('dh-settings-saved', _ctUpdateTooltip);
-        })();
-
-        (() => {
-            const _btpBtn      = document.getElementById('brackets-to-parens');
-            const _btpMenu     = document.getElementById('brackets-to-parens-menu');
-            const _btpBrackets = document.getElementById('btp-brackets');
-            const _btpDashes   = document.getElementById('btp-dashes');
-            if (!_btpBtn || !_btpMenu) return;
-
-            const _btpDark   = () => localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
-            const _btnHover  = (b) => {
-                b.addEventListener('mouseover', () => b.style.background = _btpDark() ? '#2a2d30' : '#f0f0f0');
-                b.addEventListener('mouseout',  () => b.style.background = 'transparent');
-            };
-            if (_btpBrackets) { _btpBrackets.onclick = (e) => { e.stopPropagation(); _btpMenu.style.display = 'none'; bracketsToParen(); }; _btnHover(_btpBrackets); }
-            if (_btpDashes)   { _btpDashes.onclick   = (e) => { e.stopPropagation(); _btpMenu.style.display = 'none'; dashToParens(); };   _btnHover(_btpDashes);   }
-
-            const _btpApplyTheme = (isDark) => {
-                _btpMenu.style.background  = isDark ? '#1f2224' : '#fff';
-                _btpMenu.style.borderColor = isDark ? '#333' : '#ccc';
-                if (_btpBrackets) _btpBrackets.style.color = isDark ? '#ddd' : '#111';
-                if (_btpDashes)   _btpDashes.style.color   = isDark ? '#ddd' : '#111';
-            };
-            _btpApplyTheme(_btpDark());
-            document.addEventListener('dh-theme-change', (e) => _btpApplyTheme(e.detail?.dark));
-
-            document.addEventListener('click', (e) => {
-                if (_btpMenu.style.display === 'none') return;
-                if (!_btpMenu.contains(e.target) && e.target !== _btpBtn) _btpMenu.style.display = 'none';
-            });
-            _btpBtn.onclick = (e) => {
-                e.stopPropagation();
-                if (_btpMenu.style.display !== 'none') { _btpMenu.style.display = 'none'; return; }
-                const r = _btpBtn.getBoundingClientRect();
-                _btpMenu.style.top      = r.bottom + 'px';
-                _btpMenu.style.left     = '';
-                _btpMenu.style.right    = (window.innerWidth - r.right - 7) + 'px';
-                _btpMenu.style.position = 'fixed';
-                _btpMenu.style.display  = 'flex';
-                _btpApplyTheme(_btpDark());
-                const _ctm = document.getElementById('clean-titles-menu');
-                if (_ctm) _ctm.style.display = 'none';
-                ['extract-track-numbers-menu', 'scan-and-extract-menu', 'extract-remixers-menu'].forEach(id => {
-                    const m = document.getElementById(id);
-                    if (m) m.style.display = 'none';
-                });
-            };
-        })();
-
-        (() => {
-            const _etnBtn    = document.getElementById('extract-track-numbers');
-            const _etnMenu   = document.getElementById('extract-track-numbers-menu');
-            const _etnBothTitle    = document.getElementById('extract-track-numbers-both-title');
-            const _etnBothArtist   = document.getElementById('extract-track-numbers-both-artist');
-            const _etnRemoveTitle  = document.getElementById('extract-track-numbers-remove-title');
-            const _etnRemoveArtist = document.getElementById('extract-track-numbers-remove-artist');
-            if (!_etnBtn || !_etnMenu) return;
-
-            const _etnDark  = () => localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
-            const _btnHover = (b) => {
-                b.addEventListener('mouseover', () => b.style.background = _etnDark() ? '#2a2d30' : '#f0f0f0');
-                b.addEventListener('mouseout',  () => b.style.background = 'transparent');
-            };
-            const _etnOptions = [
-                [_etnBothTitle,    'both',       'title'],
-                [_etnBothArtist,   'both',       'artist'],
-                [_etnRemoveTitle,  'removeOnly', 'title'],
-                [_etnRemoveArtist, 'removeOnly', 'artist'],
-            ];
-            for (const [btn, mode, target] of _etnOptions) {
-                if (!btn) continue;
-                btn.onclick = (e) => { e.stopPropagation(); _etnMenu.style.display = 'none'; extractTrackPositions(mode, target); };
-                _btnHover(btn);
-            }
-
-            const _etnApplyTheme = (isDark) => {
-                _etnMenu.style.background  = isDark ? '#1f2224' : '#fff';
-                _etnMenu.style.borderColor = isDark ? '#333' : '#ccc';
-                for (const [btn] of _etnOptions) if (btn) btn.style.color = isDark ? '#ddd' : '#111';
-            };
-            _etnApplyTheme(_etnDark());
-            document.addEventListener('dh-theme-change', (e) => _etnApplyTheme(e.detail?.dark));
-
-            document.addEventListener('click', (e) => {
-                if (_etnMenu.style.display === 'none') return;
-                if (!_etnMenu.contains(e.target) && e.target !== _etnBtn) _etnMenu.style.display = 'none';
-            });
-            _etnBtn.onclick = (e) => {
-                e.stopPropagation();
-                if (_etnMenu.style.display !== 'none') { _etnMenu.style.display = 'none'; return; }
-                const r = _etnBtn.getBoundingClientRect();
-                _etnMenu.style.top      = r.bottom + 'px';
-                _etnMenu.style.left     = '';
-                _etnMenu.style.right    = (window.innerWidth - r.right - 7) + 'px';
-                _etnMenu.style.position = 'fixed';
-                _etnMenu.style.display  = 'flex';
-                _etnApplyTheme(_etnDark());
-                ['clean-titles-menu', 'brackets-to-parens-menu', 'scan-and-extract-menu', 'extract-remixers-menu'].forEach(id => {
-                    const m = document.getElementById(id);
-                    if (m) m.style.display = 'none';
-                });
-            };
-        })();
-
-        (() => {
-            const _saeBtn    = document.getElementById('scan-and-extract');
-            const _saeMenu   = document.getElementById('scan-and-extract-menu');
-            const _saeBoth   = document.getElementById('scan-and-extract-both');
-            const _saeRemove = document.getElementById('scan-and-extract-remove');
-            if (!_saeBtn || !_saeMenu) return;
-
-            const _saeDark  = () => localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
-            const _btnHover = (b) => {
-                b.addEventListener('mouseover', () => b.style.background = _saeDark() ? '#2a2d30' : '#f0f0f0');
-                b.addEventListener('mouseout',  () => b.style.background = 'transparent');
-            };
-            if (_saeBoth)   { _saeBoth.onclick   = (e) => { e.stopPropagation(); _saeMenu.style.display = 'none'; scanAndExtract('both'); };   _btnHover(_saeBoth); }
-            if (_saeRemove) { _saeRemove.onclick = (e) => { e.stopPropagation(); _saeMenu.style.display = 'none'; scanAndExtract('removeOnly'); }; _btnHover(_saeRemove); }
-
-            const _saeApplyTheme = (isDark) => {
-                _saeMenu.style.background  = isDark ? '#1f2224' : '#fff';
-                _saeMenu.style.borderColor = isDark ? '#333' : '#ccc';
-                if (_saeBoth)   _saeBoth.style.color   = isDark ? '#ddd' : '#111';
-                if (_saeRemove) _saeRemove.style.color = isDark ? '#ddd' : '#111';
-            };
-            _saeApplyTheme(_saeDark());
-            document.addEventListener('dh-theme-change', (e) => _saeApplyTheme(e.detail?.dark));
-
-            document.addEventListener('click', (e) => {
-                if (_saeMenu.style.display === 'none') return;
-                if (!_saeMenu.contains(e.target) && e.target !== _saeBtn) _saeMenu.style.display = 'none';
-            });
-            _saeBtn.onclick = (e) => {
-                e.stopPropagation();
-                if (_saeMenu.style.display !== 'none') { _saeMenu.style.display = 'none'; return; }
-                const r = _saeBtn.getBoundingClientRect();
-                _saeMenu.style.top      = r.bottom + 'px';
-                _saeMenu.style.left     = '';
-                _saeMenu.style.right    = (window.innerWidth - r.right - 7) + 'px';
-                _saeMenu.style.position = 'fixed';
-                _saeMenu.style.display  = 'flex';
-                _saeApplyTheme(_saeDark());
-                ['clean-titles-menu', 'brackets-to-parens-menu', 'extract-track-numbers-menu', 'extract-remixers-menu'].forEach(id => {
-                    const m = document.getElementById(id);
-                    if (m) m.style.display = 'none';
-                });
-            };
-        })();
-
-        (() => {
-            const _erBtn        = document.getElementById('extract-remixers');
-            const _erMenu       = document.getElementById('extract-remixers-menu');
-            const _erDefault    = document.getElementById('extract-remixers-default');
-            const _erArtistOnly = document.getElementById('extract-remixers-artist-only');
-            if (!_erBtn || !_erMenu) return;
-
-            const _erDark   = () => localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
-            const _btnHover = (b) => {
-                b.addEventListener('mouseover', () => b.style.background = _erDark() ? '#2a2d30' : '#f0f0f0');
-                b.addEventListener('mouseout',  () => b.style.background = 'transparent');
-            };
-            if (_erDefault)    { _erDefault.onclick    = (e) => { e.stopPropagation(); _erMenu.style.display = 'none'; extractRemixers(false); }; _btnHover(_erDefault); }
-            if (_erArtistOnly) { _erArtistOnly.onclick = (e) => { e.stopPropagation(); _erMenu.style.display = 'none'; extractRemixersArtistOnly(); }; _btnHover(_erArtistOnly); }
-
-            updateRemixModeMenuTooltips();
-
-            const _erApplyTheme = (isDark) => {
-                _erMenu.style.background  = isDark ? '#1f2224' : '#fff';
-                _erMenu.style.borderColor = isDark ? '#333' : '#ccc';
-                if (_erDefault)    _erDefault.style.color    = isDark ? '#ddd' : '#111';
-                if (_erArtistOnly) _erArtistOnly.style.color = isDark ? '#ddd' : '#111';
-            };
-            _erApplyTheme(_erDark());
-            document.addEventListener('dh-theme-change', (e) => _erApplyTheme(e.detail?.dark));
-
-            document.addEventListener('click', (e) => {
-                if (_erMenu.style.display === 'none') return;
-                if (!_erMenu.contains(e.target) && e.target !== _erBtn) _erMenu.style.display = 'none';
-            });
-            _erBtn.onclick = (e) => {
-                e.stopPropagation();
-                if (_erMenu.style.display !== 'none') { _erMenu.style.display = 'none'; return; }
-                const r = _erBtn.getBoundingClientRect();
-                _erMenu.style.top      = r.bottom + 'px';
-                _erMenu.style.left     = r.left + 'px';
-                _erMenu.style.right    = '';
-                _erMenu.style.width    = r.width + 'px';
-                _erMenu.style.position = 'fixed';
-                _erMenu.style.display  = 'flex';
-                _erApplyTheme(_erDark());
-                ['clean-titles-menu', 'brackets-to-parens-menu', 'extract-track-numbers-menu', 'scan-and-extract-menu'].forEach(id => {
-                    const m = document.getElementById(id);
-                    if (m) m.style.display = 'none';
-                });
-            };
-        })();
-
-        (function() {
-            const _capFieldDefs = [
-                { key: 'albumArtists', label: 'Album Artists',
-                  sel: () => {
-                    const trackRowEls = new Set(getTrackInputRows());
-                    return Array.from(document.querySelectorAll('input[data-type="artist-name"], #artist-name-input'))
-                        .filter(el => !Array.from(trackRowEls).some(row => row.contains(el)));
-                  },
-                  editableItems: () => {
-                    const trackRowEls = new Set(getTrackInputRows());
-                    return Array.from(document.querySelectorAll('li.editable_item'))
-                        .filter(item => !Array.from(trackRowEls).some(row => row.contains(item))
-                                     && !item.querySelector('span.credit_role'));
-                  }
-                },
-                { key: 'albumTitle',   label: 'Album Title',     sel: () => [document.getElementById('release-title-input')].filter(Boolean) },
-                { key: 'label',        label: 'Label/Company',   sel: () => Array.from(document.querySelectorAll('input[id^="label-name-input"]')) },
-                { key: 'joiners',      label: 'Joiners',
-                  sel: () => Array.from(document.querySelectorAll('input[size="10"]')),
-                  openContainersFn: () => getJoinerContainersNeedingWork()
-                },
-                { key: 'vaArtists',    label: 'Track Artists',
-                  sel: () => {
-                    const inputs = [];
-                    for (const row of getTrackInputRows()) {
-                        inputs.push(...row.querySelectorAll('td.subform_track_artists input[data-type="artist-name"], td.subform_track_artists input.credit-artist-name-input'));
-                    }
-                    return inputs;
-                  },
-                  editableItems: () => {
-                    const items = [];
-                    for (const row of getTrackInputRows())
-                        items.push(...row.querySelectorAll('td.subform_track_artists li.editable_item'));
-                    return items;
-                  }
-                },
-                { key: 'trackTitles',  label: 'Track Titles',    sel: () => Array.from(document.querySelectorAll('input[data-type="track-title"], input[id*="track-title"]')) },
-                { key: 'trackCredits', label: 'Track Credits',
-                  sel: () => {
-                    const inputs = [];
-                    for (const row of getTrackInputRows()) {
-                        inputs.push(...row.querySelectorAll('td.subform_track_title input.credit-artist-name-input, td.subform_track_title input[data-type="artist-name-credits"]'));
-                    }
-                    return inputs;
-                  },
-                  editableItems: () => {
-                    const items = [];
-                    for (const row of getTrackInputRows())
-                        items.push(...row.querySelectorAll('td.subform_track_title li.editable_item'));
-                    return items;
-                  }
-                },
-                { key: 'creditNames',  label: 'Album Credits',
-                  sel: () => {
-                    const trackRowEls = new Set(getTrackInputRows());
-                    return Array.from(document.querySelectorAll('input.credit-artist-name-input, input[data-type="artist-name-credits"]'))
-                        .filter(el => !Array.from(trackRowEls).some(row => row.contains(el)));
-                  },
-                  editableItems: () => {
-                    const trackRowEls = new Set(getTrackInputRows());
-                    return Array.from(document.querySelectorAll('li.editable_item'))
-                        .filter(item => !Array.from(trackRowEls).some(row => row.contains(item))
-                                     && !!item.querySelector('span.credit_role'));
-                  }
-                },
-            ];
-            const _menu = document.getElementById('capitalize-all-menu');
-            const _btn  = document.getElementById('capitalize-all');
-            if (!_menu || !_btn) return;
-
-            const ARTIST_CREDIT_KEYS = new Set(['albumArtists', 'vaArtists', 'trackCredits', 'creditNames']);
-            const _capOne = async (selFn, label, editableItemsFn = null, openContainersFn = null) => {
-                await setInfoProcessing();
-                if (editableItemsFn) {
-                    const editableItems = editableItemsFn();
-                    await openSavedLinksIfNeeded(editableItems);
-                } else {
-                }
-                if (openContainersFn) {
-                    await openContainersIfSaved(openContainersFn());
-                }
-                const fields = typeof selFn === 'function' ? selFn() : selFn;
-                const trackRows = getTrackInputRows();
-                const trackRowEls = new Set(trackRows);
-                const albumArtistEls = new Set(
-                    Array.from(document.querySelectorAll('input[data-type="artist-name"], #artist-name-input'))
-                        .filter(el => !Array.from(trackRowEls).some(row => row.contains(el)))
-                );
-                log(`Capitalizing ${label || 'fields'}...`, 'info');
-                const changes = []; let processed = 0;
-                for (const el of fields) {
-                    if (!el?.isConnected) continue;
-                    const orig = (el.value || '').trim();
-                    const cand = orig ? capitalizeTitleString(orig) : orig;
-                    if (cand && cand !== orig) {
-                        setReactValue(el, cand);
-                        changes.push({ titleInput: el, oldTitle: orig, newTitle: cand });
-                        log(`${getFieldLabel(el, trackRows, albumArtistEls)}: "${orig}" → "${cand}"`, 'success');
-                        processed++;
-                    }
-                }
-                if (changes.length) addActionToHistory({ type: 'capitalization', changes });
-                await clearInfoProcessing();
-                const msg = processed > 0 ? `Done! Capitalized ${processed} field${processed !== 1 ? 's' : ''}` : 'Already capitalized';
-                setInfoSingleLine(msg, processed > 0);
-                log(msg, processed > 0 ? 'success' : 'info');
-            };
-
-            const _isDark = () => localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
-            const _buildMenu = () => {
-                _menu.innerHTML = '';
-                const dark = _isDark();
-                _menu.style.background   = dark ? '#1f2224' : '#fff';
-                _menu.style.borderColor  = dark ? '#444'    : '#ccc';
-                const btnBase = 'display:block; width:100%; text-align:left; font-size:11px; padding:4px 8px; border:none; border-radius:3px; cursor:pointer; white-space:nowrap;';
-                const btnStyle = btnBase + (dark ? 'background:#1f2224; color:#ddd;' : 'background:transparent; color:#111;');
-                const btnHover = dark ? '#2a2d30' : '#f0f0f0';
-                const _allBtn = document.createElement('button');
-                _allBtn.textContent = 'Everything';
-                _allBtn.title = 'Capitalizes all fields (individual fields can be toggled in config)';
-                _allBtn.style.cssText = btnBase + (dark ? 'background:#1f2224; color:#aad4ff; font-weight:600;' : 'background:transparent; color:#0057b8; font-weight:600;');
-                _allBtn.addEventListener('mouseover', () => _allBtn.style.background = btnHover);
-                _allBtn.addEventListener('mouseout',  () => _allBtn.style.background = dark ? '#1f2224' : 'transparent');
-                _allBtn.addEventListener('click', (e) => {
-                    e.stopPropagation(); _menu.style.display = 'none';
-                    const enabledDefs = _capFieldDefs.filter(({ key }) => state.capitalizeBtnFields[key] !== false);
-                    const seenItems = new Set();
-                    const collectEditableItems = () => {
-                        const items = [];
-                        for (const def of enabledDefs) {
-                            if (!def.editableItems) continue;
-                            for (const item of def.editableItems()) {
-                                if (!seenItems.has(item)) { seenItems.add(item); items.push(item); }
-                            }
-                        }
-                        return items;
-                    };
-                    const collectOpenContainers = enabledDefs.some(d => d.openContainersFn)
-                        ? () => enabledDefs.flatMap(d => d.openContainersFn ? d.openContainersFn() : [])
-                        : null;
-                    const collectAll = () => {
-                        const seen = new Set();
-                        return enabledDefs
-                            .flatMap(({ sel }) => (typeof sel === 'function' ? sel() : sel))
-                            .filter(el => { if (!el || seen.has(el)) return false; seen.add(el); return true; });
-                    };
-                    _capOne(collectAll, 'everything', collectEditableItems, collectOpenContainers);
-                });
-                _menu.appendChild(_allBtn);
-
-                const _div = document.createElement('hr');
-                _div.style.cssText = 'margin:3px 0; border:none; border-top:1px solid ' + (dark ? '#444' : '#ddd') + ';';
-                _menu.appendChild(_div);
-
-                for (const { key, label, sel, editableItems, openContainersFn } of _capFieldDefs) {
-                    const b = document.createElement('button');
-                    b.textContent = label;
-                    b.style.cssText = btnStyle;
-                    b.addEventListener('mouseover', () => b.style.background = btnHover);
-                    b.addEventListener('mouseout',  () => b.style.background = dark ? '#1f2224' : 'transparent');
-                    b.addEventListener('click', (e) => { e.stopPropagation(); _menu.style.display = 'none'; _capOne(sel, label.toLowerCase(), editableItems || null, openContainersFn || null); });
-                    _menu.appendChild(b);
-                }
-            };
-
-            _btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const open = _menu.style.display === 'none';
-                _menu.style.display = open ? 'block' : 'none';
-                if (open) {
-                    _buildMenu();
-                    const _ctm = document.getElementById('clean-titles-menu');
-                    if (_ctm) _ctm.style.display = 'none';
-                }
-            });
-
-            document.addEventListener('click', (e) => {
-                if (!document.getElementById('capitalize-all-wrap')?.contains(e.target)) {
-                    _menu.style.display = 'none';
-                }
-            });
-
-            const _capApplyTheme = (isDark) => {
-                _menu.style.background  = isDark ? '#1f2224' : '#fff';
-                _menu.style.borderColor = isDark ? '#333' : '#ccc';
-                _menu.style.color       = isDark ? '#ddd' : '#111';
-            };
-            _capApplyTheme(_isDark());
-            document.addEventListener('dh-theme-change', (e) => _capApplyTheme(e.detail?.dark));
-        })();
-
-        const additionalToggle = document.getElementById('additional-tools-toggle');
-        const additionalDropdown = document.getElementById('additional-tools-dropdown');
-        if (additionalToggle && additionalDropdown) {
-            additionalToggle.addEventListener('click', () => {
-                const open = additionalDropdown.style.display !== 'none';
-                additionalDropdown.style.display = open ? 'none' : 'flex';
-                additionalToggle.textContent = open ? '▶' : '◀';
-                additionalToggle.title = open ? 'Additional tools' : 'Hide additional tools';
-                const isDark = localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
-                additionalToggle.style.background = open
-                    ? (isDark ? '#1f2224' : '#f1f3f5')
-                    : (isDark ? '#2a3040' : '#dde4ef');
-            });
-        }
-
-        logToggle.onclick = () => {
-            if (!logContainer) return;
-            if (logContainer.style.display === 'none' || logContainer.style.display === '') {
-                logContainer.style.display = 'block';
-                document.getElementById('log-arrow').textContent = '▲';
-            } else {
-                logContainer.style.display = 'none';
-                document.getElementById('log-arrow').textContent = '▼';
-            }
-        };
-
-        themeBtn.onclick = () => {
+        $('theme-toggle').onclick = () => {
             const current = localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark' ? 'dark' : 'light';
             const next = current === 'dark' ? 'light' : 'dark';
             try { localStorage.setItem(STORAGE_KEYS.THEME_KEY, next); } catch (e) {}
             applyTheme(next);
         };
 
+        logToggle.onclick = () => {
+            const willOpen = logContainer.hidden;
+            logContainer.hidden = !willOpen;
+            logToggle.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+            if (willOpen) logContainer.scrollTop = logContainer.scrollHeight;
+        };
+
+        $('extract-featuring').title = wrapTitle(`Extract feat artists from track titles and add them as feat credits\nFeat patterns: ${CONFIG.FEATURING_PATTERNS.join(', ')}`);
+        $('extract-artists').title   = wrapTitle('Extract artists from track titles and add them as track artists\nSeparator patterns: ' + CONFIG.ARTIST_SPLITTER_PATTERNS.join(', ') + '\nIncl. feat separators: ' + CONFIG.FEATURING_PATTERNS.join(', '), 70);
+        $('capitalize-all').title    = 'Capitalize artists, label/company, joiners, titles and credits' + (state.capitalizeMixedCase ? '\n(mixed-case words like DnB, iTunes preserved - toggle in Config)' : '');
+        $('clean-titles-std').title  = wrapTitle('Clean titles from redundant bracket contents:\n' + CONFIG.CLEAN_TITLE_PATTERNS.join(', '));
+
         initThemeFromStorage();
         updateRemixToggleUI();
         updateRemixButtonTitle();
         updateRemixModeMenuTooltips();
         log('Panel initialized');
-        if (state.startCollapsed) {
-            const content = document.getElementById('panel-content');
-            const collapseBtn = document.getElementById('collapse-panel');
-            if (content && collapseBtn) {
-                content.style.display = 'none';
-                collapseBtn.textContent = '▼';
-                collapseBtn.title = 'Expand';
-                state.isCollapsed = true;
-            }
+        if (state.startHidden || state.startCollapsed) {
+            panel.classList.add('dh-no-anim');
+            fab.classList.add('dh-no-anim');
+            if (state.startHidden) setPanelHidden(true);
+            else setPanelCollapsed(true);
+            void panel.offsetWidth;
+            panel.classList.remove('dh-no-anim');
+            fab.classList.remove('dh-no-anim');
         }
         resetHideTimer();
         updateRevertButtons();
+    }
+
+    const BULK_RENAME_OPTIONS = { fields: null, matchCase: false, wholeWord: false };
+
+    function bulkRenameChips() {
+        return FIELD_GROUPS.map(({ key, label }) =>
+            `<button type="button" class="dh-chip" data-key="${key}" aria-pressed="${BULK_RENAME_OPTIONS.fields.has(key)}">${label}</button>`
+        ).join('');
+    }
+
+    function openBulkRename() {
+        const existing = document.getElementById('dh-bulk-overlay');
+        if (existing) { existing.querySelector('#dh-bulk-find')?.focus(); return; }
+        if (!BULK_RENAME_OPTIONS.fields) BULK_RENAME_OPTIONS.fields = new Set(FIELD_GROUPS.map(g => g.key));
+
+        const panel = document.getElementById('helper-panel');
+        const panelRect = panel ? panel.getBoundingClientRect() : { top: 165, right: window.innerWidth - 20, width: 255 };
+        const overlay = document.createElement('div');
+        overlay.id = 'dh-bulk-overlay';
+        overlay.className = 'dh-bulk';
+        overlay.style.cssText = `top:${panelRect.top - 1}px;right:${window.innerWidth - panelRect.right}px;width:${panelRect.width + 100}px;`;
+        overlay.innerHTML = [
+            `<div class="dh-bulk-head"><strong>${dhIcon('rename', 14)}<span>Bulk Rename</span></strong><button type="button" id="dh-bulk-close" aria-label="Close">${dhIcon('close', 14)}</button></div>`,
+            '<div class="dh-bulk-body">',
+            '<div class="dh-bulk-row"><span class="dh-bulk-label">Target fields</span><span class="dh-bulk-quick"><button type="button" data-set="all">All</button><button type="button" data-set="none">None</button></span></div>',
+            `<div class="dh-bulk-chips" id="dh-bulk-chips">${bulkRenameChips()}</div>`,
+            '<div class="dh-bulk-sep" role="separator"></div>',
+            '<label class="dh-bulk-label" for="dh-bulk-find">Text to rename</label>',
+            '<input type="text" id="dh-bulk-find" placeholder="e.g. Artist" autocomplete="off" spellcheck="false">',
+            '<label class="dh-bulk-label" for="dh-bulk-replace">Rename into</label>',
+            '<input type="text" id="dh-bulk-replace" placeholder="e.g. Artist (2)" autocomplete="off" spellcheck="false">',
+            '<div class="dh-bulk-chips">',
+            `<button type="button" class="dh-chip" id="dh-bulk-case" aria-pressed="${BULK_RENAME_OPTIONS.matchCase}">Match Case</button>`,
+            `<button type="button" class="dh-chip" id="dh-bulk-word" aria-pressed="${BULK_RENAME_OPTIONS.wholeWord}">Whole Word</button>`,
+            '</div>',
+            '</div>',
+            '<div class="dh-bulk-foot">',
+            `<button type="button" id="dh-bulk-apply">${dhBtnLabel('check', 'Apply')}</button>`,
+            '<button type="button" id="dh-bulk-cancel">Cancel</button>',
+            '</div>',
+        ].join('');
+        document.body.appendChild(overlay);
+
+        const find = overlay.querySelector('#dh-bulk-find');
+        const to = overlay.querySelector('#dh-bulk-replace');
+        const applyBtn = overlay.querySelector('#dh-bulk-apply');
+        const close = () => overlay.remove();
+
+        const chipsEl = overlay.querySelector('#dh-bulk-chips');
+        const refresh = () => {
+            chipsEl.removeAttribute('aria-invalid');
+            for (const chip of chipsEl.querySelectorAll('.dh-chip')) {
+                chip.setAttribute('aria-pressed', String(BULK_RENAME_OPTIONS.fields.has(chip.dataset.key)));
+            }
+        };
+
+        chipsEl.addEventListener('click', (e) => {
+            const chip = e.target.closest('.dh-chip');
+            if (!chip) return;
+            const set = BULK_RENAME_OPTIONS.fields;
+            if (set.has(chip.dataset.key)) set.delete(chip.dataset.key); else set.add(chip.dataset.key);
+            refresh();
+        });
+        overlay.querySelector('.dh-bulk-quick').addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-set]');
+            if (!btn) return;
+            BULK_RENAME_OPTIONS.fields = new Set(btn.dataset.set === 'all' ? FIELD_GROUPS.map(g => g.key) : []);
+            refresh();
+        });
+        const flag = (id, prop) => {
+            const el = overlay.querySelector(id);
+            el.addEventListener('click', () => {
+                BULK_RENAME_OPTIONS[prop] = !BULK_RENAME_OPTIONS[prop];
+                el.setAttribute('aria-pressed', String(BULK_RENAME_OPTIONS[prop]));
+            });
+        };
+        flag('#dh-bulk-case', 'matchCase');
+        flag('#dh-bulk-word', 'wholeWord');
+
+        const apply = () => {
+            if (find.value.trim() === '') {
+                find.setAttribute('aria-invalid', 'true');
+                find.focus();
+                log('Nothing to rename — enter the text to rename', 'warning');
+                return;
+            }
+            if (!BULK_RENAME_OPTIONS.fields.size) {
+                chipsEl.setAttribute('aria-invalid', 'true');
+                log('No target fields selected', 'warning');
+                return;
+            }
+            const defs = FIELD_GROUPS.filter(g => BULK_RENAME_OPTIONS.fields.has(g.key));
+            const { matchCase, wholeWord } = BULK_RENAME_OPTIONS;
+            const from = find.value;
+            const into = to.value;
+            close();
+            bulkRename(from, into, defs, { matchCase, wholeWord });
+        };
+
+        overlay.querySelector('#dh-bulk-close').onclick = close;
+        overlay.querySelector('#dh-bulk-cancel').onclick = close;
+        applyBtn.onclick = apply;
+        find.addEventListener('input', () => find.removeAttribute('aria-invalid'));
+        overlay.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && (e.target === find || e.target === to)) apply();
+            if (e.key === 'Escape') close();
+        });
+        refresh();
+        find.focus();
+    }
+
+    async function bulkRename(from, into, defs, { matchCase = false, wholeWord = false } = {}) {
+        await setInfoProcessing();
+        const targets = collectFieldTargets(defs);
+        await openSavedLinksIfNeeded(targets.editableItems());
+        if (targets.openContainers) await openContainersIfSaved(targets.openContainers());
+
+        const core = escapeRegExp(from);
+        const re = new RegExp(wholeWord ? `(?<![\\w\\u00C0-\\u024F])${core}(?![\\w\\u00C0-\\u024F])` : core, matchCase ? 'g' : 'gi');
+
+        const trackRows = getTrackInputRows();
+        const trackRowEls = new Set(trackRows);
+        const albumArtistEls = new Set(
+            Array.from(document.querySelectorAll('input[data-type="artist-name"], #artist-name-input'))
+                .filter(el => !Array.from(trackRowEls).some(row => row.contains(el)))
+        );
+
+        log(`Renaming "${from}" → "${into}" in ${defs.length} field group${defs.length !== 1 ? 's' : ''}...`, 'info');
+        const changes = [];
+        for (const el of targets.fields()) {
+            if (!el?.isConnected) continue;
+            const orig = el.value || '';
+            if (!orig) continue;
+            const cand = orig.replace(re, () => into);
+            if (cand !== orig) {
+                setReactValue(el, cand);
+                changes.push({ titleInput: el, oldTitle: orig, newTitle: cand, savedContainer: el.closest('td') || el.closest('li.editable_item') || el.parentElement, savedRow: el.closest('tr'), savedCellClass: (el.closest('td') || {}).className });
+                log(`${getFieldLabel(el, trackRows, albumArtistEls)}: "${orig}" → "${cand}"`, 'success');
+            }
+        }
+        if (changes.length) addActionToHistory({ type: 'bulkRename', changes });
+
+        await clearInfoProcessing();
+        const plural = changes.length !== 1 ? 's' : '';
+        const msg = changes.length ? `Done! Renamed in ${changes.length} field${plural}` : 'No matches found';
+        setInfoSingleLine(msg, changes.length > 0);
+        log(msg, changes.length ? 'success' : 'info');
     }
 
     function resetHideTimer() {
@@ -14300,27 +15403,11 @@ wiIsAntiBotPage(html)) {
         state.hideTimeout = setTimeout(() => { if (!state.isCollapsed) collapsePanel(); }, CONFIG.INACTIVITY_TIMEOUT_MS);
     }
 
-    function collapsePanel() {
-        if (state.processingStartTime) return;
-        const importer = document.getElementById('dh-importer-overlay');
-        if (importer && importer.style.display !== 'none' && importer.style.display !== '') return;
-        const webImporter = document.getElementById('dh-web-importer-overlay');
-        if (webImporter && webImporter.style.display !== 'none' && webImporter.style.display !== '') return;
-        const configOv = document.getElementById('dh-config-overlay');
-        if (configOv && configOv.style.display !== 'none' && configOv.style.display !== '') return;
-        const content = document.getElementById('panel-content');
-        const collapseBtn = document.getElementById('collapse-panel');
-        if (content && collapseBtn && content.style.display !== 'none') {
-            content.style.display = 'none';
-            collapseBtn.textContent = '▼';
-            collapseBtn.title = 'Expand';
-            state.isCollapsed = true;
-        }
-    }
-
     setTimeout(() => {
         initializeState();
         createPanel();
+        bindPanelHotkey();
+        if (typeof GM_registerMenuCommand === 'function') GM_registerMenuCommand('Show / hide helper panel', togglePanelVisibility);
         updateRevertButtons();
         log('Discogs Edit Helper ready');
         const panel = document.getElementById('helper-panel');
