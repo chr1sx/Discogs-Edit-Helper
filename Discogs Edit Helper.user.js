@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      2.1
+// @version      2.2
 // @description  Imports metadata from web stores and plain-text tracklists, extracts info from titles and assigns data to the appropriate fields
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
@@ -41,29 +41,29 @@
         REMIX_PATTERNS: ['remix', 'rmx', 'rebuild'],
         REMIX_BY_PATTERNS: ['remixed by', 'remix by', 'rmx by', 'rebuild by', 'rebuilt by', 'reworked by', 'rework by', 'edited by', 'edit by', 'mixed by', 'mix by', 'version by', 'dub by'],
         REMIX_PATTERNS_OPTIONAL: ['dub', 'edit', 'rework', 'mix', 'version'],
-        CAPITALIZE_KEEP_UPPER: ['CIA', 'DJ', 'DNA', 'EP', 'FBI', 'FM', 'HD', 'KGB', 'LSD', 'MC', 'MI6', 'NASA', 'TNT', 'UFO', 'UK', 'USA', 'USSR', 'VIP', 'VHS', 'WTF'],
+        CAPITALIZE_KEEP_UPPER: ['CGI', 'CIA', 'DJ', 'DNA', 'EP', 'FBI', 'FM', 'GFX', 'HD', 'KGB', 'LSD', 'MC', 'MI6', 'NASA', 'TNT', 'UFO', 'UK', 'USA', 'USSR', 'VHS', 'VIP', 'VJ', 'WTF'],
         CAPITALIZE_KEEP_LOWER: ['von'],
         MEASUREMENT_UNITS: ['mm', 'cm', 'm', 'km', 'in', 'yd', 'mi', 'kg', 'mg', 'lb', 'oz', 'ml', 'mph', 'km/h'],
         REMIX_SKIP_TERMS: ['club', 'radio', 'extended', 'album', 'instrumental', 'vocal', 'acoustic', 'dub', 'main', 'clean', 'explicit', 'full', 'short', 'rough', 'long', 'final', 'demo', 'early', 'tv', 'video', 'single', 'promo', 'original', 'alternate', 'alternative', 'deluxe', 'special', 'bonus', 'live', 'vip'],
-        REMIX_CLEANUP_TERMS: ['acoustic', 'demo', 'instrumental', 'extended', 'radio', 'club', 'dub', 'alternate', 'alternative'],
+        REMIX_CLEANUP_TERMS: ['acoustic', 'alt', 'alternate', 'alternative', 'bootleg', 'club', 'demo', 'dub', 'extended', 'instrumental', 'radio'],
         CLEAN_TITLE_PATTERNS: ['original mix', 'explicit', 'previously unreleased', 'unreleased', 'digital bonus track', 'digital bonus', 'bonus track', 'bonus', '24bit', '24-bit', '24 bit', '16bit', '16-bit', '16 bit', '000 bpm'],
         NOT_ON_LABEL_SKIPLIST: ['audio', 'company', 'entertainment', 'label', 'music', 'production', 'productions', 'recordings', 'records', 'rec', 'sound', 'sounds', 'studio', 'studios', 'group']
     };
     const CONFIG_RAW = {
         INACTIVITY_TIMEOUT_MS:    60 * 1000,
-        ARTIST_SPLITTER_PATTERNS:  ['versus', 'vs', 'v', 'aka', '&', '+', ',', '/', '\\', '|', '×', 'x'],
-        CREDIT_SEPARATOR_PATTERNS: ['and', '&', '+', ',', '/', '\\'],
-        FEATURING_PATTERNS:        ['featuring', 'feat', 'ft', 'f/', 'w/'],
-        REMIX_PATTERNS:           ['remix', 'rmx', 'rebuild'],
-        REMIX_BY_PATTERNS:        ['remixed by', 'remix by', 'rmx by', 'rebuild by', 'rebuilt by', 'reworked by', 'rework by', 'edited by', 'edit by', 'mixed by', 'mix by', 'version by', 'dub by'],
-        REMIX_PATTERNS_OPTIONAL:  ['dub', 'edit', 'rework', 'mix', 'version'],
-        CAPITALIZE_KEEP_UPPER:    ['CIA', 'DJ', 'DNA', 'EP', 'FBI', 'FM', 'HD', 'KGB', 'LSD', 'MC', 'MI6', 'NASA', 'TNT', 'UFO', 'UK', 'USA', 'USSR', 'VIP', 'VHS', 'WTF'],
-        CAPITALIZE_KEEP_LOWER:    ['von'],
-        MEASUREMENT_UNITS:        ['mm', 'cm', 'm', 'km', 'in', 'yd', 'mi', 'kg', 'mg', 'lb', 'oz', 'ml', 'mph', 'km/h'],
-        REMIX_SKIP_TERMS:        ['club', 'radio', 'extended', 'album', 'instrumental', 'vocal', 'acoustic', 'dub', 'main', 'clean', 'explicit', 'full', 'short', 'rough', 'long', 'final', 'demo', 'early', 'tv', 'video', 'single', 'promo', 'original', 'alternate', 'alternative', 'deluxe', 'special', 'bonus', 'live', 'vip'],
-        REMIX_CLEANUP_TERMS:     ['acoustic', 'demo', 'instrumental', 'extended', 'radio', 'club', 'dub', 'alternate', 'alternative'],
-        CLEAN_TITLE_PATTERNS:     ['original mix', 'explicit', 'previously unreleased', 'unreleased', 'digital bonus track', 'digital bonus', 'bonus track', 'bonus', '24bit', '24-bit', '24 bit', '16bit', '16-bit', '16 bit', '000 bpm'],
-        NOT_ON_LABEL_SKIPLIST:    ['audio', 'company', 'entertainment', 'label', 'music', 'production', 'productions', 'recordings', 'records', 'rec', 'sound', 'sounds', 'studio', 'studios', 'group'],
+        ARTIST_SPLITTER_PATTERNS: [...CONFIG.ARTIST_SPLITTER_PATTERNS],
+        CREDIT_SEPARATOR_PATTERNS: [...CONFIG.CREDIT_SEPARATOR_PATTERNS],
+        FEATURING_PATTERNS: [...CONFIG.FEATURING_PATTERNS],
+        REMIX_PATTERNS: [...CONFIG.REMIX_PATTERNS],
+        REMIX_BY_PATTERNS: [...CONFIG.REMIX_BY_PATTERNS],
+        REMIX_PATTERNS_OPTIONAL: [...CONFIG.REMIX_PATTERNS_OPTIONAL],
+        CAPITALIZE_KEEP_UPPER: [...CONFIG.CAPITALIZE_KEEP_UPPER],
+        CAPITALIZE_KEEP_LOWER: [...CONFIG.CAPITALIZE_KEEP_LOWER],
+        MEASUREMENT_UNITS: [...CONFIG.MEASUREMENT_UNITS],
+        REMIX_SKIP_TERMS: [...CONFIG.REMIX_SKIP_TERMS],
+        REMIX_CLEANUP_TERMS: [...CONFIG.REMIX_CLEANUP_TERMS],
+        CLEAN_TITLE_PATTERNS: [...CONFIG.CLEAN_TITLE_PATTERNS],
+        NOT_ON_LABEL_SKIPLIST: [...CONFIG.NOT_ON_LABEL_SKIPLIST],
     };
 
     const CONFIG_DEFAULTS = {
@@ -145,6 +145,8 @@
         removeFeatFromTitle: false,
         remixOptionalEnabled: false,
         importerText: '',
+        importerFileMeta: null,
+        importerGeneratedText: '',
         importerMissingArtistMode: false,
         importerMissingDurationMode: false
     };
@@ -191,44 +193,79 @@
         try { localStorage.setItem(key, arr.join('; ')); } catch (e) {}
     }
 
+    const CFG_DELTA_SUFFIX = '_delta';
+
+    const CFG_LIST_DEFS = [
+        { name: 'ARTIST_SPLITTER_PATTERNS',  key: STORAGE_KEYS.CFG_SPLITTER,              raw: false, exact: false },
+        { name: 'CREDIT_SEPARATOR_PATTERNS', key: STORAGE_KEYS.CFG_CREDIT_SEP,            raw: false, exact: false },
+        { name: 'FEATURING_PATTERNS',        key: STORAGE_KEYS.CFG_FEATURING,             raw: false, exact: false },
+        { name: 'REMIX_PATTERNS',            key: STORAGE_KEYS.CFG_REMIX,                 raw: true,  exact: false },
+        { name: 'REMIX_BY_PATTERNS',         key: STORAGE_KEYS.CFG_REMIX_BY,              raw: true,  exact: false },
+        { name: 'REMIX_PATTERNS_OPTIONAL',   key: STORAGE_KEYS.CFG_REMIX_OPT,             raw: true,  exact: false },
+        { name: 'CAPITALIZE_KEEP_UPPER',     key: STORAGE_KEYS.CFG_KEEP_UPPER,            raw: false, exact: true  },
+        { name: 'CAPITALIZE_KEEP_LOWER',     key: STORAGE_KEYS.CFG_KEEP_LOWER,            raw: false, exact: true  },
+        { name: 'MEASUREMENT_UNITS',         key: STORAGE_KEYS.CFG_MEASUREMENT_UNITS,     raw: false, exact: false },
+        { name: 'REMIX_SKIP_TERMS',          key: STORAGE_KEYS.CFG_REMIX_SKIP_TERMS,      raw: false, exact: false },
+        { name: 'REMIX_CLEANUP_TERMS',       key: STORAGE_KEYS.CFG_REMIX_CLEANUP_TERMS,   raw: false, exact: false },
+        { name: 'CLEAN_TITLE_PATTERNS',      key: STORAGE_KEYS.CFG_CLEAN_TITLE,           raw: false, exact: false },
+        { name: 'NOT_ON_LABEL_SKIPLIST',     key: STORAGE_KEYS.CFG_NOT_ON_LABEL_SKIPLIST, raw: false, exact: false },
+    ];
+
+    function cfgItemKey(item, exact) {
+        const t = String(item).trim();
+        return exact ? t : t.toLowerCase();
+    }
+
+    function computeListDelta(defaults, current, exact) {
+        const defKeys = new Set(defaults.map(d => cfgItemKey(d, exact)));
+        const curKeys = new Set(current.map(c => cfgItemKey(c, exact)));
+        const seen = new Set();
+        const added = [];
+        current.forEach(c => {
+            const t = String(c).trim();
+            const k = cfgItemKey(t, exact);
+            if (t && !defKeys.has(k) && !seen.has(k)) { seen.add(k); added.push(t); }
+        });
+        const removed = defaults.filter(d => !curKeys.has(cfgItemKey(d, exact)));
+        return { added, removed };
+    }
+
+    function applyListDelta(defaults, delta, exact) {
+        const removedKeys = new Set((Array.isArray(delta && delta.removed) ? delta.removed : []).map(r => cfgItemKey(r, exact)));
+        const result = defaults.filter(d => !removedKeys.has(cfgItemKey(d, exact)));
+        const have = new Set(result.map(r => cfgItemKey(r, exact)));
+        (Array.isArray(delta && delta.added) ? delta.added : []).forEach(a => {
+            const t = String(a).trim();
+            const k = cfgItemKey(t, exact);
+            if (t && !have.has(k)) { have.add(k); result.push(t); }
+        });
+        return result;
+    }
+
+    function saveListDelta(def, delta) {
+        try {
+            const k = def.key + CFG_DELTA_SUFFIX;
+            if (!delta.added.length && !delta.removed.length) localStorage.removeItem(k);
+            else localStorage.setItem(k, JSON.stringify(delta));
+            localStorage.removeItem(def.key);
+        } catch (e) {}
+    }
+
+    function loadListFromStorage(def) {
+        const defaults = CONFIG_DEFAULTS[def.name];
+        try {
+            localStorage.removeItem(def.key);
+            const raw = localStorage.getItem(def.key + CFG_DELTA_SUFFIX);
+            if (raw) return applyListDelta(defaults, JSON.parse(raw), def.exact);
+        } catch (e) {}
+        return null;
+    }
+
     function loadConfigFromStorage() {
-        const creditSep = parseStoredArray(STORAGE_KEYS.CFG_CREDIT_SEP);
-        if (creditSep) CONFIG.CREDIT_SEPARATOR_PATTERNS = creditSep;
-        const featuring = parseStoredArray(STORAGE_KEYS.CFG_FEATURING);
-        if (featuring) CONFIG.FEATURING_PATTERNS = featuring;
-
-        const remixRaw = parseStoredArray(STORAGE_KEYS.CFG_REMIX);
-        if (remixRaw) CONFIG_RAW.REMIX_PATTERNS = remixRaw;
-
-        const remixByRaw = parseStoredArray(STORAGE_KEYS.CFG_REMIX_BY);
-        if (remixByRaw) CONFIG_RAW.REMIX_BY_PATTERNS = remixByRaw;
-
-        const remixOptRaw = parseStoredArray(STORAGE_KEYS.CFG_REMIX_OPT);
-        if (remixOptRaw) CONFIG_RAW.REMIX_PATTERNS_OPTIONAL = remixOptRaw;
-
-        const splitter = parseStoredArray(STORAGE_KEYS.CFG_SPLITTER);
-        if (splitter) CONFIG.ARTIST_SPLITTER_PATTERNS = splitter;
-
-        const keepUpper = parseStoredArray(STORAGE_KEYS.CFG_KEEP_UPPER);
-        if (keepUpper) CONFIG.CAPITALIZE_KEEP_UPPER = keepUpper;
-
-        const keepLower = parseStoredArray(STORAGE_KEYS.CFG_KEEP_LOWER);
-        if (keepLower) CONFIG.CAPITALIZE_KEEP_LOWER = keepLower;
-
-        const measurementUnits = parseStoredArray(STORAGE_KEYS.CFG_MEASUREMENT_UNITS);
-        if (measurementUnits) CONFIG.MEASUREMENT_UNITS = measurementUnits;
-
-        const remixSkipTerms = parseStoredArray(STORAGE_KEYS.CFG_REMIX_SKIP_TERMS);
-        if (remixSkipTerms) CONFIG.REMIX_SKIP_TERMS = remixSkipTerms;
-
-        const remixCleanupTerms = parseStoredArray(STORAGE_KEYS.CFG_REMIX_CLEANUP_TERMS);
-        if (remixCleanupTerms) CONFIG.REMIX_CLEANUP_TERMS = remixCleanupTerms;
-
-        const cleanTitle = parseStoredArray(STORAGE_KEYS.CFG_CLEAN_TITLE);
-        if (cleanTitle) CONFIG.CLEAN_TITLE_PATTERNS = cleanTitle;
-
-        const notOnLabelSkiplist = parseStoredArray(STORAGE_KEYS.CFG_NOT_ON_LABEL_SKIPLIST);
-        if (notOnLabelSkiplist) CONFIG.NOT_ON_LABEL_SKIPLIST = notOnLabelSkiplist;
+        CFG_LIST_DEFS.forEach(def => {
+            const list = loadListFromStorage(def);
+            if (list) (def.raw ? CONFIG_RAW : CONFIG)[def.name] = list;
+        });
         try {
             const storedTimeout = localStorage.getItem(STORAGE_KEYS.CFG_TIMEOUT);
             if (storedTimeout) { const t = parseInt(storedTimeout, 10); if (t > 0) CONFIG.INACTIVITY_TIMEOUT_MS = t * 1000; }
@@ -1884,6 +1921,7 @@
             const unitSuffix = core.slice(numPrefixM[1].length);
             const unitMatch = CONFIG.MEASUREMENT_UNITS.find(u => u.toLowerCase() === unitSuffix.toLowerCase());
             if (unitMatch) return numPrefixM[1] + unitMatch.toLowerCase();
+            if (state.capitalizeMixedCase && /\p{Lu}/u.test(numPrefixM[3]) && /\p{Ll}/u.test(core)) return core;
             return numPrefixM[1] + numPrefixM[2].toUpperCase() + numPrefixM[3].toLowerCase();
         }
         if (state.capitalizeMixedCase && /\p{Lu}/u.test(core.slice(1)) && /\p{Ll}/u.test(core)) {
@@ -4124,19 +4162,27 @@
             const cleanTitle     = parseField('cfg-clean-title');
             const notOnLabelSkiplist = parseField('cfg-not-on-label-skiplist');
 
-            if (splitter.length)    { CONFIG.ARTIST_SPLITTER_PATTERNS = splitter;        saveArrayToStorage(STORAGE_KEYS.CFG_SPLITTER,   splitter); }
-            if (creditSep.length)   { CONFIG.CREDIT_SEPARATOR_PATTERNS = creditSep;      saveArrayToStorage(STORAGE_KEYS.CFG_CREDIT_SEP, creditSep); }
-            if (featuring.length)   { CONFIG.FEATURING_PATTERNS = featuring;             saveArrayToStorage(STORAGE_KEYS.CFG_FEATURING,  featuring); }
-            if (remix.length)       { CONFIG_RAW.REMIX_PATTERNS = remix;                 saveArrayToStorage(STORAGE_KEYS.CFG_REMIX,      remix); }
-            if (remixBy.length)     { CONFIG_RAW.REMIX_BY_PATTERNS = remixBy;            saveArrayToStorage(STORAGE_KEYS.CFG_REMIX_BY,   remixBy); }
-            if (remixOpt.length)    { CONFIG_RAW.REMIX_PATTERNS_OPTIONAL = remixOpt;     saveArrayToStorage(STORAGE_KEYS.CFG_REMIX_OPT,  remixOpt); }
-            if (remixSkip.length)   { CONFIG.REMIX_SKIP_TERMS = remixSkip;               saveArrayToStorage(STORAGE_KEYS.CFG_REMIX_SKIP_TERMS, remixSkip); }
-            if (remixCleanup.length) { CONFIG.REMIX_CLEANUP_TERMS = remixCleanup;        saveArrayToStorage(STORAGE_KEYS.CFG_REMIX_CLEANUP_TERMS, remixCleanup); }
-            if (keepUpper.length)   { CONFIG.CAPITALIZE_KEEP_UPPER = keepUpper;          saveArrayToStorage(STORAGE_KEYS.CFG_KEEP_UPPER, keepUpper); }
-            if (keepLower.length)   { CONFIG.CAPITALIZE_KEEP_LOWER = keepLower;          saveArrayToStorage(STORAGE_KEYS.CFG_KEEP_LOWER, keepLower); }
-            if (measurementUnits.length) { CONFIG.MEASUREMENT_UNITS = measurementUnits;  saveArrayToStorage(STORAGE_KEYS.CFG_MEASUREMENT_UNITS, measurementUnits); }
-            if (cleanTitle.length)  { CONFIG.CLEAN_TITLE_PATTERNS = cleanTitle;          saveArrayToStorage(STORAGE_KEYS.CFG_CLEAN_TITLE, cleanTitle); }
-            if (notOnLabelSkiplist.length) { CONFIG.NOT_ON_LABEL_SKIPLIST = notOnLabelSkiplist; saveArrayToStorage(STORAGE_KEYS.CFG_NOT_ON_LABEL_SKIPLIST, notOnLabelSkiplist); }
+            const parsedLists = {
+                ARTIST_SPLITTER_PATTERNS: splitter,
+                CREDIT_SEPARATOR_PATTERNS: creditSep,
+                FEATURING_PATTERNS: featuring,
+                REMIX_PATTERNS: remix,
+                REMIX_BY_PATTERNS: remixBy,
+                REMIX_PATTERNS_OPTIONAL: remixOpt,
+                CAPITALIZE_KEEP_UPPER: keepUpper,
+                CAPITALIZE_KEEP_LOWER: keepLower,
+                MEASUREMENT_UNITS: measurementUnits,
+                REMIX_SKIP_TERMS: remixSkip,
+                REMIX_CLEANUP_TERMS: remixCleanup,
+                CLEAN_TITLE_PATTERNS: cleanTitle,
+                NOT_ON_LABEL_SKIPLIST: notOnLabelSkiplist
+            };
+            CFG_LIST_DEFS.forEach(def => {
+                const parsed = parsedLists[def.name];
+                if (!parsed.length) return;
+                (def.raw ? CONFIG_RAW : CONFIG)[def.name] = parsed;
+                saveListDelta(def, computeListDelta(CONFIG_DEFAULTS[def.name], parsed, def.exact));
+            });
 
             applyPatternExpansions();
             updateRemixToggleUI();
@@ -4205,6 +4251,7 @@
                 STORAGE_KEYS.CFG_TIMEOUT, STORAGE_KEYS.CFG_START_COLLAPSED, STORAGE_KEYS.CFG_CAPITALIZE_FIELDS, STORAGE_KEYS.CFG_CAPITALIZE_BTN_FIELDS, STORAGE_KEYS.CFG_SPLIT_IMPORT, STORAGE_KEYS.CFG_IMPORT_CREDITS, STORAGE_KEYS.CFG_IMPORT_STYLES, STORAGE_KEYS.CFG_IMPORT_AUTO_REMIXERS, STORAGE_KEYS.CFG_IMPORT_AUTO_FEAT, STORAGE_KEYS.CFG_CAPITALIZE_MIXED, STORAGE_KEYS.CFG_IMPORT_AUTO_DESCR, STORAGE_KEYS.CFG_IMPORT_COUNTRY
             ];
             keys.forEach(k => { try { localStorage.removeItem(k); } catch(e) {} });
+            CFG_LIST_DEFS.forEach(def => { try { localStorage.removeItem(def.key + CFG_DELTA_SUFFIX); } catch (e) {} });
             try { localStorage.removeItem(STORAGE_KEYS.CFG_START_HIDDEN); localStorage.removeItem(STORAGE_KEYS.CFG_HOTKEY); } catch(e) {}
             try { localStorage.removeItem(STORAGE_KEYS.CFG_PREFERRED_FILE_TYPES); } catch(e) {}
             fields.forEach(f => {
@@ -4461,6 +4508,8 @@
                               || (btn.id === 'dh-missing-duration-toggle' && state.importerMissingDurationMode);
                 if (!isActive) { btn.style.borderColor = '#555'; btn.style.color = '#bbb'; }
             });
+            const filesBtnEl = overlay.querySelector('#dh-files-btn');
+            if (filesBtnEl) { filesBtnEl.style.borderColor = '#555'; filesBtnEl.style.color = '#bbb'; }
         } else {
             overlay.style.background  = '#fff';
             overlay.style.color       = '#111';
@@ -4482,6 +4531,8 @@
                               || (btn.id === 'dh-missing-duration-toggle' && state.importerMissingDurationMode);
                 if (!isActive) { btn.style.borderColor = '#ccc'; btn.style.color = ''; }
             });
+            const filesBtnEl = overlay.querySelector('#dh-files-btn');
+            if (filesBtnEl) { filesBtnEl.style.borderColor = '#ccc'; filesBtnEl.style.color = ''; }
         }
     }
 
@@ -4803,8 +4854,14 @@
             return names;
         };
         const applyArtistParts = async (row, rawArtist) => {
-            const entries = wiSplitArtistForImport(rawArtist);
-            const parts = entries.length > 0 ? entries : [{ name: rawArtist }];
+            const entries = wiMissingArtistNoSplit ? [] : wiSplitArtistForImport(rawArtist);
+            const cf = state.capitalizeFields;
+            const isVAName = (s) => /^(various\s*artists?|v\.?\s*a\.?|v\/a)$/i.test(s.trim());
+            const parts = (entries.length > 0 ? entries : [{ name: rawArtist }]).map(e => ({
+                ...e,
+                name: cf.vaArtists && e.name && !isVAName(e.name) ? capitalizeTitleString(e.name) : e.name,
+                joinBefore: e.joinBefore && cf.joiners ? capitalizeTitleString(e.joinBefore) : e.joinBefore
+            }));
             const created = await createArtistInputs(row, parts.length);
             const addedFields = [];
             for (let ai = 0; ai < parts.length; ai++) {
@@ -10694,6 +10751,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
     }
 
     let wiPreserveArtistCase = false;
+    let wiMissingArtistNoSplit = false;
 
     function wiProtectArtistNamesInTitles(rawTracks, cappedTitles) {
         if (!wiPreserveArtistCase || !Array.isArray(rawTracks) || !rawTracks.length) return cappedTitles;
@@ -10759,7 +10817,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
             }
         }
 
-        const resolvedCountry = (state.importCountry && dataCountry) ? dataCountry : 'Worldwide';
+        const resolvedCountry = data.fileImport ? (dataCountry || 'Worldwide') : ((state.importCountry && dataCountry) ? dataCountry : 'Worldwide');
 
         const releaseFormat = state.importAutoDescr ? extractFormatFromTitle(title) : [];
         let freeText = dataFreeText || null;
@@ -10863,8 +10921,8 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
             labels: [{ name: lbl, catno: catno || 'none', entity_type: '1' }],
             format: [{
                 name: 'File',
-                qty: String(tracksPresplit.length || 1),
-                desc: [fileType || 'FLAC', ...releaseFormat],
+                qty: String((data.fileImport && data.quantity) ? data.quantity : (tracksPresplit.length || 1)),
+                desc: [...(fileType ? [fileType] : (data.fileImport ? [] : ['FLAC'])), ...releaseFormat],
                 text: freeText || '',
             }],
             tracks: payloadTracks,
@@ -11501,6 +11559,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
     }
 
     async function wiApplyRelease(data, sourceUrl = '', existingShield = null, dateFieldUsed = 'date') {
+        const fileImport = data.fileImport === true;
         const { label, catno, date, publishDate, imageUrl, bitdepth, samplerate, fileType, freeText: dataFreeText, storeName, country: dataCountry } = data;
         const cf = state.capitalizeFields;
         const capIf = (flag, s) => flag && s ? capitalizeTitleString(s) : s;
@@ -11550,7 +11609,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
             const addedArtistRemoveBtns = [];
 
             const existingArtistRows = Array.from(document.querySelectorAll('input[data-type="artist-name"]'));
-            if (existingArtistRows.length > 1) {
+            if (existingArtistRows.length > 1 && (!fileImport || artistsToFill.length > 0)) {
                 const extraRemoveBtns = existingArtistRows.slice(1)
                     .map(inp => inp.closest('li')?.querySelector('button.drag_drop_field_remove_row'))
                     .filter(Boolean);
@@ -11600,7 +11659,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
 
             if (title) { setReactValue(document.querySelector('#release-title-input'), title); log(`Title: ${title}`, 'success'); }
             const labelEl = document.querySelector('#label-name-input-0');
-            if (labelEl) {
+            if (labelEl && (!fileImport || label)) {
                 let lbl = capIf(cf.label, (label || '').trim());
                 if (!isKnownLabelName(lbl)) {
                     const preserveBandcampLabel = data.storeName === 'Bandcamp' && data.isBandcampLabelPage === true;
@@ -11611,7 +11670,7 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                 setReactValue(labelEl, lbl);
                 log(`Label: ${lbl} / Cat: ${catno || 'none'}`, 'success');
             }
-            setReactValue(document.querySelector('#catalog-number-input-0'), catno || 'none');
+            if (!fileImport || catno) setReactValue(document.querySelector('#catalog-number-input-0'), catno || 'none');
             if (date) setReactValue(document.querySelector('#release-date'), wiNormalizeDate(date));
 
             const countryEl = document.querySelector('#release-country-select');
@@ -11621,22 +11680,24 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
             for (const cb of _formatCbs) snapCb(cb);
             const _formatSelect = document.querySelector('#release-format-select');
             if (_formatSelect) snap(_formatSelect);
-            await withTimeout(wiSetFormatToFile(tracks.length, fileType || 'FLAC'), 10000, 'Format');
+            const applyFormat = !fileImport || data.formatImport === true;
+            if (applyFormat && !fileImport) await withTimeout(wiSetFormatToFile(tracks.length, fileType || 'FLAC'), 10000, 'Format');
+            else if (applyFormat) await withTimeout(wiSetFormatToFile(data.quantity || tracks.length, fileType || 'FLAC'), 10000, 'Format');
 
             let freeText = dataFreeText || null;
             if (bitdepth && samplerate) freeText = `${bitdepth}-bit/${(samplerate/1000)} kHz`;
-            const freeTextField = await withTimeout(wiWaitForElement('#free-text-input-0', 3000), 5000, 'Free text field');
-            if (freeTextField) { snap(freeTextField); setReactValue(freeTextField, freeText || ''); }
-            log(`Format: File / ${fileType || 'FLAC'}${freeText ? ' [' + freeText + ']' : ''}`, 'success');
+            const freeTextField = !applyFormat || (fileImport && !dataFreeText) ? null : await withTimeout(wiWaitForElement('#free-text-input-0', 3000), 5000, 'Free text field');
+            if (freeTextField && (!fileImport || freeText)) { snap(freeTextField); setReactValue(freeTextField, freeText || ''); }
+            if (applyFormat && (!fileImport || fileType)) log(`Format: File / ${fileType || 'FLAC'}${freeText ? ' [' + freeText + ']' : ''}`, 'success');
 
-            if (state.importAutoDescr) {
+            if (state.importAutoDescr && !fileImport) {
                 const detectedDescr = await wiSetFormatDescriptions(title, wiFields);
                 if (detectedDescr.length > 0) log(`Description: ${detectedDescr.join(', ')}`, 'success');
             }
 
-            if (countryEl) {
+            if (countryEl && (!fileImport || dataCountry)) {
                 snap(countryEl);
-                const resolvedCountry = (state.importCountry && dataCountry) ? dataCountry : 'Worldwide';
+                const resolvedCountry = fileImport ? dataCountry : ((state.importCountry && dataCountry) ? dataCountry : 'Worldwide');
                 setReactValue(countryEl, resolvedCountry);
                 log(`Country: ${resolvedCountry}`, 'success');
             }
@@ -11717,13 +11778,15 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                 }
             }
 
-                        for (const btn of document.querySelectorAll('button.image_delete')) {
-                try { btn.click(); } catch(e) {}
-                await new Promise(r => setTimeout(r, 300));
+            if (!fileImport) {
+                for (const btn of document.querySelectorAll('button.image_delete')) {
+                    try { btn.click(); } catch(e) {}
+                    await new Promise(r => setTimeout(r, 300));
+                }
+                await withTimeout(wiUploadImage(imageUrl, storeName), 10000, 'Image upload');
             }
-            await withTimeout(wiUploadImage(imageUrl, storeName), 10000, 'Image upload');
 
-            if (state.importCredits) {
+            if (state.importCredits && !fileImport) {
                 if (data.credits && data.credits.length > 0) {
                     if (data.creditsSource === 'about') log('No credits section — credits imported from About notes', 'info');
                     await wiApplyReleaseCredits(data.credits, wiFields, addedCreditRemoveBtns);
@@ -13422,6 +13485,1087 @@ wiIsAntiBotPage(html)) {
         urlInput.focus();
     }
 
+    const DH_AUDIO_EXT = ['mp3', 'flac', 'wav', 'wave', 'aif', 'aiff', 'aifc', 'm4a', 'm4b', 'mp4', 'aac', 'alac', 'ogg', 'oga', 'opus', 'dsf', 'dff'];
+
+    function dhAudioExt(name) {
+        const m = /\.([A-Za-z0-9]+)$/.exec(name || '');
+        return m ? m[1].toLowerCase() : '';
+    }
+
+    async function dhReadBytes(file, start, length) {
+        if (start < 0 || start >= file.size || length <= 0) return new Uint8Array(0);
+        const blob = file.slice(start, Math.min(file.size, start + length));
+        let buf = null;
+        if (typeof blob.arrayBuffer === 'function') {
+            try { buf = await blob.arrayBuffer(); } catch (e) { buf = null; }
+        }
+        if (!buf) {
+            buf = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(reader.error || new Error('FileReader failed'));
+                reader.readAsArrayBuffer(blob);
+            });
+        }
+        const out = new Uint8Array(buf.byteLength);
+        out.set(new Uint8Array(buf));
+        return out;
+    }
+
+    const dhU16BE = (b, o) => (b[o] << 8) | b[o + 1];
+    const dhU16LE = (b, o) => b[o] | (b[o + 1] << 8);
+    const dhU32BE = (b, o) => b[o] * 16777216 + (b[o + 1] << 16) + (b[o + 2] << 8) + b[o + 3];
+    const dhU32LE = (b, o) => b[o] + (b[o + 1] << 8) + (b[o + 2] << 16) + b[o + 3] * 16777216;
+    const dhU64BE = (b, o) => dhU32BE(b, o) * 4294967296 + dhU32BE(b, o + 4);
+    const dhU64LE = (b, o) => dhU32LE(b, o + 4) * 4294967296 + dhU32LE(b, o);
+    const dhAscii = (b, o, n) => {
+        let s = '';
+        for (let i = o; i < o + n && i < b.length; i++) s += String.fromCharCode(b[i]);
+        return s;
+    };
+    const dhSyncsafe = (b, o) => ((b[o] & 0x7f) << 21) | ((b[o + 1] & 0x7f) << 14) | ((b[o + 2] & 0x7f) << 7) | (b[o + 3] & 0x7f);
+
+    function dhDecodeText(bytes, enc) {
+        if (enc === 1 || enc === 2) {
+            let b = bytes;
+            let be = enc === 2;
+            if (b.length >= 2 && b[0] === 0xff && b[1] === 0xfe) { be = false; b = b.subarray(2); }
+            else if (b.length >= 2 && b[0] === 0xfe && b[1] === 0xff) { be = true; b = b.subarray(2); }
+            if (be) {
+                const sw = new Uint8Array(b.length - (b.length % 2));
+                for (let i = 0; i + 1 < b.length; i += 2) { sw[i] = b[i + 1]; sw[i + 1] = b[i]; }
+                b = sw;
+            }
+            return new TextDecoder('utf-16le').decode(b);
+        }
+        return new TextDecoder(enc === 3 ? 'utf-8' : 'iso-8859-1').decode(bytes);
+    }
+
+    function dhUnsync(b) {
+        const out = new Uint8Array(b.length);
+        let n = 0;
+        for (let i = 0; i < b.length; i++) {
+            out[n++] = b[i];
+            if (b[i] === 0xff && b[i + 1] === 0x00) i++;
+        }
+        return out.subarray(0, n);
+    }
+
+    const DH_ID3_V22 = { TT2: 'TIT2', TP1: 'TPE1', TP2: 'TPE2', TAL: 'TALB', TRK: 'TRCK', TPA: 'TPOS', TYE: 'TYER', TCO: 'TCON', TPB: 'TPUB', TCM: 'TCOM', TXX: 'TXXX', TLE: 'TLEN', TDA: 'TDAT' };
+
+    function dhParseID3v2(u8) {
+        const tags = { txxx: {} };
+        if (u8.length < 10 || dhAscii(u8, 0, 3) !== 'ID3') return tags;
+        const ver = u8[3];
+        const flags = u8[5];
+        if (ver < 2 || ver > 4) return tags;
+        let body = u8.subarray(10, Math.min(u8.length, 10 + dhSyncsafe(u8, 6)));
+        if ((flags & 0x80) && ver < 4) body = dhUnsync(body);
+        let p = 0;
+        if (flags & 0x40) {
+            if (ver === 3) p = 4 + dhU32BE(body, 0);
+            else if (ver === 4) p = dhSyncsafe(body, 0);
+        }
+        const idLen = ver === 2 ? 3 : 4;
+        const hdrLen = ver === 2 ? 6 : 10;
+        while (p + hdrLen <= body.length) {
+            if (body[p] === 0) break;
+            let id = dhAscii(body, p, idLen);
+            let size;
+            if (ver === 2) size = (body[p + 3] << 16) | (body[p + 4] << 8) | body[p + 5];
+            else if (ver === 3) size = dhU32BE(body, p + 4);
+            else size = dhSyncsafe(body, p + 4);
+            const fl = ver === 2 ? 0 : (body[p + 8] << 8) | body[p + 9];
+            const start = p + hdrLen;
+            const end = start + size;
+            if (size < 0 || end > body.length) break;
+            p = end;
+            let data = body.subarray(start, end);
+            let skip = false;
+            if (ver === 3) {
+                if (fl & 0x00c0) skip = true;
+                else if (fl & 0x0020) data = data.subarray(1);
+            } else if (ver === 4) {
+                if (fl & 0x000c) skip = true;
+                else {
+                    let q = 0;
+                    if (fl & 0x0040) q += 1;
+                    if (fl & 0x0001) q += 4;
+                    data = data.subarray(q);
+                    if (fl & 0x0002) data = dhUnsync(data);
+                }
+            }
+            if (skip) continue;
+            if (ver === 2) id = DH_ID3_V22[id] || id;
+            if (id[0] !== 'T' || data.length < 2) continue;
+            const text = dhDecodeText(data.subarray(1), data[0]);
+            const values = text.split('\u0000').map(s => s.trim()).filter(Boolean);
+            if (id === 'TXXX') {
+                const parts = text.split('\u0000');
+                const desc = (parts[0] || '').trim().toLowerCase();
+                const val = parts.slice(1).join(' ').trim();
+                if (desc && val) tags.txxx[desc] = val;
+                continue;
+            }
+            if (!values.length) continue;
+            if (id === 'TIT2') tags.title = values.join(' / ');
+            else if (id === 'TPE1') tags.artist = values.join(', ');
+            else if (id === 'TPE2') tags.albumArtist = values.join(', ');
+            else if (id === 'TALB') tags.album = values.join(' / ');
+            else if (id === 'TRCK') tags.trackRaw = values[0];
+            else if (id === 'TPOS') tags.discRaw = values[0];
+            else if (id === 'TDRC' || id === 'TYER') tags.date = tags.date || values[0];
+            else if (id === 'TCON') tags.genre = values.join(', ');
+            else if (id === 'TPUB') tags.label = values.join(' / ');
+            else if (id === 'TCOM') tags.composer = values.join(', ');
+            else if (id === 'TLEN') tags.lengthMs = parseInt(values[0], 10);
+        }
+        const t = tags.txxx;
+        tags.label = tags.label || t.label || t.organization || t.publisher || '';
+        tags.catno = t.catalognumber || t.catalogid || t.catalog || t['catalog number'] || '';
+        tags.style = t.style || t.styles || '';
+        tags.country = t.country || t.releasecountry || t['release country'] || t['musicbrainz album release country'] || '';
+        return tags;
+    }
+
+    function dhParseID3v1(u8) {
+        if (u8.length < 128 || dhAscii(u8, 0, 3) !== 'TAG') return null;
+        const f = (o, n) => dhDecodeText(u8.subarray(o, o + n), 0).replace(/\u0000[\s\S]*$/, '').trim();
+        const t = { title: f(3, 30), artist: f(33, 30), album: f(63, 30), date: f(93, 4) };
+        if (u8[125] === 0 && u8[126] !== 0) t.trackRaw = String(u8[126]);
+        return t;
+    }
+
+    const DH_MPEG_BITRATES = {
+        '1-1': [0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448],
+        '1-2': [0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384],
+        '1-3': [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320],
+        '2-1': [0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256],
+        '2-2': [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160],
+        '2-3': [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160],
+    };
+    const DH_MPEG_RATES = { 1: [44100, 48000, 32000], 2: [22050, 24000, 16000], 2.5: [11025, 12000, 8000] };
+
+    function dhMpegHeader(b, i) {
+        if (i + 4 > b.length || b[i] !== 0xff || (b[i + 1] & 0xe0) !== 0xe0) return null;
+        const vb = (b[i + 1] >> 3) & 3;
+        const lb = (b[i + 1] >> 1) & 3;
+        const bi = (b[i + 2] >> 4) & 15;
+        const si = (b[i + 2] >> 2) & 3;
+        const pad = (b[i + 2] >> 1) & 1;
+        if (vb === 1 || lb === 0 || bi === 0 || bi === 15 || si === 3) return null;
+        const ver = vb === 3 ? 1 : (vb === 2 ? 2 : 2.5);
+        const layer = 4 - lb;
+        const bitrate = DH_MPEG_BITRATES[(ver === 1 ? 1 : 2) + '-' + layer][bi] * 1000;
+        const rate = DH_MPEG_RATES[ver][si];
+        const spf = layer === 1 ? 384 : ((layer === 2 || ver === 1) ? 1152 : 576);
+        let len;
+        if (layer === 1) len = (Math.floor(12 * bitrate / rate) + pad) * 4;
+        else if (layer === 3 && ver !== 1) len = Math.floor(72 * bitrate / rate) + pad;
+        else len = Math.floor(144 * bitrate / rate) + pad;
+        return { ver, layer, bitrate, rate, spf, len, mono: (b[i + 3] >> 6) === 3, crc: (b[i + 1] & 1) === 0 };
+    }
+
+    async function dhMp3Info(file, audioStart, tailBytes) {
+        const buf = await dhReadBytes(file, audioStart, 131072);
+        for (let i = 0; i + 4 < buf.length && i < 65536; i++) {
+            const h = dhMpegHeader(buf, i);
+            if (!h) continue;
+            const next = i + h.len;
+            if (next + 4 <= buf.length && !dhMpegHeader(buf, next)) continue;
+            const sideInfo = h.ver === 1 ? (h.mono ? 17 : 32) : (h.mono ? 9 : 17);
+            const xo = i + 4 + (h.crc ? 2 : 0) + sideInfo;
+            const tag = dhAscii(buf, xo, 4);
+            const vbr = tag === 'Xing' || dhAscii(buf, i + 36, 4) === 'VBRI';
+            const audioBytes = Math.max(0, file.size - audioStart - i - tailBytes);
+            const base = { bitrate: vbr ? null : h.bitrate / 1000, sampleRate: h.rate, vbr, audioBytes };
+            if ((tag === 'Xing' || tag === 'Info') && (dhU32BE(buf, xo + 4) & 1)) {
+                return Object.assign(base, { duration: dhU32BE(buf, xo + 8) * h.spf / h.rate });
+            }
+            if (dhAscii(buf, i + 36, 4) === 'VBRI') {
+                return Object.assign(base, { duration: dhU32BE(buf, i + 50) * h.spf / h.rate });
+            }
+            return Object.assign(base, { duration: audioBytes > 0 ? audioBytes * 8 / h.bitrate : null });
+        }
+        return { duration: null, bitrate: null, sampleRate: null, vbr: false, audioBytes: 0 };
+    }
+
+    async function dhReadMp3(file) {
+        const head = await dhReadBytes(file, 0, 10);
+        let audioStart = 0;
+        let v2 = null;
+        if (dhAscii(head, 0, 3) === 'ID3') {
+            const size = dhSyncsafe(head, 6);
+            const footer = (head[3] === 4 && (head[5] & 0x10)) ? 10 : 0;
+            if (size < 33554432) v2 = dhParseID3v2(await dhReadBytes(file, 0, size + 10));
+            audioStart = size + 10 + footer;
+        }
+        const tail = await dhReadBytes(file, Math.max(0, file.size - 128), 128);
+        const v1 = dhParseID3v1(tail);
+        const info = await dhMp3Info(file, audioStart, v1 ? 128 : 0);
+        const tags = Object.assign({}, v1 || {}, v2 || {});
+        if (v1 && v2) for (const k of Object.keys(v1)) if (!v2[k]) tags[k] = v1[k];
+        return {
+            tags,
+            duration: info.duration != null ? info.duration : (tags.lengthMs ? tags.lengthMs / 1000 : null),
+            fileType: 'MP3',
+            sampleRate: info.sampleRate,
+            bitrate: info.bitrate,
+            vbr: info.vbr,
+            audioBytes: info.audioBytes,
+        };
+    }
+
+    function dhParseVorbisComments(b, o) {
+        const out = {};
+        if (o + 4 > b.length) return out;
+        const dec = new TextDecoder('utf-8');
+        o += 4 + dhU32LE(b, o);
+        const n = dhU32LE(b, o);
+        o += 4;
+        for (let i = 0; i < n && o + 4 <= b.length; i++) {
+            const l = dhU32LE(b, o);
+            o += 4;
+            if (o + l > b.length) break;
+            const isPic = l > 24 && dhAscii(b, o, 23).toUpperCase() === 'METADATA_BLOCK_PICTURE';
+            if (!isPic) {
+                const s = dec.decode(b.subarray(o, o + l));
+                const eq = s.indexOf('=');
+                if (eq > 0) {
+                    const k = s.slice(0, eq).toUpperCase();
+                    (out[k] = out[k] || []).push(s.slice(eq + 1));
+                }
+            }
+            o += l;
+        }
+        return out;
+    }
+
+    function dhTagsFromVorbis(c) {
+        const get = (...keys) => {
+            for (const k of keys) if (c[k] && c[k].length) return c[k];
+            return null;
+        };
+        const join = a => a ? a.map(s => s.trim()).filter(Boolean).join(', ') : '';
+        const first = a => a ? (a[0] || '').trim() : '';
+        return {
+            title: join(get('TITLE')),
+            artist: join(get('ARTIST', 'ARTISTS')),
+            albumArtist: join(get('ALBUMARTIST', 'ALBUM ARTIST', 'ALBUM_ARTIST')),
+            album: join(get('ALBUM')),
+            trackRaw: first(get('TRACKNUMBER', 'TRACK')),
+            trackTotalRaw: first(get('TRACKTOTAL', 'TOTALTRACKS', 'TRACKS')),
+            discRaw: first(get('DISCNUMBER', 'DISC')),
+            discTotalRaw: first(get('DISCTOTAL', 'TOTALDISCS', 'DISCS')),
+            date: first(get('DATE', 'YEAR', 'ORIGINALDATE')),
+            genre: join(get('GENRE')),
+            style: join(get('STYLE', 'STYLES')),
+            country: first(get('COUNTRY', 'RELEASECOUNTRY', 'RELEASE COUNTRY', 'MUSICBRAINZ ALBUM RELEASE COUNTRY')),
+            label: join(get('LABEL', 'ORGANIZATION', 'PUBLISHER')),
+            catno: first(get('CATALOGNUMBER', 'CATALOGID', 'CATALOG')),
+            composer: join(get('COMPOSER')),
+        };
+    }
+
+    async function dhReadFlac(file) {
+        let off = 0;
+        let v2 = null;
+        const head = await dhReadBytes(file, 0, 10);
+        if (dhAscii(head, 0, 3) === 'ID3') {
+            const size = dhSyncsafe(head, 6) + 10;
+            if (size < 33554432) v2 = dhParseID3v2(await dhReadBytes(file, 0, size));
+            off = size;
+        }
+        if (dhAscii(await dhReadBytes(file, off, 4), 0, 4) !== 'fLaC') return null;
+        off += 4;
+        let duration = null;
+        let tags = null;
+        let sampleRate = null;
+        let bitDepth = null;
+        for (let guard = 0; guard < 128; guard++) {
+            const h = await dhReadBytes(file, off, 4);
+            if (h.length < 4) break;
+            const last = !!(h[0] & 0x80);
+            const type = h[0] & 0x7f;
+            const len = (h[1] << 16) | (h[2] << 8) | h[3];
+            if (type === 0 && len >= 18) {
+                const s = await dhReadBytes(file, off + 4, 18);
+                const rate = (s[10] << 12) | (s[11] << 4) | (s[12] >> 4);
+                const total = (s[13] & 0x0f) * 4294967296 + dhU32BE(s, 14);
+                if (rate > 0 && total > 0) duration = total / rate;
+                sampleRate = rate;
+                bitDepth = (((s[12] & 1) << 4) | (s[13] >> 4)) + 1;
+            } else if (type === 4 && len < 16777216) {
+                tags = dhTagsFromVorbis(dhParseVorbisComments(await dhReadBytes(file, off + 4, len), 0));
+            }
+            off += 4 + len;
+            if (last) break;
+        }
+        return { tags: Object.assign({}, v2 || {}, tags || {}), duration, fileType: 'FLAC', sampleRate, bitDepth };
+    }
+
+    function dhOggPackets(buf, want) {
+        const packets = [];
+        const ends = [];
+        let cur = [];
+        let curLen = 0;
+        let p = 0;
+        while (p + 27 <= buf.length && packets.length < want) {
+            if (buf[p] !== 0x4f || buf[p + 1] !== 0x67 || buf[p + 2] !== 0x67 || buf[p + 3] !== 0x53) return { packets, ends, done: false, bad: true };
+            const nseg = buf[p + 26];
+            if (p + 27 + nseg > buf.length) return { packets, ends, done: false };
+            let bodyLen = 0;
+            for (let i = 0; i < nseg; i++) bodyLen += buf[p + 27 + i];
+            const bodyStart = p + 27 + nseg;
+            if (bodyStart + bodyLen > buf.length) return { packets, ends, done: false };
+            let q = bodyStart;
+            for (let i = 0; i < nseg && packets.length < want; i++) {
+                const lace = buf[p + 27 + i];
+                cur.push(buf.subarray(q, q + lace));
+                curLen += lace;
+                q += lace;
+                if (lace < 255) {
+                    const pk = new Uint8Array(curLen);
+                    let o = 0;
+                    for (const part of cur) { pk.set(part, o); o += part.length; }
+                    packets.push(pk);
+                    ends.push(bodyStart + bodyLen);
+                    cur = [];
+                    curLen = 0;
+                }
+            }
+            p = bodyStart + bodyLen;
+        }
+        return { packets, ends, done: packets.length >= want };
+    }
+
+    async function dhOggLastGranule(file) {
+        const tailLen = Math.min(file.size, 131072);
+        const t = await dhReadBytes(file, file.size - tailLen, tailLen);
+        for (let i = t.length - 27; i >= 0; i--) {
+            if (t[i] === 0x4f && t[i + 1] === 0x67 && t[i + 2] === 0x67 && t[i + 3] === 0x53) {
+                const lo = dhU32LE(t, i + 6);
+                const hi = dhU32LE(t, i + 10);
+                if (lo === 4294967295 && hi === 4294967295) continue;
+                return hi * 4294967296 + lo;
+            }
+        }
+        return null;
+    }
+
+    async function dhReadOgg(file) {
+        let limit = 262144;
+        let res;
+        for (;;) {
+            const buf = await dhReadBytes(file, 0, limit);
+            res = dhOggPackets(buf, 3);
+            if (res.done || res.bad || limit >= 33554432 || buf.length < limit) break;
+            limit *= 4;
+        }
+        const p0 = res.packets[0];
+        if (!p0) return null;
+        const granule = await dhOggLastGranule(file);
+        let duration = null;
+        let tags = null;
+        if (p0[0] === 1 && dhAscii(p0, 1, 6) === 'vorbis') {
+            const rate = dhU32LE(p0, 12);
+            if (granule != null && rate > 0) duration = granule / rate;
+            const p1 = res.packets[1];
+            if (p1 && p1[0] === 3 && dhAscii(p1, 1, 6) === 'vorbis') tags = dhTagsFromVorbis(dhParseVorbisComments(p1, 7));
+            return { tags: tags || {}, duration, fileType: 'ogg-vorbis', sampleRate: rate, audioBytes: res.ends[2] ? file.size - res.ends[2] : null };
+        } else if (dhAscii(p0, 0, 8) === 'OpusHead') {
+            const preSkip = dhU16LE(p0, 10);
+            if (granule != null) duration = Math.max(0, granule - preSkip) / 48000;
+            const p1 = res.packets[1];
+            if (p1 && dhAscii(p1, 0, 8) === 'OpusTags') tags = dhTagsFromVorbis(dhParseVorbisComments(p1, 8));
+            return { tags: tags || {}, duration, fileType: 'Opus', sampleRate: null, audioBytes: res.ends[1] ? file.size - res.ends[1] : null };
+        }
+        return null;
+    }
+
+    async function dhReadWav(file) {
+        const head = await dhReadBytes(file, 0, 12);
+        const magic = dhAscii(head, 0, 4);
+        if ((magic !== 'RIFF' && magic !== 'RF64' && magic !== 'BW64') || dhAscii(head, 8, 4) !== 'WAVE') return null;
+        let off = 12;
+        let byteRate = 0;
+        let sampleRate = null;
+        let bitDepth = null;
+        let dataSize = null;
+        let ds64Data = null;
+        let tags = {};
+        while (off + 8 <= file.size) {
+            const h = await dhReadBytes(file, off, 8);
+            const id = dhAscii(h, 0, 4);
+            const size = dhU32LE(h, 4);
+            const body = off + 8;
+            if (id === 'fmt ') {
+                const f = await dhReadBytes(file, body, Math.min(size, 40));
+                byteRate = dhU32LE(f, 8);
+                sampleRate = dhU32LE(f, 4);
+                bitDepth = dhU16LE(f, 14);
+                if (dhU16LE(f, 0) === 0xfffe && f.length >= 20 && dhU16LE(f, 18) > 0) bitDepth = dhU16LE(f, 18);
+            } else if (id === 'ds64') {
+                ds64Data = dhU64LE(await dhReadBytes(file, body, 24), 8);
+            } else if (id === 'data') {
+                if (size === 4294967295 && ds64Data != null) dataSize = ds64Data;
+                else if (size === 4294967295 || body + size > file.size) dataSize = file.size - body;
+                else dataSize = size;
+                if (size === 4294967295) break;
+            } else if (id === 'LIST' && size >= 4 && size < 1048576) {
+                const l = await dhReadBytes(file, body, size);
+                if (dhAscii(l, 0, 4) === 'INFO') {
+                    let q = 4;
+                    const dec = new TextDecoder('utf-8');
+                    const info = {};
+                    while (q + 8 <= l.length) {
+                        const sid = dhAscii(l, q, 4);
+                        const ssz = dhU32LE(l, q + 4);
+                        info[sid] = dec.decode(l.subarray(q + 8, q + 8 + ssz)).replace(/\u0000+$/, '').trim();
+                        q += 8 + ssz + (ssz & 1);
+                    }
+                    tags = Object.assign(tags, {
+                        title: info.INAM || tags.title, artist: info.IART || tags.artist, album: info.IPRD || tags.album,
+                        date: info.ICRD || tags.date, genre: info.IGNR || tags.genre, trackRaw: info.ITRK || info.IPRT || tags.trackRaw,
+                        label: info.IPUB || tags.label, composer: info.IMUS || tags.composer,
+                    });
+                }
+            } else if ((id === 'id3 ' || id === 'ID3 ') && size < 33554432) {
+                tags = Object.assign({}, tags, dhParseID3v2(await dhReadBytes(file, body, size)));
+            }
+            off = body + size + (size & 1);
+        }
+        const duration = byteRate > 0 && dataSize != null ? dataSize / byteRate : null;
+        return { tags, duration, fileType: 'WAV', sampleRate, bitDepth };
+    }
+
+    function dhExt80(b, o) {
+        const exp = (dhU16BE(b, o) & 0x7fff) - 16383;
+        return (dhU32BE(b, o + 2) * 4294967296 + dhU32BE(b, o + 6)) * Math.pow(2, exp - 63);
+    }
+
+    async function dhReadAiff(file) {
+        const head = await dhReadBytes(file, 0, 12);
+        if (dhAscii(head, 0, 4) !== 'FORM' || (dhAscii(head, 8, 4) !== 'AIFF' && dhAscii(head, 8, 4) !== 'AIFC')) return null;
+        let off = 12;
+        let duration = null;
+        let sampleRate = null;
+        let bitDepth = null;
+        const fileType = dhAscii(head, 8, 4);
+        let tags = {};
+        let name = '';
+        let auth = '';
+        while (off + 8 <= file.size) {
+            const h = await dhReadBytes(file, off, 8);
+            const id = dhAscii(h, 0, 4);
+            const size = dhU32BE(h, 4);
+            const body = off + 8;
+            if (id === 'COMM') {
+                const c = await dhReadBytes(file, body, 18);
+                const frames = dhU32BE(c, 2);
+                const rate = dhExt80(c, 8);
+                if (rate > 0) duration = frames / rate;
+                sampleRate = Math.round(rate);
+                bitDepth = dhU16BE(c, 6);
+            } else if ((id === 'ID3 ' || id === 'id3 ') && size < 33554432) {
+                tags = Object.assign({}, tags, dhParseID3v2(await dhReadBytes(file, body, size)));
+            } else if ((id === 'NAME' || id === 'AUTH') && size < 4096) {
+                const t = dhDecodeText(await dhReadBytes(file, body, size), 0).replace(/\u0000+$/, '').trim();
+                if (id === 'NAME') name = t; else auth = t;
+            }
+            off = body + size + (size & 1);
+        }
+        if (!tags.title && name) tags.title = name;
+        if (!tags.artist && auth) tags.artist = auth;
+        return { tags, duration, fileType, sampleRate, bitDepth };
+    }
+
+    function dhParseMp4Items(b, start, end, tags) {
+        let p = start;
+        while (p + 8 <= end) {
+            const size = dhU32BE(b, p);
+            if (size < 8 || p + size > end) break;
+            const key = String.fromCharCode(b[p + 4], b[p + 5], b[p + 6], b[p + 7]);
+            let q = p + 8;
+            const itemEnd = p + size;
+            let payload = null;
+            let flags = 0;
+            let freeName = '';
+            while (q + 8 <= itemEnd) {
+                const asz = dhU32BE(b, q);
+                if (asz < 8 || q + asz > itemEnd) break;
+                const at = dhAscii(b, q + 4, 4);
+                if (at === 'data' && asz >= 16) { flags = dhU32BE(b, q + 8) & 0xffffff; payload = b.subarray(q + 16, q + asz); }
+                else if (at === 'name' && asz > 12) freeName = new TextDecoder('utf-8').decode(b.subarray(q + 12, q + asz)).toLowerCase();
+                q += asz;
+            }
+            p += size;
+            if (!payload) continue;
+            const text = () => new TextDecoder('utf-8').decode(payload).trim();
+            if (key === '\u00a9nam') tags.title = text();
+            else if (key === '\u00a9ART') tags.artist = text();
+            else if (key === 'aART') tags.albumArtist = text();
+            else if (key === '\u00a9alb') tags.album = text();
+            else if (key === '\u00a9day') tags.date = text();
+            else if (key === '\u00a9gen') tags.genre = text();
+            else if (key === '\u00a9wrt') tags.composer = text();
+            else if (key === 'trkn' && payload.length >= 6) { tags.trackRaw = String(dhU16BE(payload, 2)); tags.trackTotalRaw = String(dhU16BE(payload, 4)); }
+            else if (key === 'disk' && payload.length >= 6) { tags.discRaw = String(dhU16BE(payload, 2)); tags.discTotalRaw = String(dhU16BE(payload, 4)); }
+            else if (key === '----' && flags === 1) {
+                if (freeName === 'label' || freeName === 'organization' || freeName === 'publisher') tags.label = text();
+                else if (freeName === 'catalognumber' || freeName === 'catalogid') tags.catno = text();
+                else if (freeName === 'style' || freeName === 'styles') tags.style = text();
+                else if (freeName === 'country' || freeName === 'releasecountry' || freeName === 'musicbrainz album release country') tags.country = text();
+            }
+        }
+    }
+
+    function dhParseMp4Container(b, start, end, out) {
+        let p = start;
+        while (p + 8 <= end) {
+            let size = dhU32BE(b, p);
+            let hdr = 8;
+            if (size === 1) { size = dhU64BE(b, p + 8); hdr = 16; }
+            else if (size === 0) size = end - p;
+            if (size < hdr || p + size > end) break;
+            const type = dhAscii(b, p + 4, 4);
+            const bs = p + hdr;
+            const be = p + size;
+            if (type === 'mvhd') {
+                if (b[bs] === 1) { const ts = dhU32BE(b, bs + 20); if (ts) out.duration = dhU64BE(b, bs + 24) / ts; }
+                else { const ts = dhU32BE(b, bs + 12); if (ts) out.duration = dhU32BE(b, bs + 16) / ts; }
+            } else if (type === 'udta') {
+                dhParseMp4Container(b, bs, be, out);
+            } else if (type === 'meta') {
+                dhParseMp4Container(b, bs + 4, be, out);
+            } else if (type === 'ilst') {
+                dhParseMp4Items(b, bs, be, out.tags);
+            } else if (type === 'trak' || type === 'mdia' || type === 'minf' || type === 'stbl') {
+                dhParseMp4Container(b, bs, be, out);
+            } else if (type === 'stsd' && !out.fileType && be - bs > 16) {
+                const et = dhAscii(b, bs + 12, 4);
+                const es = bs + 8;
+                if (et === 'alac') {
+                    out.fileType = 'ALAC';
+                    const c = es + 8 + 28;
+                    if (dhAscii(b, c + 4, 4) === 'alac' && c + 36 <= be) {
+                        out.bitDepth = b[c + 17];
+                        out.sampleRate = dhU32BE(b, c + 32);
+                    }
+                } else if (et === 'mp4a') {
+                    out.fileType = 'AAC';
+                    out.sampleRate = dhU16BE(b, es + 8 + 24);
+                }
+            }
+            p += size;
+        }
+    }
+
+    async function dhReadMp4(file) {
+        let off = 0;
+        let moov = null;
+        let mdatBytes = 0;
+        while (off + 8 <= file.size) {
+            const h = await dhReadBytes(file, off, 16);
+            let size = dhU32BE(h, 0);
+            let hdr = 8;
+            const type = dhAscii(h, 4, 4);
+            if (size === 1) { size = dhU64BE(h, 8); hdr = 16; }
+            else if (size === 0) size = file.size - off;
+            if (size < hdr) break;
+            if (type === 'moov') {
+                if (size > 134217728) break;
+                moov = await dhReadBytes(file, off + hdr, size - hdr);
+            } else if (type === 'mdat') {
+                mdatBytes += size - hdr;
+            }
+            off += size;
+        }
+        if (!moov) return null;
+        const out = { tags: {}, duration: null, fileType: '', sampleRate: null, bitDepth: null, audioBytes: mdatBytes || null };
+        dhParseMp4Container(moov, 0, moov.length, out);
+        return out;
+    }
+
+    async function dhReadAdts(file) {
+        const head = await dhReadBytes(file, 0, 10);
+        let off = 0;
+        let v2 = null;
+        if (dhAscii(head, 0, 3) === 'ID3') {
+            const size = dhSyncsafe(head, 6) + 10;
+            if (size < 33554432) v2 = dhParseID3v2(await dhReadBytes(file, 0, size));
+            off = size;
+        }
+        const rates = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
+        let frames = 0;
+        let rate = 0;
+        const CHUNK = 4194304;
+        let base = off;
+        let carry = new Uint8Array(0);
+        while (base < file.size) {
+            const part = await dhReadBytes(file, base, CHUNK);
+            const b = carry.length ? (() => { const m = new Uint8Array(carry.length + part.length); m.set(carry, 0); m.set(part, carry.length); return m; })() : part;
+            let p = 0;
+            while (p + 7 <= b.length) {
+                if (b[p] !== 0xff || (b[p + 1] & 0xf6) !== 0xf0) { p++; continue; }
+                const len = ((b[p + 3] & 3) << 11) | (b[p + 4] << 3) | (b[p + 5] >> 5);
+                const si = (b[p + 2] >> 2) & 15;
+                if (len < 7 || si > 12) { p++; continue; }
+                if (p + len > b.length) break;
+                if (!rate) rate = rates[si];
+                frames++;
+                p += len;
+            }
+            const consumed = part.length < CHUNK ? b.length : p;
+            carry = b.subarray(consumed);
+            base += part.length;
+            if (part.length < CHUNK) break;
+        }
+        return { tags: v2 || {}, duration: rate ? frames * 1024 / rate : null, fileType: 'AAC', sampleRate: rate || null, audioBytes: file.size - off };
+    }
+
+    async function dhReadDsf(file) {
+        const h = await dhReadBytes(file, 0, 92);
+        if (dhAscii(h, 0, 4) !== 'DSD ' || dhAscii(h, 28, 4) !== 'fmt ') return null;
+        const rate = dhU32LE(h, 56);
+        const samples = dhU64LE(h, 64);
+        const ptr = dhU64LE(h, 20);
+        let tags = {};
+        if (ptr > 0 && ptr + 10 < file.size) {
+            const th = await dhReadBytes(file, ptr, 10);
+            if (dhAscii(th, 0, 3) === 'ID3') {
+                const size = dhSyncsafe(th, 6) + 10;
+                if (size < 33554432) tags = dhParseID3v2(await dhReadBytes(file, ptr, size));
+            }
+        }
+        return { tags, duration: rate > 0 ? samples / rate : null, fileType: 'DSF', sampleRate: rate || null, bitDepth: 1 };
+    }
+
+    async function dhReadDff(file) {
+        const h = await dhReadBytes(file, 0, 16);
+        if (dhAscii(h, 0, 4) !== 'FRM8' || dhAscii(h, 12, 4) !== 'DSD ') return null;
+        let off = 16;
+        let rate = 0;
+        let chans = 0;
+        let dataBytes = null;
+        let dstFrames = 0;
+        let dstRate = 0;
+        let tags = {};
+        const subChunks = (b, start, cb) => {
+            let q = start;
+            while (q + 12 <= b.length) {
+                const id = dhAscii(b, q, 4);
+                const size = dhU64BE(b, q + 4);
+                cb(id, b.subarray(q + 12, q + 12 + size));
+                q += 12 + size + (size & 1);
+            }
+        };
+        const dsdText = d => d.length >= 4 ? new TextDecoder('utf-8').decode(d.subarray(4, 4 + dhU32BE(d, 0))).replace(/\u0000+$/, '').trim() : '';
+        while (off + 12 <= file.size) {
+            const ch = await dhReadBytes(file, off, 12);
+            const id = dhAscii(ch, 0, 4);
+            const size = dhU64BE(ch, 4);
+            const body = off + 12;
+            if (id === 'PROP' && size < 1048576) {
+                const b = await dhReadBytes(file, body, size);
+                if (dhAscii(b, 0, 4) === 'SND ') {
+                    subChunks(b, 4, (sid, d) => {
+                        if (sid === 'FS  ' && d.length >= 4) rate = dhU32BE(d, 0);
+                        else if (sid === 'CHNL' && d.length >= 2) chans = dhU16BE(d, 0);
+                    });
+                }
+            } else if (id === 'DSD ') {
+                dataBytes = size;
+            } else if (id === 'DST ') {
+                const b = await dhReadBytes(file, body, Math.min(size, 4096));
+                subChunks(b, 0, (sid, d) => {
+                    if (sid === 'FRTE' && d.length >= 6) { dstFrames = dhU32BE(d, 0); dstRate = dhU16BE(d, 4); }
+                });
+            } else if (id === 'DIIN' && size < 1048576) {
+                const b = await dhReadBytes(file, body, size);
+                subChunks(b, 0, (sid, d) => {
+                    if (sid === 'DIAR') tags.artist = dsdText(d);
+                    else if (sid === 'DITI') tags.title = dsdText(d);
+                });
+            } else if ((id === 'ID3 ' || id === 'id3 ') && size < 33554432) {
+                tags = Object.assign({}, tags, dhParseID3v2(await dhReadBytes(file, body, size)));
+            }
+            off = body + size + (size & 1);
+        }
+        let duration = null;
+        if (dataBytes != null && rate > 0 && chans > 0) duration = dataBytes * 8 / chans / rate;
+        else if (dstFrames > 0 && dstRate > 0) duration = dstFrames / dstRate;
+        return { tags, duration, fileType: 'DFF', sampleRate: rate || null, bitDepth: 1 };
+    }
+
+    function dhParseFileName(name) {
+        const base = (name || '').replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '').replace(/_/g, ' ').trim();
+        const out = { track: null, trackPos: '', disc: null, artist: '', title: base };
+        let m = /^(?:cd|disc|disk)?\s*(\d{1,2})\s*[-.]\s*(\d{1,3})\s*[-.)\s]\s*(.+)$/i.exec(base);
+        if (m) { out.disc = +m[1]; out.track = +m[2]; out.title = m[3]; }
+        else if ((m = /^([A-Ha-h]\d{1,2})\s*[-.)\s]\s*(.+)$/.exec(base))) { out.trackPos = m[1].toUpperCase(); out.title = m[2]; }
+        else if ((m = /^(\d{1,3})\s*[-.)\s]\s*(.+)$/.exec(base))) { out.track = +m[1]; out.title = m[2]; }
+        const sep = /^(.+?)\s+[-\u2013\u2014]\s+(.+)$/.exec(out.title);
+        if (sep) { out.artist = sep[1].trim(); out.title = sep[2].trim(); }
+        out.title = out.title.trim();
+        return out;
+    }
+
+    function dhParseNumPair(raw) {
+        const m = /^\s*(\d+)\s*(?:\/\s*(\d+))?/.exec(raw || '');
+        return m ? { n: parseInt(m[1], 10), total: m[2] ? parseInt(m[2], 10) : null } : { n: null, total: null };
+    }
+
+    async function dhReadAudioFile(file) {
+        const ext = dhAudioExt(file.name);
+        let raw = null;
+        let format = ext.toUpperCase();
+        let error = '';
+        try {
+            if (!(file.size >= 0)) throw new Error('file size is not available');
+            const head = await dhReadBytes(file, 0, 12);
+            if (!head.length && file.size > 0) throw new Error('no data could be read from the file');
+            const magic = dhAscii(head, 0, 4);
+            if (magic === 'fLaC') { raw = await dhReadFlac(file); format = 'FLAC'; }
+            else if (magic === 'OggS') { raw = await dhReadOgg(file); format = 'OGG'; }
+            else if (magic === 'RIFF' || magic === 'RF64' || magic === 'BW64') { raw = await dhReadWav(file); format = 'WAV'; }
+            else if (magic === 'FORM') { raw = await dhReadAiff(file); format = 'AIFF'; }
+            else if (dhAscii(head, 4, 4) === 'ftyp') { raw = await dhReadMp4(file); format = 'M4A'; }
+            else if (magic === 'DSD ') { raw = await dhReadDsf(file); format = 'DSF'; }
+            else if (magic === 'FRM8') { raw = await dhReadDff(file); format = 'DFF'; }
+            else if (ext === 'flac') { raw = await dhReadFlac(file); format = 'FLAC'; }
+            else if (ext === 'aac') { raw = await dhReadAdts(file); format = 'AAC'; }
+            else if (magic.slice(0, 3) === 'ID3' || (head[0] === 0xff && (head[1] & 0xe0) === 0xe0)) { raw = await dhReadMp3(file); format = 'MP3'; }
+            if (!raw && !error) error = 'unrecognised or damaged file';
+        } catch (e) {
+            raw = null;
+            error = (e && e.message) ? e.message : String(e);
+        }
+        const tags = (raw && raw.tags) || {};
+        const fn = dhParseFileName(file.name);
+        const trackNum = dhParseNumPair(tags.trackRaw);
+        const discNum = dhParseNumPair(tags.discRaw);
+        let trackPos = '';
+        if (trackNum.n == null && /^[A-Za-z]{1,2}\d{1,2}$/.test((tags.trackRaw || '').trim())) trackPos = tags.trackRaw.trim().toUpperCase();
+        const track = trackNum.n != null ? trackNum.n : (trackPos ? null : fn.track);
+        return {
+            name: file.name,
+            format,
+            readOk: !!raw,
+            hasTags: !!((tags.title || '').trim() || (tags.artist || '').trim()),
+            error,
+            title: (tags.title || '').trim() || fn.title,
+            artist: (tags.artist || '').trim() || (tags.title ? '' : fn.artist),
+            albumArtist: (tags.albumArtist || '').trim(),
+            album: (tags.album || '').trim(),
+            track,
+            trackPos: trackPos || (trackNum.n == null && !tags.trackRaw ? fn.trackPos : ''),
+            disc: discNum.n != null ? discNum.n : fn.disc,
+            discTotal: discNum.total != null ? discNum.total : (parseInt(tags.discTotalRaw, 10) || null),
+            date: (tags.date || '').trim(),
+            genre: (tags.genre || '').trim(),
+            style: (tags.style || '').trim(),
+            country: (tags.country || '').trim(),
+            label: (tags.label || '').trim(),
+            catno: (tags.catno || '').trim(),
+            duration: raw && raw.duration != null && isFinite(raw.duration) ? raw.duration : null,
+            fileType: (raw && raw.fileType) || '',
+            sampleRate: (raw && raw.sampleRate) || null,
+            bitDepth: (raw && raw.bitDepth) || null,
+            bitrate: (raw && raw.bitrate) || null,
+            vbr: (raw && typeof raw.vbr === 'boolean') ? raw.vbr : null,
+            audioBytes: (raw && raw.audioBytes) || null,
+        };
+    }
+
+    async function dhReadAudioFiles(files, onProgress) {
+        const results = new Array(files.length);
+        let next = 0;
+        let done = 0;
+        const worker = async () => {
+            while (next < files.length) {
+                const i = next++;
+                results[i] = await dhReadAudioFile(files[i]);
+                done++;
+                if (onProgress) onProgress(done, files.length);
+            }
+        };
+        await Promise.all(Array.from({ length: Math.min(4, files.length) }, worker));
+        return results;
+    }
+
+    function dhFormatDuration(sec) {
+        const s = Math.round(sec);
+        const h = Math.floor(s / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        const ss = s % 60;
+        const p2 = n => String(n).padStart(2, '0');
+        return h > 0 ? `${h}:${p2(m)}:${p2(ss)}` : `${m}:${p2(ss)}`;
+    }
+
+    const DH_VA_RE = /^(various(?:\s+artists?)?|v\.?\s*\/?\s*a\.?)$/i;
+
+    function dhSplitTagValues(str) {
+        const protectedStr = (str || '')
+            .replace(/funk\s*\/\s*soul/ig, 'Funk Soul')
+            .replace(/folk\s*,\s*world\s*,\s*&\s*country/ig, 'Folk World & Country');
+        return protectedStr.split(/[;,\/|\\\u0000]+/).map(v => v.replace(/^\(\d+\)/, '').trim()).filter(Boolean);
+    }
+
+    function dhNormalizeTagDate(raw) {
+        const s = (raw || '').trim();
+        const pad = n => String(n).padStart(2, '0');
+        let m = /^(\d{4})[-./](\d{1,2})[-./](\d{1,2})/.exec(s);
+        if (m) return `${m[1]}-${pad(m[2])}-${pad(m[3])}`;
+        m = /^(\d{1,2})[-./](\d{1,2})[-./](\d{4})$/.exec(s);
+        if (m) return `${m[3]}-${pad(m[2])}-${pad(m[1])}`;
+        m = /^(\d{4})(\d{2})(\d{2})$/.exec(s);
+        if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+        m = /^(\d{4})[-./](\d{1,2})$/.exec(s);
+        if (m) return `${m[1]}-${pad(m[2])}`;
+        m = /^(\d{4})\b/.exec(s);
+        return m ? m[1] : '';
+    }
+
+    function dhMostCommon(values) {
+        const counts = new Map();
+        for (const v of values) {
+            const t = (v || '').trim();
+            if (!t) continue;
+            const key = t.toLowerCase();
+            const e = counts.get(key);
+            if (e) e.n++; else counts.set(key, { v: t, n: 1 });
+        }
+        let best = null;
+        for (const e of counts.values()) if (!best || e.n > best.n) best = e;
+        return best ? best.v : '';
+    }
+
+    function dhBuildReleaseInfo(metas) {
+        const trackArtists = metas.map(m => m.artist).filter(Boolean);
+        const distinct = new Set(trackArtists.map(a => a.toLowerCase()));
+        const albumArtist = dhMostCommon(metas.map(m => m.albumArtist));
+        let artist = '';
+        if (albumArtist) artist = DH_VA_RE.test(albumArtist) ? 'Various' : albumArtist;
+        else if (distinct.size === 1) artist = trackArtists[0];
+        else if (distinct.size > 1) artist = 'Various';
+        const tags = [];
+        const seen = new Set();
+        for (const m of metas) {
+            for (const v of [...dhSplitTagValues(m.genre), ...dhSplitTagValues(m.style)]) {
+                const k = v.toLowerCase();
+                if (!seen.has(k)) { seen.add(k); tags.push(v); }
+            }
+        }
+        return {
+            artist,
+            va: artist === 'Various',
+            title: dhMostCommon(metas.map(m => m.album)),
+            label: dhMostCommon(metas.map(m => m.label)),
+            catno: dhMostCommon(metas.map(m => m.catno)),
+            country: dhMostCommon(metas.map(m => m.country)),
+            date: dhNormalizeTagDate(dhMostCommon(metas.map(m => m.date))),
+            tags,
+        };
+    }
+
+    const DH_FILE_TYPES = ['AAC', 'AIFC', 'AIFF', 'ALAC', 'AMR', 'APE', 'DFF', 'DSF', 'FLAC', 'MP1', 'MP2', 'MP3', 'ogg-vorbis', 'Opus', 'SHN', 'SPX', 'TTA', 'WAV', 'WavPack', 'WMA'];
+    const DH_FILE_TYPE_ALIASES = { ogg: 'ogg-vorbis', vorbis: 'ogg-vorbis', oggvorbis: 'ogg-vorbis', wave: 'WAV', aif: 'AIFF', m4a: 'AAC', wv: 'WavPack' };
+
+    function dhNormalizeFileType(value) {
+        const v = (value || '').replace(/^\s*file\s*[,/\-:]?\s*/i, '').trim();
+        if (!v) return '';
+        const lower = v.toLowerCase().replace(/[\s-]+/g, '');
+        const hit = DH_FILE_TYPES.find(t => t.toLowerCase().replace(/[\s-]+/g, '') === lower);
+        return hit || DH_FILE_TYPE_ALIASES[lower] || v;
+    }
+
+    function dhFormatRate(hz) {
+        return String(+(hz / 1000).toFixed(3));
+    }
+
+    function dhDsdName(hz) {
+        for (const base of [2822400, 3072000]) {
+            const ratio = hz / base;
+            if (Number.isInteger(ratio) && [1, 2, 4, 8, 16].includes(ratio)) return `DSD${64 * ratio}`;
+        }
+        return `${+(hz / 1000000).toFixed(2)} MHz`;
+    }
+
+    function dhBuildFormatInfo(metas) {
+        const fileType = dhMostCommon(metas.map(m => m.fileType));
+        const same = metas.filter(m => m.fileType === fileType);
+        let freeText = '';
+        if (['FLAC', 'ALAC', 'WAV', 'AIFF', 'AIFC'].includes(fileType)) {
+            freeText = dhMostCommon(same.filter(m => m.bitDepth && m.sampleRate).map(m => `${m.bitDepth}-bit/${dhFormatRate(m.sampleRate)} kHz`));
+        } else if (fileType === 'DSF' || fileType === 'DFF') {
+            freeText = dhMostCommon(same.filter(m => m.sampleRate).map(m => dhDsdName(m.sampleRate)));
+        } else if (['MP3', 'AAC', 'ogg-vorbis', 'Opus'].includes(fileType)) {
+            const fixed = same.map(m => m.bitrate);
+            if (fileType === 'MP3' && fixed.every(Boolean)) {
+                freeText = dhMostCommon(fixed.map(b => `${b} kbps`));
+            } else {
+                const measured = same.filter(m => m.audioBytes > 0 && m.duration > 0);
+                const bytes = measured.reduce((n, m) => n + m.audioBytes, 0);
+                const secs = measured.reduce((n, m) => n + m.duration, 0);
+                if (secs > 0) {
+                    const kbps = bytes * 8 / secs / 1000;
+                    const vbr = fileType === 'MP3' && same.some(m => m.vbr === true);
+                    const nominal = vbr ? undefined : [64, 96, 112, 128, 160, 192, 224, 256, 320].find(n => Math.abs(kbps - n) / n <= 0.015);
+                    freeText = nominal ? `${nominal} kbps` : `${vbr ? 'VBR ' : ''}${Math.round(kbps)} kbps`;
+                }
+            }
+        }
+        return { quantity: metas.length, fileType, freeText };
+    }
+
+    function dhFormatReleaseHeader(info, genres, styles, format) {
+        const lines = [];
+        const pairs = (...list) => list.filter(Boolean).join('  ');
+        if (info.artist) lines.push(`Artist: ${info.artist}`);
+        if (info.title) lines.push(`Title: ${info.title}`);
+        if (format) {
+            const formatLine = pairs(
+                format.quantity && `Qty: ${format.quantity}`,
+                format.fileType && `Format: ${format.fileType}`,
+                format.freeText && `FTF: ${format.freeText}`
+            );
+            if (formatLine) lines.push(formatLine);
+        }
+        const labelLine = pairs(info.label && `Label: ${info.label}`, info.catno && `Cat#: ${info.catno}`);
+        if (labelLine) lines.push(labelLine);
+        const releaseLine = pairs(info.country && `Country: ${info.country}`, info.date && `Released: ${info.date}`);
+        if (releaseLine) lines.push(releaseLine);
+        const styleLine = pairs(
+            genres && genres.length && `Genre: ${genres.join(', ')}`,
+            styles && styles.length && `Style: ${styles.join(', ')}`
+        );
+        if (styleLine) lines.push(styleLine);
+        return lines.join('\n');
+    }
+
+    const DH_HEADER_KEYS = String.raw`artists?|album(?:\s+title)?|title|label|cat(?:alog(?:ue)?)?\s*(?:#|no\.?|number)?|country|year|date|released?(?:\s+date)?|genres?|styles?|qty|quantity|files?|file\s*type|format|ftf|free\s*text`;
+
+    function dhParseReleaseHeader(text) {
+        const lines = (text || '').split('\n');
+        const markerRe = new RegExp(`(^|\\s)(${DH_HEADER_KEYS})\\s*:`, 'ig');
+        const info = {};
+        let found = false;
+        let i = 0;
+        for (; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+            const markers = [];
+            let m;
+            markerRe.lastIndex = 0;
+            while ((m = markerRe.exec(line))) markers.push({ key: m[2], keyStart: m.index + m[1].length, valueStart: markerRe.lastIndex });
+            if (!markers.length || markers[0].keyStart !== 0) break;
+            found = true;
+            markers.forEach((mk, n) => {
+                const value = line.slice(mk.valueStart, n + 1 < markers.length ? markers[n + 1].keyStart : line.length).trim();
+                if (!value) return;
+                const key = mk.key.toLowerCase().replace(/\s+/g, ' ');
+                if (key.startsWith('artist')) info.artist = value;
+                else if (key === 'album' || key === 'album title' || key === 'title') info.title = value;
+                else if (key === 'label') info.label = value;
+                else if (key.startsWith('cat')) info.catno = value;
+                else if (key === 'country') info.country = value;
+                else if (key === 'year' || key === 'date' || key.startsWith('release')) info.date = dhNormalizeTagDate(value) || value;
+                else if (key.startsWith('genre')) info.genres = dhSplitTagValues(value);
+                else if (key.startsWith('style')) info.styles = dhSplitTagValues(value);
+                else if (key === 'file type' || key === 'filetype' || key === 'format') {
+                    const t = dhNormalizeFileType(value);
+                    if (t) info.fileType = t;
+                } else if (key === 'qty' || key === 'quantity' || key.startsWith('file')) {
+                    const q = parseInt(value, 10);
+                    if (q > 0) info.quantity = q;
+                } else if (key === 'ftf' || key === 'free text' || key === 'freetext') info.freeText = value;
+            });
+        }
+        if (!found) return { info: null, rest: text };
+        return { info: Object.keys(info).length ? info : null, rest: lines.slice(i).join('\n') };
+    }
+
+    function dhDistinctAlbums(metas) {
+        const seen = new Map();
+        for (const m of metas) {
+            const raw = (m.album || '').trim();
+            if (!raw) continue;
+            const key = raw.toLowerCase()
+                .replace(/\s*[\(\[]\s*(?:disc|disk|cd)\s*\d+\s*(?:of\s*\d+)?\s*[\)\]]\s*$/i, '')
+                .replace(/\s*[-\u2013:,]?\s*(?:disc|disk|cd)\s*\d+\s*$/i, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+            if (key && !seen.has(key)) seen.set(key, raw);
+        }
+        return Array.from(seen.values());
+    }
+
+    function dhOrderTracks(metas) {
+        const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+        const items = metas.slice();
+        const haveAll = items.every(m => m.trackPos || m.track != null);
+        const multiDisc = items.some(m => (m.disc || 1) > 1) || items.some(m => (m.discTotal || 0) > 1);
+        const discOf = m => m.disc || 1;
+        if (haveAll) {
+            items.sort((a, b) => discOf(a) - discOf(b)
+                || (a.trackPos || b.trackPos ? collator.compare(a.trackPos || String(a.track), b.trackPos || String(b.track)) : a.track - b.track)
+                || collator.compare(a.name, b.name));
+        } else {
+            items.sort((a, b) => collator.compare(a.name, b.name));
+        }
+        let positions = haveAll
+            ? items.map(m => m.trackPos || (multiDisc ? `${discOf(m)}-${m.track}` : String(m.track)))
+            : items.map((m, i) => String(i + 1));
+        if (new Set(positions).size !== positions.length) positions = items.map((m, i) => String(i + 1));
+        return { items, positions };
+    }
+
+    function dhBuildTrackLines(metas, mode) {
+        const { items, positions } = dhOrderTracks(metas);
+        const info = dhBuildReleaseInfo(metas);
+        const main = info.artist.toLowerCase();
+        const lines = [];
+        items.forEach((m, i) => {
+            const pos = positions[i];
+            const dur = m.duration != null ? dhFormatDuration(m.duration) : '';
+            if (mode === 'artists') {
+                const a = m.artist || m.albumArtist;
+                if (a) lines.push(`${pos} ${a}`);
+            } else if (mode === 'durations') {
+                if (dur) lines.push(`${pos} ${dur}`);
+            } else {
+                const a = m.artist && (info.va || m.artist.toLowerCase() !== main) ? m.artist : '';
+                lines.push(`${pos} - ${a ? a + ' - ' : ''}${m.title}${dur ? ' ' + dur : ''}`);
+            }
+        });
+        return { text: lines.join('\n'), count: lines.length, total: items.length };
+    }
+
+    async function dhCollectDropped(dt) {
+        const out = [];
+        const walk = async (entry) => {
+            if (entry.isFile) {
+                out.push(await new Promise((res, rej) => entry.file(res, rej)));
+            } else if (entry.isDirectory) {
+                const reader = entry.createReader();
+                for (;;) {
+                    const batch = await new Promise((res, rej) => reader.readEntries(res, rej));
+                    if (!batch.length) break;
+                    for (const e of batch) await walk(e);
+                }
+            }
+        };
+        const items = dt.items ? Array.from(dt.items) : [];
+        if (items.length && items[0].webkitGetAsEntry) {
+            const entries = items.map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+            for (const e of entries) await walk(e);
+        } else {
+            out.push(...Array.from(dt.files || []));
+        }
+        return out;
+    }
+
     function openTracklistImporter() {
         const existing = document.getElementById('dh-importer-overlay');
         if (existing) { existing.style.display = 'flex'; document.getElementById('dh-importer-textarea').focus(); return; }
@@ -13451,6 +14595,8 @@ wiIsAntiBotPage(html)) {
             <div style="display:flex; align-items:center; justify-content:space-between; padding:5px 8px 6px; border-bottom:1px solid rgba(0,0,0,0.09); gap:6px;">
                 <strong style="font-size:13px; font-weight:600; color:#111; user-select:none; -webkit-user-select:none; cursor:default; white-space:nowrap; letter-spacing:0.01em; flex-shrink:0;"><span style="font-weight:normal; margin-right:5px;">${dhIcon('tracklist', 14)}</span>Tracklist Import</strong>
                 <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+                    <button id="dh-files-btn" type="button" title="Select audio files to read metadata from" aria-label="Read metadata from audio files" style="display:inline-flex; align-items:center; justify-content:center; background:none; border:1px solid #ccc; border-radius:4px; cursor:pointer; padding:3px 6px; line-height:1.4; opacity:0.75;">${dhIcon('upload', 12)}</button>
+                    <input id="dh-files-input" type="file" multiple accept="${DH_AUDIO_EXT.map(e => '.' + e).join(',')}" style="display:none;">
                     <button id="dh-missing-artist-toggle" title="Missing Artists Mode: fill in track-level artists only" style="display:inline-flex; align-items:center; gap:4px; background:none; border:1px solid #ccc; border-radius:4px; cursor:pointer; font-size:11px; padding:2px 6px; line-height:1.4; white-space:nowrap; opacity:0.75;">${dhIcon('user', 12)}Missing Artists</button>
                     <button id="dh-missing-duration-toggle" title="Missing Durations Mode: fill in durations only" style="display:inline-flex; align-items:center; gap:4px; background:none; border:1px solid #ccc; border-radius:4px; cursor:pointer; font-size:11px; padding:2px 6px; line-height:1.4; white-space:nowrap; opacity:0.75;">${dhIcon('clock', 12)}Missing Durations</button>
                     <button id="dh-importer-close" title="Close" style="background:none; border:none; cursor:pointer; font-size:13px; padding:1px 4px; line-height:1; flex-shrink:0; opacity:0.65; color:#555;">${dhIcon('close', 14)}</button>
@@ -13460,17 +14606,24 @@ wiIsAntiBotPage(html)) {
                 <textarea id="dh-importer-textarea" placeholder="" style="width:100%; height:${textareaHeight}px; font-size:12px; font-family:monospace; border:1px solid #ccc; border-radius:4px; padding:6px; box-sizing:border-box; resize:vertical;"></textarea>
             </div>
             <div style="display:flex; align-items:center; gap:6px; padding:7px 10px 8px; border-top:1px solid rgba(0,0,0,0.07);">
-                <button id="dh-importer-confirm" style="flex:1; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600; box-sizing:border-box;">${dhBtnLabel('check', 'Apply')}</button>
-                <button id="dh-importer-cancel" style="flex:1; height:34px; background:#f1f3f5; color:#111; border:1px solid #ccc; border-radius:5px; cursor:pointer; font-size:13px; box-sizing:border-box;">Cancel</button>
+                <div id="dh-importer-apply-wrap" style="flex:1 1 0; min-width:0; display:flex; height:34px;">
+                    <button id="dh-importer-confirm" style="flex:1; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-radius:5px 0 0 5px; cursor:pointer; font-size:13px; font-weight:600; padding:0 6px; box-sizing:border-box;">${dhBtnLabel('check', 'Apply')}</button>
+                    <button id="dh-importer-apply-arrow" type="button" title="Apply options" style="width:24px; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-left:1px solid rgba(255,255,255,0.25); border-radius:0 5px 5px 0; cursor:pointer; padding:0; flex-shrink:0; box-sizing:border-box;"><span style="pointer-events:none; user-select:none;">${dhIcon('chevdown', 11, true)}</span></button>
+                </div>
+                <div id="dh-importer-draft-wrap" style="flex:1 1 0; min-width:0; display:flex; height:34px;">
+                    <button id="dh-importer-savedraft" type="button" title="Create a Discogs draft from this release info and tracklist" style="flex:1; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-radius:5px 0 0 5px; cursor:pointer; font-size:13px; font-weight:600; line-height:1.25; box-sizing:border-box; padding:0 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Save To Draft</button>
+                    <button id="dh-importer-draft-arrow" type="button" title="Save to draft options" style="width:24px; height:34px; background:#28a745; color:#fff; border:1px solid transparent; border-left:1px solid rgba(255,255,255,0.25); border-radius:0 5px 5px 0; cursor:pointer; padding:0; flex-shrink:0; box-sizing:border-box;"><span style="pointer-events:none; user-select:none;">${dhIcon('chevdown', 11, true)}</span></button>
+                </div>
+                <button id="dh-importer-cancel" style="flex:0 0 63px; width:63px; box-sizing:border-box; height:34px; background:#f1f3f5; color:#111; border:1px solid #ccc; border-radius:5px; cursor:pointer; font-size:13px; padding:0; text-align:center;">Cancel</button>
             </div>
         `;
         document.body.appendChild(overlay);
         _applyThemeToImporterOverlay(overlay, localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark');
         const textarea = document.getElementById('dh-importer-textarea');
         textarea.value = state.importerText;
-        const NORMAL_PLACEHOLDER = `Positions and durations will be auto-detected.\nRecommended tracklist formatting patterns:\n1 - Artist - Track Title 03:45\n02. Artist — Track Title 40:01\n03) Artist - Track Title 3:18\n[A4] - Track Title [0:04:15]\n(B5) Track Title (00:07:38)\n1-6 - Track Title 01:17:19\nTrack Title 10:06:21\netc`;
-        const MISSING_ARTIST_PLACEHOLDER = `Four modes — auto-detected:\n1) Single artist (fills all tracks where artist is missing):\nArtist\n2) From tracklist (matches by position):\n1 - Artist - Track Title 3:45\n3) Per-position (position + artist, matches by position):\n1 Artist\n4) Line-by-line (each line = track row, blank line = skip):\nArtist One\nArtist Two`;
-        const MISSING_DURATION_PLACEHOLDER = `Three modes — auto-detected:\n1) From tracklist (matches by position):\n1 - Track Title 3:45\n2) Per-position (position + duration, matches by position):\n1 3:45\n3) Line-by-line (each line = track row, blank line = skip):\n3:45\n\n4:20`;
+        const NORMAL_PLACEHOLDER = `Drop audio files or a release folder here, or click the file picker button, to read metadata from their tags. You can then manually remove anything you don't want to include.\n\nRecommended formatting when pasting a plain-text tracklist:\n1 - Artist - Track Title 03:45\n02. Artist — Track Title 40:01\n03) Artist - Track Title 3:18\n[A4] - Track Title [0:04:15]\n(B5) Track Title (00:07:38)\n1-6 - Track Title 01:17:19\nTrack Title 10:06:21\netc.`;
+        const MISSING_ARTIST_PLACEHOLDER = `Drop audio files or a release folder here, or click the file picker button, to read the track artists from their tags. You can then manually remove anything you don't want to include.\n\nFour modes — auto-detected:\n1) Single artist (fills all tracks where artist is missing):\nArtist\n2) From tracklist (matches by position):\n1 - Artist - Track Title 3:45\n3) Per-position (position + artist, matches by position):\n1 Artist\n4) Line-by-line (each line = track row, blank line = skip):\nArtist One\nArtist Two`;
+        const MISSING_DURATION_PLACEHOLDER = `Drop audio files or a release folder here, or click the file picker button, to read the track durations from their tags. You can then manually remove anything you don't want to include.\n\nThree modes — auto-detected:\n1) From tracklist (matches by position):\n1 - Track Title 3:45\n2) Per-position (position + duration, matches by position):\n1 3:45\n3) Line-by-line (each line = track row, blank line = skip):\n3:45\n\n4:20`;
         function updateToggleStyle() {
             const isDark = localStorage.getItem(STORAGE_KEYS.THEME_KEY) === 'dark';
             const btnA = document.getElementById('dh-missing-artist-toggle');
@@ -13485,6 +14638,14 @@ wiIsAntiBotPage(html)) {
             };
             applyBtn(btnA, state.importerMissingArtistMode);
             applyBtn(btnD, state.importerMissingDurationMode);
+            const inMissingMode = !!(state.importerMissingArtistMode || state.importerMissingDurationMode);
+            for (const [id, disabled] of [['dh-importer-draft-wrap', inMissingMode], ['dh-importer-apply-arrow', !!state.importerMissingDurationMode]]) {
+                const el = document.getElementById(id);
+                if (!el) continue;
+                el.style.opacity = disabled ? '0.45' : '1';
+                el.style.pointerEvents = disabled ? 'none' : 'auto';
+            }
+            document.querySelectorAll('.dh-importer-menu').forEach(m => { m.style.display = 'none'; });
             if (state.importerMissingArtistMode)       textarea.placeholder = MISSING_ARTIST_PLACEHOLDER;
             else if (state.importerMissingDurationMode) textarea.placeholder = MISSING_DURATION_PLACEHOLDER;
             else                                        textarea.placeholder = NORMAL_PLACEHOLDER;
@@ -13494,11 +14655,157 @@ wiIsAntiBotPage(html)) {
             state.importerMissingArtistMode   = !state.importerMissingArtistMode;
             if (state.importerMissingArtistMode) state.importerMissingDurationMode = false;
             updateToggleStyle();
+            regenerateFromFiles();
         };
         document.getElementById('dh-missing-duration-toggle').onclick = () => {
             state.importerMissingDurationMode   = !state.importerMissingDurationMode;
             if (state.importerMissingDurationMode) state.importerMissingArtistMode = false;
             updateToggleStyle();
+            regenerateFromFiles();
+        };
+        const filesBtn = document.getElementById('dh-files-btn');
+        const filesInput = document.getElementById('dh-files-input');
+        const setImporterText = (value) => {
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+            setter.call(textarea, value);
+            state.importerText = value;
+            textarea.removeAttribute('aria-invalid');
+        };
+        const importerMode = () => state.importerMissingArtistMode ? 'artists' : (state.importerMissingDurationMode ? 'durations' : 'tracks');
+        const matchCountry = (name) => LOWERCASE_ALLOWED_COUNTRIES.get((name || '').replace(/\./g, '').trim().toLowerCase()) || normalizeCountryName(name);
+        const resolveTagCountry = (raw) => {
+            const v = (raw || '').trim();
+            if (!v) return '';
+            const direct = matchCountry(v);
+            if (direct) return direct;
+            if (/^[A-Za-z]{2}$/.test(v)) {
+                const code = v.toUpperCase();
+                if (code === 'XW') return 'Worldwide';
+                if (code === 'XE') return 'Europe';
+                if (code === 'GB') return 'UK';
+                try {
+                    return matchCountry(new Intl.DisplayNames(['en'], { type: 'region' }).of(code)) || '';
+                } catch (e) {
+                    return '';
+                }
+            }
+            return '';
+        };
+        const fillFromFiles = () => {
+            const mode = importerMode();
+            const res = dhBuildTrackLines(state.importerFileMeta, mode);
+            let text = res.text;
+            let hasHeader = false;
+            if (mode === 'tracks' && res.count) {
+                const info = dhBuildReleaseInfo(state.importerFileMeta);
+                info.country = resolveTagCountry(info.country) || info.country;
+                const matched = wiMatchTagsToGenresStyles(info.tags);
+                const genres = Array.from(matched.keys());
+                const styles = Array.from(new Set(Array.from(matched.values()).flatMap(set => Array.from(set))));
+                const header = dhFormatReleaseHeader(info, genres.length || styles.length ? genres : info.tags, styles, dhBuildFormatInfo(state.importerFileMeta));
+                if (header) { text = `${header}\n\n${text}`; hasHeader = true; }
+            }
+            state.importerGeneratedText = text;
+            setImporterText(text);
+            state.importerFromFiles = true;
+            return Object.assign({}, res, { header: hasHeader });
+        };
+        const buildReleaseDataFromText = (info, parsedTracks) => {
+            const isVA = DH_VA_RE.test((info.artist || '').trim());
+            const tracks = parsedTracks.map(t => {
+                const out = { ...t, duration: t.duration || '' };
+                if (isVA) {
+                    const m = /^(.+?)\s+[-\u2013\u2014]\s+(.+)$/.exec(t.title);
+                    if (m) { out.artists = [m[1].trim()]; out.title = m[2].trim(); }
+                }
+                return out;
+            });
+            const country = info.country ? resolveTagCountry(info.country) : '';
+            if (info.country && !country) log(`Country "${info.country}" was not recognised, so it was skipped`, 'warning');
+            const data = {
+                artist: isVA ? 'Various Artists' : (info.artist || ''),
+                title: info.title || '',
+                label: info.label || '',
+                catno: info.catno || '',
+                date: info.date || '',
+                country,
+                tags: [...(info.genres || []), ...(info.styles || [])],
+                fileType: info.fileType || '',
+                quantity: info.quantity || 0,
+                freeText: info.freeText || '',
+                tracks,
+                storeName: state.importerFromFiles ? 'Audio files' : 'text',
+                fileImport: true,
+                formatImport: !!(info.fileType || info.quantity || info.freeText),
+            };
+            return data;
+        };
+        const applyReleaseFromText = async (info, parsedTracks) => {
+            await wiApplyRelease(buildReleaseDataFromText(info, parsedTracks), '', null, 'date');
+        };
+        const regenerateFromFiles = () => {
+            if (state.importerFileMeta && state.importerGeneratedText && textarea.value === state.importerGeneratedText) fillFromFiles();
+        };
+        const importFromFiles = async (files) => {
+            const audio = files.filter(f => DH_AUDIO_EXT.includes(dhAudioExt(f.name)));
+            const ignored = files.length - audio.length;
+            if (!audio.length) { log('No supported audio files found', 'warning'); return; }
+            filesBtn.disabled = true;
+            log(`Reading ${audio.length} audio ${audio.length === 1 ? 'file' : 'files'}...`);
+            try {
+                const metas = await dhReadAudioFiles(audio);
+                const albums = dhDistinctAlbums(metas);
+                if (albums.length > 1) {
+                    const shown = albums.slice(0, 3).map(a => `"${a}"`).join(', ') + (albums.length > 3 ? ` and ${albums.length - 3} more` : '');
+                    log(`These files belong to ${albums.length} different releases (${shown}). Drop one release at a time.`, 'error');
+                    setInfoSingleLine('Files from different releases', false);
+                    textarea.setAttribute('aria-invalid', 'true');
+                    textarea.focus();
+                    return;
+                }
+                state.importerFileMeta = metas;
+                const mode = importerMode();
+                if (mode !== 'tracks' && !dhBuildTrackLines(metas, mode).count) {
+                    log(mode === 'artists' ? 'No artist tags found in the files' : 'No durations could be read from the files', 'warning');
+                    textarea.setAttribute('aria-invalid', 'true');
+                    textarea.focus();
+                    return;
+                }
+                const res = fillFromFiles();
+                const failed = state.importerFileMeta.filter(m => !m.readOk);
+                const tagged = state.importerFileMeta.filter(m => m.hasTags).length;
+                const tagNote = ` (tags found in ${tagged} of ${state.importerFileMeta.length})`;
+                if (mode === 'artists') log(`Artists found for ${res.count} of ${res.total} files`, 'success');
+                else if (mode === 'durations') log(`Durations read for ${res.count} of ${res.total} files`, 'success');
+                else log(`Tracklist${res.header ? ' and release info' : ''} built from ${res.total} audio ${res.total === 1 ? 'file' : 'files'}${tagNote}`, 'success');
+                if (failed.length) log(`${failed.length} ${failed.length === 1 ? 'file' : 'files'} could not be read (${failed[0].name}: ${failed[0].error || 'unknown error'}), file names used instead`, 'warning');
+                else if (!tagged) log('No tags found in the files, file names used instead', 'warning');
+                const noAlbum = state.importerFileMeta.filter(m => !m.album).length;
+                if (noAlbum && tagged) log(noAlbum === state.importerFileMeta.length ? 'No album tag found in the files, so they could not be checked as one release' : `${noAlbum} of ${state.importerFileMeta.length} files have no album tag, so they could not be checked against the rest`, 'warning');
+                if (ignored) log(`${ignored} non-audio ${ignored === 1 ? 'file' : 'files'} ignored`);
+            } catch (err) {
+                log('Could not read the audio files', 'error');
+            } finally {
+                filesBtn.disabled = false;
+            }
+        };
+        const hasFiles = (e) => !!e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+        let dragDepth = 0;
+        overlay.addEventListener('dragenter', (e) => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; overlay.classList.add('dh-drop'); });
+        overlay.addEventListener('dragover', (e) => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+        overlay.addEventListener('dragleave', (e) => { if (!hasFiles(e)) return; dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) overlay.classList.remove('dh-drop'); });
+        overlay.addEventListener('drop', (e) => {
+            if (!hasFiles(e)) return;
+            e.preventDefault();
+            dragDepth = 0;
+            overlay.classList.remove('dh-drop');
+            dhCollectDropped(e.dataTransfer).then(importFromFiles);
+        });
+        filesBtn.onclick = () => filesInput.click();
+        filesInput.onchange = () => {
+            const picked = Array.from(filesInput.files || []);
+            filesInput.value = '';
+            if (picked.length) importFromFiles(picked);
         };
         function normalizeTracklistText(raw) {
             const lines = raw.split('\n').map(l => l.replace(/\t/g, ' ').trim()).filter(l => l.length > 0);
@@ -13541,10 +14848,10 @@ wiIsAntiBotPage(html)) {
             textarea.setSelectionRange(newPos, newPos);
             textarea.dispatchEvent(new Event('input', { bubbles: true }));
         });
-        textarea.addEventListener('input', () => { state.importerText = textarea.value; textarea.removeAttribute('aria-invalid'); });
-        document.getElementById('dh-importer-close').onclick = () => { state.importerText = textarea.value; overlay.style.display = 'none'; };
-        document.getElementById('dh-importer-cancel').onclick = () => { state.importerText = textarea.value; overlay.style.display = 'none'; };
-        document.getElementById('dh-importer-confirm').onclick = async () => {
+        textarea.addEventListener('input', () => { state.importerText = textarea.value; state.importerFromFiles = false; textarea.removeAttribute('aria-invalid'); });
+        document.getElementById('dh-importer-close').onclick = () => { state.importerText = textarea.value; closeImporterMenus(); overlay.style.display = 'none'; };
+        document.getElementById('dh-importer-cancel').onclick = () => { state.importerText = textarea.value; closeImporterMenus(); overlay.style.display = 'none'; };
+        const doApply = async (mode) => {
             state.importerText = textarea.value;
             if (!state.importerText.trim()) {
                 textarea.setAttribute('aria-invalid', 'true');
@@ -13556,15 +14863,134 @@ wiIsAntiBotPage(html)) {
             }
             overlay.style.display = 'none';
             if (state.importerMissingArtistMode) {
-                await applyMissingArtists(state.importerText);
+                wiMissingArtistNoSplit = mode === 'noSplit';
+                try {
+                    await runWithMode(mode, () => applyMissingArtists(state.importerText));
+                } finally {
+                    wiMissingArtistNoSplit = false;
+                }
             } else if (state.importerMissingDurationMode) {
                 await applyMissingDurations(state.importerText);
             } else {
-                const parsed = parseTracklist(state.importerText);
-                if (!parsed.length) { log('Nothing to import — no tracks detected', 'warning'); setInfoSingleLine('Nothing to import', false); return; }
-                log(`Importing ${parsed.length} ${parsed.length === 1 ? 'track' : 'tracks'}...`);
-                await applyTracklist(parsed);
+                const header = dhParseReleaseHeader(state.importerText);
+                const parsed = parseTracklist(header.rest);
+                if (!parsed.length && !header.info) { log('Nothing to import - no tracks or release info detected', 'warning'); setInfoSingleLine('Nothing to import', false); return; }
+                if (header.info) {
+                    log(parsed.length ? `Importing release info and ${parsed.length} ${parsed.length === 1 ? 'track' : 'tracks'}...` : 'Importing release info...');
+                    await runWithMode(mode, () => applyReleaseFromText(header.info, parsed));
+                } else {
+                    log(`Importing ${parsed.length} ${parsed.length === 1 ? 'track' : 'tracks'}...`);
+                    await runWithMode(mode, () => applyTracklist(parsed));
+                }
             }
+        };
+        const importerMenus = [];
+        const closeImporterMenus = () => importerMenus.forEach(m => { m.style.display = 'none'; });
+        const NO_CAP_FIELDS = { albumArtists: false, albumTitle: false, label: false, vaArtists: false, trackTitles: false, joiners: false, creditNames: false, trackCredits: false };
+        const NO_ARTIST_CAP_FIELDS = { albumArtists: false, vaArtists: false, creditNames: false, trackCredits: false };
+        const runWithMode = async (mode, fn) => {
+            const savedCap = (mode === 'noCap' || mode === 'noArtistCap') ? state.capitalizeFields : null;
+            const savedSplit = mode === 'noSplit' ? { split: state.splitImport, feat: state.importAutoFeat, rmx: state.importAutoRemixers } : null;
+            if (mode === 'noCap') state.capitalizeFields = { ...NO_CAP_FIELDS };
+            else if (mode === 'noArtistCap') { state.capitalizeFields = { ...state.capitalizeFields, ...NO_ARTIST_CAP_FIELDS }; wiPreserveArtistCase = true; }
+            if (savedSplit) { state.splitImport = false; state.importAutoFeat = false; state.importAutoRemixers = false; }
+            try {
+                return await fn();
+            } finally {
+                if (savedCap) state.capitalizeFields = savedCap;
+                if (savedSplit) { state.splitImport = savedSplit.split; state.importAutoFeat = savedSplit.feat; state.importAutoRemixers = savedSplit.rmx; }
+                wiPreserveArtistCase = false;
+            }
+        };
+        const importerApplyWrap = document.getElementById('dh-importer-apply-wrap');
+        const importerDraftWrap = document.getElementById('dh-importer-draft-wrap');
+        const importerApplyArrow = document.getElementById('dh-importer-apply-arrow');
+        const importerDraftArrow = document.getElementById('dh-importer-draft-arrow');
+        const importerDraftBtn = document.getElementById('dh-importer-savedraft');
+        const doSaveDraft = async (mode) => {
+            if (state.importerMissingArtistMode || state.importerMissingDurationMode) return;
+            state.importerText = textarea.value;
+            const invalid = (message, info) => {
+                textarea.setAttribute('aria-invalid', 'true');
+                textarea.focus();
+                log(message, 'warning');
+                setInfoSingleLine(info, false);
+            };
+            if (!state.importerText.trim()) { invalid('Nothing to save - no tracks or release info detected', 'Nothing to save'); return; }
+            const header = dhParseReleaseHeader(state.importerText);
+            const parsed = parseTracklist(header.rest);
+            if (!header.info || !header.info.artist || !header.info.title) { invalid('A draft needs at least an Artist and a Title in the release info', 'Draft needs Artist and Title'); return; }
+            const data = buildReleaseDataFromText(header.info, parsed);
+            importerDraftWrap.style.opacity = '0.45'; importerDraftWrap.style.pointerEvents = 'none';
+            importerApplyWrap.style.opacity = '0.45'; importerApplyWrap.style.pointerEvents = 'none';
+            importerDraftBtn.innerHTML = 'Saving…';
+            try {
+                await runWithMode(mode, () => wiSaveReleaseAsDraft(data, '', 'date'));
+                overlay.style.display = 'none';
+            } catch (err) {
+                log(`Save to Draft failed: ${err.message}`, 'error');
+            } finally {
+                importerDraftBtn.innerHTML = 'Save To Draft';
+                importerApplyWrap.style.opacity = '1'; importerApplyWrap.style.pointerEvents = 'auto';
+                updateToggleStyle();
+            }
+        };
+        const makeImporterMenu = (verb, run) => {
+            const menu = document.createElement('div');
+            menu.className = 'dh-importer-menu';
+            menu.style.cssText = 'display:none; position:fixed; z-index:10200; border-radius:5px; overflow:hidden; box-shadow:0 3px 10px rgba(0,0,0,0.25); font-family:Arial,sans-serif; background:#28a745; width:180px;';
+            const items = [
+                { label: 'Without Capitalization Rules', title: `${verb} without normalizing capitalization`, mode: 'noCap' },
+                { label: 'Without Artist Capitalization', title: `${verb} without normalizing artist capitalization\n(titles, label and joiners still follow your settings)`, mode: 'noArtistCap' },
+                { label: 'Without Artist Splitters', title: `${verb} without splitting main and track artists (album credits are still split)`, mode: 'noSplit' },
+            ];
+            items.forEach((def, idx) => {
+                if (idx > 0) {
+                    const sep = document.createElement('div');
+                    sep.style.cssText = 'height:1px; background:rgba(255,255,255,0.2); width:100%;';
+                    menu.appendChild(sep);
+                }
+                const item = document.createElement('div');
+                item.title = def.title;
+                item.style.cssText = `height:30px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:10px; font-weight:bold; color:#fff; background:#28a745; white-space:nowrap; width:100%; box-sizing:border-box; border-radius:${idx === 0 ? '5px 5px 0 0' : idx === items.length - 1 ? '0 0 5px 5px' : '0'}; padding:0 6px; transition:background 0.1s;`;
+                item.textContent = def.label;
+                item.addEventListener('mouseenter', () => { item.style.background = '#1e7e34'; });
+                item.addEventListener('mouseleave', () => { item.style.background = '#28a745'; });
+                item.addEventListener('click', () => { closeImporterMenus(); run(def.mode); });
+                menu.appendChild(item);
+            });
+            document.body.appendChild(menu);
+            importerMenus.push(menu);
+            return menu;
+        };
+        const importerApplyMenu = makeImporterMenu('Apply', mode => doApply(mode));
+        const importerDraftMenu = makeImporterMenu('Save to draft', mode => doSaveDraft(mode));
+        const toggleImporterMenu = (menu, wrap, alignRight) => {
+            const wasOpen = menu.style.display !== 'none';
+            closeImporterMenus();
+            if (wasOpen) return;
+            const r = wrap.getBoundingClientRect();
+            menu.style.display = 'block';
+            menu.style.visibility = 'hidden';
+            requestAnimationFrame(() => {
+                menu.style.width = r.width + 'px';
+                const h = menu.offsetHeight;
+                menu.style.left = r.left + 'px';
+                menu.style.top = (r.top - h - 3) + 'px';
+                menu.style.boxShadow = '0 -3px 10px rgba(0,0,0,0.25)';
+                menu.style.visibility = 'visible';
+            });
+        };
+        importerApplyArrow.addEventListener('click', (e) => { e.stopPropagation(); toggleImporterMenu(importerApplyMenu, importerApplyWrap, false); });
+        importerDraftArrow.addEventListener('click', (e) => { e.stopPropagation(); toggleImporterMenu(importerDraftMenu, importerDraftWrap, true); });
+        document.addEventListener('click', (e) => {
+            if (!importerApplyArrow.contains(e.target) && !importerDraftArrow.contains(e.target) && !importerMenus.some(m => m.contains(e.target))) closeImporterMenus();
+        });
+        document.getElementById('dh-importer-confirm').onclick = () => { closeImporterMenus(); doApply(null); };
+        importerDraftBtn.onclick = (e) => {
+            if (e) { e.preventDefault(); e.stopPropagation(); }
+            closeImporterMenus();
+            doSaveDraft(null);
         };
         overlay.addEventListener('mousemove', resetHideTimer);
         overlay.addEventListener('click', resetHideTimer);
@@ -14229,9 +15655,14 @@ html[data-deh-theme="dark"] #dh-config-overlay span[style*="text-transform"] { c
 #dh-config-overlay #cfg-import-toggle svg,
 #dh-config-overlay #cfg-capitalize-toggle svg,
 #dh-config-overlay #cfg-filetype-toggle svg { stroke: currentColor !important; }
+#dh-importer-overlay.dh-drop { outline: 2px dashed var(--dh-ok) !important; outline-offset: -4px; }
+#dh-importer-overlay #dh-files-btn:disabled { opacity: .4 !important; cursor: progress !important; }
+#dh-importer-overlay #dh-files-btn { color: var(--dh-text) !important; background: transparent !important; border-color: var(--dh-sec-border) !important; }
+#dh-importer-overlay #dh-files-btn svg { stroke: currentColor !important; }
 
 #dh-importer-confirm, #dh-config-save, #dh-ct-apply, #dh-bulk-apply,
 #dh-wi-apply, #dh-wi-apply-arrow, #dh-wi-savedraft, #dh-wi-savedraft-arrow,
+#dh-importer-apply-arrow, #dh-importer-savedraft, #dh-importer-draft-arrow,
 #dh-wi-fetch,
 #dh-importer-cancel, #dh-config-cancel, #dh-config-reset, #dh-ct-cancel, #dh-bulk-cancel, #dh-wi-cancel,
 #dh-missing-artist-toggle, #dh-missing-duration-toggle {
@@ -14246,6 +15677,9 @@ html[data-deh-theme="dark"] #dh-config-overlay span[style*="text-transform"] { c
 #dh-wi-apply-arrow:hover:not(:disabled),
 #dh-wi-savedraft:hover:not(:disabled),
 #dh-wi-savedraft-arrow:hover:not(:disabled),
+#dh-importer-apply-arrow:hover:not(:disabled),
+#dh-importer-savedraft:hover:not(:disabled),
+#dh-importer-draft-arrow:hover:not(:disabled),
 #dh-wi-fetch:hover:not(:disabled),
 #dh-importer-cancel:hover,
 #dh-config-cancel:hover,
@@ -14262,6 +15696,9 @@ html[data-deh-theme="dark"] #dh-config-overlay span[style*="text-transform"] { c
 #dh-wi-apply-arrow:active:not(:disabled),
 #dh-wi-savedraft:active:not(:disabled),
 #dh-wi-savedraft-arrow:active:not(:disabled),
+#dh-importer-apply-arrow:active:not(:disabled),
+#dh-importer-savedraft:active:not(:disabled),
+#dh-importer-draft-arrow:active:not(:disabled),
 #dh-wi-fetch:active:not(:disabled),
 #dh-importer-cancel:active,
 #dh-config-cancel:active,
@@ -14279,6 +15716,9 @@ html[data-deh-theme="dark"] #dh-config-overlay span[style*="text-transform"] { c
 #dh-wi-apply-arrow:focus-visible,
 #dh-wi-savedraft:focus-visible,
 #dh-wi-savedraft-arrow:focus-visible,
+#dh-importer-apply-arrow:focus-visible,
+#dh-importer-savedraft:focus-visible,
+#dh-importer-draft-arrow:focus-visible,
 #dh-wi-fetch:focus-visible,
 #dh-importer-cancel:focus-visible,
 #dh-config-cancel:focus-visible,
@@ -14301,7 +15741,8 @@ html[data-deh-theme="dark"] #dh-config-overlay span[style*="text-transform"] { c
 }
 
 #dh-importer-confirm, #dh-config-save, #dh-ct-apply, #dh-bulk-apply,
-#dh-wi-apply, #dh-wi-apply-arrow, #dh-wi-savedraft, #dh-wi-savedraft-arrow {
+#dh-wi-apply, #dh-wi-apply-arrow, #dh-wi-savedraft, #dh-wi-savedraft-arrow,
+#dh-importer-apply-arrow, #dh-importer-savedraft, #dh-importer-draft-arrow {
   background: linear-gradient(180deg, #31b552 0%, #28a745 52%, #229a3e 100%) !important;
   color: #fff !important;
   border-color: rgba(0, 0, 0, .22) !important;
@@ -14321,7 +15762,7 @@ html[data-deh-theme="dark"] #dh-config-overlay span[style*="text-transform"] { c
   text-shadow: 0 1px 0 rgba(0, 0, 0, .18);
 }
 
-#dh-wi-apply-arrow, #dh-wi-savedraft-arrow { border-left-color: rgba(255, 255, 255, .30) !important; }
+#dh-wi-apply-arrow, #dh-wi-savedraft-arrow, #dh-importer-apply-arrow, #dh-importer-draft-arrow { border-left-color: rgba(255, 255, 255, .30) !important; }
 
 #dh-importer-cancel, #dh-config-cancel, #dh-config-reset, #dh-ct-cancel, #dh-bulk-cancel, #dh-wi-cancel {
   background: var(--dh-btn) !important;
@@ -14516,6 +15957,7 @@ html[data-deh-theme="dark"] #dh-config-overlay span[style*="text-transform"] { c
     <symbol id="dh-i-alertcircle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></symbol>
     <symbol id="dh-i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
     <symbol id="dh-i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></symbol>
+    <symbol id="dh-i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></symbol>
     <symbol id="dh-i-loader" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></symbol>
     <symbol id="dh-i-rename" viewBox="0 0 24 24"><path d="M5 4h1a3 3 0 0 1 3 3 3 3 0 0 1 3-3h1"/><path d="M13 20h-1a3 3 0 0 1-3-3 3 3 0 0 1-3 3H5"/><path d="M5 16H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h1"/><path d="M13 8h7a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-7"/><path d="M9 7v10"/></symbol>
   </defs>
@@ -14533,7 +15975,7 @@ html[data-deh-theme="dark"] #dh-config-overlay span[style*="text-transform"] { c
 
   <div class="dh-toolbar">
     <button id="web-import" class="dh-btn dh-icon-btn" type="button" title="Import metadata from a web store or credits from Discogs" aria-label="Web import"><svg class="dh-i dh-i--lg" aria-hidden="true" focusable="false"><use href="#dh-i-globe"/></svg></button>
-    <button id="tracklist-import" class="dh-btn dh-icon-btn" type="button" title="Import tracklist, artists and durations from plain text" aria-label="Tracklist import"><svg class="dh-i dh-i--lg" aria-hidden="true" focusable="false"><use href="#dh-i-tracklist"/></svg></button>
+    <button id="tracklist-import" class="dh-btn dh-icon-btn" type="button" title="Import metadata from files or a tracklist from plain text" aria-label="Tracklist import"><svg class="dh-i dh-i--lg" aria-hidden="true" focusable="false"><use href="#dh-i-tracklist"/></svg></button>
     <div id="capitalize-all-wrap" class="dh-tool-wrap">
       <button id="capitalize-all" class="dh-btn dh-icon-btn" type="button" data-menu="capitalize-all-menu" aria-haspopup="menu" aria-expanded="false" title="Capitalize artists, label/company, joiners, titles and credits" aria-label="Capitalize"><svg class="dh-i dh-i--lg" aria-hidden="true" focusable="false"><use href="#dh-i-caps"/></svg></button>
       <div id="capitalize-all-menu" class="dh-menu" role="menu" hidden></div>
