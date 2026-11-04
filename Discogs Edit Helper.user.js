@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      2.2
+// @version      2.2.1
 // @description  Imports metadata from web stores and plain-text tracklists, extracts info from titles and assigns data to the appropriate fields
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
@@ -14525,6 +14525,7 @@ wiIsAntiBotPage(html)) {
         const { items, positions } = dhOrderTracks(metas);
         const info = dhBuildReleaseInfo(metas);
         const main = info.artist.toLowerCase();
+        const showAll = info.va || metas.some(m => m.artist && m.artist.toLowerCase() !== main);
         const lines = [];
         items.forEach((m, i) => {
             const pos = positions[i];
@@ -14535,7 +14536,7 @@ wiIsAntiBotPage(html)) {
             } else if (mode === 'durations') {
                 if (dur) lines.push(`${pos} ${dur}`);
             } else {
-                const a = m.artist && (info.va || m.artist.toLowerCase() !== main) ? m.artist : '';
+                const a = showAll ? (m.artist || (info.va ? '' : info.artist)) : '';
                 lines.push(`${pos} - ${a ? a + ' - ' : ''}${m.title}${dur ? ' ' + dur : ''}`);
             }
         });
