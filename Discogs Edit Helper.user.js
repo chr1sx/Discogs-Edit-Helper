@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discogs Edit Helper
 // @namespace    https://github.com/chr1sx/Discogs-Edit-Helper
-// @version      2.2.1
+// @version      2.2.2
 // @description  Imports metadata from web stores and plain-text tracklists, extracts info from titles and assigns data to the appropriate fields
 // @author       chr1sx
 // @match        https://www.discogs.com/release/edit/*
@@ -1865,11 +1865,7 @@
 
     function hasSplitterToken(str) {
         if (!str) return false;
-        for (const s of CONFIG.ARTIST_SPLITTER_PATTERNS) {
-            const re = new RegExp(escapeRegExp(s), 'i');
-            if (re.test(str)) { return true; }
-        }
-        return false;
+        return buildSplitterRegexNoGlobal().test(str);
     }
 
     function lastWordsCandidate(str) {
@@ -2823,14 +2819,13 @@
                 if (optionalOnly && remixByRegexFull.test(inner)) continue;
 
                 if (remixByPatternWords) {
-                    const remByRegex = new RegExp(`(?:${remixByPatternWords})\\s+(.+)$`, 'i');
+                    const remByRegex = new RegExp(`\\b(?:${remixByPatternWords})\\s+(.+)$`, 'i');
                     const remByMatch = inner.match(remByRegex);
                     if (remByMatch && remByMatch[1]) {
                         let raw = remByMatch[1].trim();
                         raw = raw.replace(/^[-–—]\s*/, '').replace(/^by\s+/i, '').trim();
 
-                        const featTokens = CONFIG.FEATURING_PATTERNS.map(escapeRegExp).join('|');
-                        const featRegex = new RegExp(`(?:${featTokens})`, 'i');
+                        const featRegex = new RegExp(buildFeaturingPattern(), 'i');
                         const featMatch = featRegex.exec(raw);
                         let remixes = [];
                         if (featMatch) {
@@ -2866,15 +2861,13 @@
                     let remixes = [];
 
                     if (!beforeRemix && afterRemix) {
-                        const featTokens = CONFIG.FEATURING_PATTERNS.map(escapeRegExp).join('|');
-                        const featRegex = new RegExp(`(?:${featTokens})`, 'i');
+                        const featRegex = new RegExp(buildFeaturingPattern(), 'i');
                         const featMatch = featRegex.exec(afterRemix);
                         const artistCand = featMatch ? afterRemix.substring(0, featMatch.index).trim() : afterRemix;
                         const origParts = artistCand.split(splitterRegex).map(s => s.trim()).filter(Boolean);
                         remixes = cleanPartsPreserveWrapping(origParts);
                     } else if (beforeRemix) {
-                        const featTokens = CONFIG.FEATURING_PATTERNS.map(escapeRegExp).join('|');
-                        const featRegexGlobal = new RegExp(`(?:${featTokens})`, 'ig');
+                        const featRegexGlobal = new RegExp(buildFeaturingPattern(), 'ig');
                         let lastFeat = null, fm;
                         while ((fm = featRegexGlobal.exec(beforeRemix)) !== null) lastFeat = fm;
                         if (lastFeat) {
@@ -2923,8 +2916,7 @@
                         const byPattern = CONFIG.REMIX_BY_PATTERNS.map(p => patternToRegex(p)).join('|');
                         const startsWithBy = new RegExp(`^(?:${byPattern})\\b`, 'i');
                         if (!startsWithBy.test(afterRemix)) {
-                            const featTokens = CONFIG.FEATURING_PATTERNS.map(escapeRegExp).join('|');
-                            const featRegex = new RegExp(`(?:${featTokens})`, 'i');
+                            const featRegex = new RegExp(buildFeaturingPattern(), 'i');
                             const featMatch = featRegex.exec(afterRemix);
                             if (featMatch) {
                                 const beforeFeat = afterRemix.substring(0, featMatch.index).trim();
@@ -2958,8 +2950,7 @@
                     let raw = remixByMatch[1].trim();
                     raw = raw.replace(/^[-–—]\s*/, '').trim();
 
-                    const featTokens = CONFIG.FEATURING_PATTERNS.map(escapeRegExp).join('|');
-                    const featRegex = new RegExp(`(?:${featTokens})`, 'i');
+                    const featRegex = new RegExp(buildFeaturingPattern(), 'i');
                     const featMatch = featRegex.exec(raw);
 
                     let remixes = [];
@@ -2995,8 +2986,7 @@
                     const beforeRemix = title.replace(remixRegexOutside, '').trim();
 
                     if (beforeRemix) {
-                        const featTokens = CONFIG.FEATURING_PATTERNS.map(escapeRegExp).join('|');
-                        const featRegex = new RegExp(`(?:${featTokens})`, 'i');
+                        const featRegex = new RegExp(buildFeaturingPattern(), 'i');
                         const featMatch = featRegex.exec(beforeRemix);
 
                         let lastArtist = '';
@@ -3087,8 +3077,8 @@
         const remixByPatternWordsForRegex = CONFIG.REMIX_BY_PATTERNS.map(p => patternToRegex(p)).join('|');
         const remixAnyPattern = [remixPatternWords, remixByPatternWordsForRegex].filter(Boolean).join('|');
         const remixAnyRegex = remixAnyPattern ? new RegExp(`\\b(?:${remixAnyPattern})\\b`, 'i') : null;
-        const featTokens = CONFIG.FEATURING_PATTERNS.map(escapeRegExp).join('|');
-        const featRegex = featTokens ? new RegExp(`(?:${featTokens})`, 'i') : null;
+        const featPatternSrc = buildFeaturingPattern();
+        const featRegex = featPatternSrc ? new RegExp(featPatternSrc, 'i') : null;
 
         let trackRows = getTrackInputRows();
 
@@ -6844,7 +6834,8 @@
 
     const BANDCAMP_CATNO_RE = /\bcatalog(?:ue)?\.?\s*(?:number|no\.?|#)?\s*[:\-]?\s*#?\s*([A-Z][A-Z0-9]{0,9}(?:[\s\-][A-Z0-9]{1,10}){0,3})\b|\bcat\.?\s*(?:(?:no\.?|nr\.?|number)\s*[:\-]?\s*#?\s*([A-Z][A-Z0-9]{0,9}(?:[\s\-][A-Z0-9]{1,10}){0,3})|#\s*[:\-]?\s*([A-Z][A-Z0-9]{0,9}(?:[\s\-][A-Z0-9]{1,10}){0,3})|:\s*#?\s*([A-Z][A-Z0-9]{0,9}(?:[\s\-][A-Z0-9]{1,10}){0,3}))\b/i;
 
-    const TITLE_CATNO_RE = /[\[(]([A-Za-z0-9]+(?:[\s\-][A-Za-z0-9]+){0,2})[\])]/g;
+    const TITLE_CATNO_RE = /[\[(]\s*([A-Za-z0-9]+(?:-[A-Za-z0-9]+)?)\s*[\])]/g;
+    const TITLE_CATNO_SHAPE_RE = /^[A-Za-z]{1,10}-?\d{2,6}[A-Za-z]?$/;
 
     function parseTitleCatno(title) {
         if (!title) return null;
@@ -6852,9 +6843,7 @@
         let m;
         while ((m = TITLE_CATNO_RE.exec(title)) !== null) {
             const candidate = m[1].trim();
-            if (/[A-Za-z]/.test(candidate) && /[0-9]/.test(candidate)) {
-                return candidate.replace(/\s+/g, ' ');
-            }
+            if (TITLE_CATNO_SHAPE_RE.test(candidate)) return candidate;
         }
         return null;
     }
@@ -10646,12 +10635,11 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                 if (!inner) continue;
                 if (/^\s*original(?:\s+(?:mix|version|dub|edit|instrumental|vocal|radio\s+edit|club\s+mix|extended\s+mix))?\s*$/i.test(inner)) continue;
                 let remixes = [];
-                const remByRegex = new RegExp(`(?:${remixByPatternWords})\\s+(.+)$`, 'i');
+                const remByRegex = new RegExp(`\\b(?:${remixByPatternWords})\\s+(.+)$`, 'i');
                 const remByMatch = inner.match(remByRegex);
                 if (remByMatch && remByMatch[1]) {
                     let raw = remByMatch[1].trim().replace(/^[-–—]\s*/, '').replace(/^by\s+/i, '').trim();
-                    const featTokens = CONFIG.FEATURING_PATTERNS.map(escapeRegExp).join('|');
-                    const featMatch = new RegExp(`(?:${featTokens})`, 'i').exec(raw);
+                    const featMatch = new RegExp(buildFeaturingPattern(), 'i').exec(raw);
                     if (featMatch) {
                         const before = raw.substring(0, featMatch.index).trim();
                         remixes = cleanParts(before.split(splitterRegex).map(s => s.trim()).filter(Boolean));
@@ -10664,13 +10652,11 @@ function wiConvertImageToJpeg(blob, maxDim = 600) {
                     const beforeRemix = inner.substring(0, remMatch.index).trim();
                     const afterRemix = inner.substring(remMatch.index + remMatch[0].length).trim();
                     if (!beforeRemix && afterRemix) {
-                        const featTokens = CONFIG.FEATURING_PATTERNS.map(escapeRegExp).join('|');
-                        const featMatch = new RegExp(`(?:${featTokens})`, 'i').exec(afterRemix);
+                        const featMatch = new RegExp(buildFeaturingPattern(), 'i').exec(afterRemix);
                         const cand = featMatch ? afterRemix.substring(0, featMatch.index).trim() : afterRemix;
                         remixes = cleanParts(cand.split(splitterRegex).map(s => s.trim()).filter(Boolean));
                     } else if (beforeRemix) {
-                        const featTokens = CONFIG.FEATURING_PATTERNS.map(escapeRegExp).join('|');
-                        const featRegexGlobal = new RegExp(`(?:${featTokens})`, 'ig');
+                        const featRegexGlobal = new RegExp(buildFeaturingPattern(), 'ig');
                         let lastFeat = null, fm;
                         while ((fm = featRegexGlobal.exec(beforeRemix)) !== null) lastFeat = fm;
                         if (lastFeat) {
@@ -12421,7 +12407,7 @@ wiIsAntiBotPage(html)) {
             const _savedSplit    = _noSplitMode ? state.splitImport        : null;
             const _savedAutoFeat = _noSplitMode ? state.importAutoFeat     : null;
             const _savedAutoRmx  = _noSplitMode ? state.importAutoRemixers : null;
-            if (_noSplitMode) { state.splitImport = false; state.importAutoFeat = false; state.importAutoRemixers = false; }
+            if (_noSplitMode) { state.splitImport = false; state.importAutoFeat = true; state.importAutoRemixers = true; }
             ctl.setRunning(true);
             _syncBatchUi();
             await setInfoProcessing();
@@ -13072,7 +13058,7 @@ wiIsAntiBotPage(html)) {
             const _savedSplit    = _noSplitMode ? state.splitImport        : null;
             const _savedAutoFeat = _noSplitMode ? state.importAutoFeat     : null;
             const _savedAutoRmx  = _noSplitMode ? state.importAutoRemixers : null;
-            if (_noSplitMode) { state.splitImport = false; state.importAutoFeat = false; state.importAutoRemixers = false; }
+            if (_noSplitMode) { state.splitImport = false; state.importAutoFeat = true; state.importAutoRemixers = true; }
             try {
                 if (_creditsOnlyMode) {
                     const _filteredCredits = getFilteredFetchedData().credits || [];
@@ -13454,7 +13440,7 @@ wiIsAntiBotPage(html)) {
             const _savedSplit    = _noSplitMode ? state.splitImport        : null;
             const _savedAutoFeat = _noSplitMode ? state.importAutoFeat     : null;
             const _savedAutoRmx  = _noSplitMode ? state.importAutoRemixers : null;
-            if (_noSplitMode) { state.splitImport = false; state.importAutoFeat = false; state.importAutoRemixers = false; }
+            if (_noSplitMode) { state.splitImport = false; state.importAutoFeat = true; state.importAutoRemixers = true; }
             try {
                 await wiSaveReleaseAsDraft(getFilteredFetchedData(), urlInput.value.trim(), selectedDateField);
                 close();
@@ -14894,7 +14880,7 @@ wiIsAntiBotPage(html)) {
             const savedSplit = mode === 'noSplit' ? { split: state.splitImport, feat: state.importAutoFeat, rmx: state.importAutoRemixers } : null;
             if (mode === 'noCap') state.capitalizeFields = { ...NO_CAP_FIELDS };
             else if (mode === 'noArtistCap') { state.capitalizeFields = { ...state.capitalizeFields, ...NO_ARTIST_CAP_FIELDS }; wiPreserveArtistCase = true; }
-            if (savedSplit) { state.splitImport = false; state.importAutoFeat = false; state.importAutoRemixers = false; }
+            if (savedSplit) { state.splitImport = false; state.importAutoFeat = true; state.importAutoRemixers = true; }
             try {
                 return await fn();
             } finally {
